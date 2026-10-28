@@ -185,14 +185,8 @@ func holdNewConsole(succeeded bool) {
 // profile, but a conversation stays in the profile of the account that
 // started it, or in the normal setup (~/.claude) if it began before baton.
 func resolveResume(a *claude.Args, e *env, cwd string) {
-	dirs := make([]string, 0, len(e.reg.Accounts)+1)
-	for _, acc := range e.reg.Accounts {
-		dirs = append(dirs, acc.ProfileDir)
-	}
+	dirs, _ := conversationDirs(e)
 	home := share.UserHome(e.paths.ProfilesDir())
-	if home != "" {
-		dirs = append(dirs, home)
-	}
 	switch {
 	case a.Continue:
 		if p := claude.LatestTranscriptFor(dirs, cwd); p != "" {

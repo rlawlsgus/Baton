@@ -31,7 +31,10 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "go build failed for $arch" }
         go build -trimpath -ldflags "-s -w -H windowsgui -X main.guiBuild=1 -X main.version=$Version" -o (Join-Path $out "baton-app.exe") ./cmd/baton
         if ($LASTEXITCODE -ne 0) { throw "go build (app) failed for $arch" }
-        Copy-Item README.md, THIRD_PARTY_NOTICES.txt $out
+        Copy-Item README.md, README.ko.md, THIRD_PARTY_NOTICES.txt $out
+        # The READMEs' pictures, at the paths they use.
+        New-Item -ItemType Directory -Force (Join-Path $out "docs") | Out-Null
+        Copy-Item -Recurse docs\images (Join-Path $out "docs\images")
         if (Test-Path LICENSE) { Copy-Item LICENSE $out }
         $zip = "$out.zip"
         Compress-Archive -Path (Join-Path $out "*") -DestinationPath $zip

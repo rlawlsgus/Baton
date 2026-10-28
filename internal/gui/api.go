@@ -363,6 +363,7 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		SessionID string `json:"session_id"`
 		Where     string `json:"where"` // resume: an account id, or "claude-code" for the user's own setup
 		Trust     bool   `json:"trust"` // the user said in the window that they trust the folder
+		Copy      bool   `json:"copy"`  // continue or resume: go on in a copy, leaving the conversation as it is
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -399,14 +400,14 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "no_conversation", "no conversation in this folder yet", "")
 			return
 		}
-		t, code := s.findTranscript(latest[0].SessionID, s.whereOf(latest[0].ConfigDir))
+		t, code := s.findTranscript(latest[0].SessionID, s.whereOf(latest[0].ConfigDir), req.Copy)
 		if code != "" {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
 			return
 		}
 		args = append(args, "--", "--resume", t)
 	case "resume":
-		t, code := s.findTranscript(req.SessionID, req.Where)
+		t, code := s.findTranscript(req.SessionID, req.Where, req.Copy)
 		if code != "" {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
 			return
@@ -415,6 +416,11 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 	default:
 		fail(w, http.StatusBadRequest, "bad_request", "mode must be new, continue or resume", "")
 		return
+	}
+	if req.Copy && (req.Mode == "continue" || req.Mode == "resume") {
+		// Claude Code reads the conversation and goes on under a new session
+		// id in the account's profile; the original file is never written.
+		args = append(args, "--fork-session")
 	}
 	// A new account's first start would stop at Claude Code's first-run
 	// screens (in English, and the folder question exits on Enter): answer
@@ -476,8 +482,8 @@ var sessionIDRx = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]
 
 // findTranscript finds a conversation by session id in one config folder:
 // a regular .jsonl file directly inside <folder>\projects\<project>, which no
-// other Claude Code is writing right now.
-func (s *Server) findTranscript(sessionID, where string) (string, string) {
+// other Claude Code is writing right now (unless only a copy of it goes on).
+func (s *Server) findTranscript(sessionID, where string, copy bool) (string, string) {
 	if !sessionIDRx.MatchString(sessionID) {
 		return "", "bad_transcript"
 	}
@@ -497,7 +503,7 @@ func (s *Server) findTranscript(sessionID, where string) (string, string) {
 	for _, d := range s.configDirs() {
 		all = append(all, d)
 	}
-	if len(claude.Holders(all, sessionID)) > 0 {
+	if !copy && len(claude.Holders(all, sessionID)) > 0 {
 		return "", "open_elsewhere"
 	}
 	return t, ""
@@ -527,22 +533,27 @@ func (s *Server) profileDirs() []string {
 	return out
 }
 
-// conversationView is one conversation in the "continue" list. It names the
+// conversationView is one conversation in a "continue" list. It names the
 // conversation by id and place, never by file path.
 type conversationView struct {
-	SessionID   string    `json:"session_id"`
-	Where       string    `json:"where"`
-	FirstPrompt string    `json:"first_prompt"`
-	Modified    time.Time `json:"modified"`
+	SessionID   string `json:"session_id"`
+	Where       string `json:"where"`
+	Title       string `json:"title"`
+	FirstPrompt string `json:"first_prompt"`
+	Cwd         string `json:"cwd"`
+	FolderOK    bool   `json:"folder_ok"` // the conversation can go on in its folder
+	// Why it cannot: "gone" (the folder no longer exists), or checkFolder's
+	// problem for a folder baton does not start in.
+	FolderProblem string    `json:"folder_problem,omitempty"`
+	Source        string    `json:"source"` // what made it: claude-desktop, cli, claude-vscode...
+	Open          bool      `json:"open"`   // another Claude Code (such as the desktop app) has it open now
+	Modified      time.Time `json:"modified"`
 }
 
+// apiConversations lists the conversations of one folder (?folder=), or the
+// newest of every folder (?all=1) for bringing in ones from Claude Code.
 func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	list := []conversationView{}
-	folder, problem := checkFolder(r.URL.Query().Get("folder"))
-	if problem != "" {
-		writeJSON(w, http.StatusOK, list)
-		return
-	}
 	dirs := s.configDirs()
 	whereOf := map[string]string{}
 	var all []string
@@ -550,9 +561,26 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		whereOf[strings.ToLower(filepath.Clean(d))] = where
 		all = append(all, d)
 	}
-	for _, t := range claude.ListTranscripts(all, folder, 20) {
+	var found []claude.Transcript
+	if r.URL.Query().Get("all") == "1" {
+		found = claude.ListAllTranscripts(all, 200)
+	} else {
+		folder, problem := checkFolder(r.URL.Query().Get("folder"))
+		if problem != "" {
+			writeJSON(w, http.StatusOK, list)
+			return
+		}
+		found = claude.ListTranscripts(all, folder, 20)
+	}
+	open := claude.OpenSessions(all)
+	for _, t := range found {
+		_, problem := checkFolder(t.Cwd)
+		if problem == "bad_folder" && driveRx.MatchString(filepath.Clean(t.Cwd)) {
+			problem = "gone" // a local folder that is not there (any more)
+		}
 		list = append(list, conversationView{SessionID: t.SessionID, Where: whereOf[strings.ToLower(filepath.Clean(t.ConfigDir))],
-			FirstPrompt: t.FirstPrompt, Modified: t.Modified})
+			Title: t.Title, FirstPrompt: t.FirstPrompt, Cwd: t.Cwd, FolderOK: problem == "", FolderProblem: problem,
+			Source: t.Source, Open: open[t.SessionID], Modified: t.Modified})
 	}
 	writeJSON(w, http.StatusOK, list)
 }

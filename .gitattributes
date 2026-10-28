@@ -5,5 +5,6 @@
 # Windows resource objects (icon, manifest, version info) and images.
 *.syso binary
 *.png binary
+*.gif binary
 *.ico binary
 *.zip binary

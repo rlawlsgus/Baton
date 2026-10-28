@@ -814,3 +814,74 @@ func TestIdleStartFollowsBatonsPick(t *testing.T) {
 		t.Fatalf("idleStart = %q, want personal (baton would pick the busy work)", got)
 	}
 }
+
+// Bringing in a conversation: the list covers every folder and every place
+// conversations are kept, says which are open elsewhere or whose folder is
+// gone, and an open one can only continue in a copy.
+func TestImportListsEveryFolderAndCopiesOpenOnes(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	prof := filepath.Join(r.paths.ProfilesDir(), "a")
+	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+		return reg.Add(accounts.Account{ID: "a", ProfileDir: prof, Enabled: true, LoggedIn: true})
+	})
+	home := os.Getenv("CLAUDE_CONFIG_DIR")
+	desk, other := t.TempDir(), t.TempDir()
+	gone := filepath.Join(t.TempDir(), "deleted")
+	const open, onAcct, lost = "11111111-2222-4333-8444-555555555551", "11111111-2222-4333-8444-555555555552", "11111111-2222-4333-8444-555555555553"
+	write := func(cfg, sid, cwd, extra string, age time.Duration) string {
+		p := filepath.Join(cfg, "projects", "p", sid+".jsonl")
+		_ = os.MkdirAll(filepath.Dir(p), 0o700)
+		_ = os.WriteFile(p, []byte(`{"type":"user","entrypoint":"claude-desktop","cwd":`+strconv.Quote(cwd)+`,"message":{"role":"user","content":"hi"}}`+"\n"+extra), 0o600)
+		ts := time.Now().Add(-age)
+		_ = os.Chtimes(p, ts, ts)
+		return p
+	}
+	tr := write(home, open, desk, `{"type":"custom-title","customTitle":"desk work"}`+"\n", 0)
+	write(prof, onAcct, other, "", time.Hour)
+	write(home, lost, gone, "", 2*time.Hour)
+	// The desktop app has the first one open: a live claude holds it.
+	pid := os.Getpid()
+	_ = os.MkdirAll(filepath.Join(home, "sessions"), 0o700)
+	_ = os.WriteFile(filepath.Join(home, "sessions", strconv.Itoa(pid)+".json"),
+		[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"`+open+`","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+	held := claude.BusyProfile(home)
+
+	_, body := r.do("GET", "/api/conversations?all=1", "", nil)
+	var list []conversationView
+	if err := json.Unmarshal([]byte(body), &list); err != nil || len(list) != 3 || strings.Contains(body, "jsonl") {
+		t.Fatalf("list: %v %s", err, body)
+	}
+	c := list[0]
+	if c.SessionID != open || c.Title != "desk work" || c.Source != "claude-desktop" || c.Where != "claude-code" ||
+		!strings.EqualFold(c.Cwd, desk) || !c.FolderOK || c.Open != held {
+		t.Fatalf("first: %+v", c)
+	}
+	if list[1].SessionID != onAcct || list[1].Where != "a" || list[1].Open || list[2].SessionID != lost || list[2].FolderOK ||
+		list[2].FolderProblem != "gone" || list[0].FolderProblem != "" {
+		t.Fatalf("others: %+v", list[1:])
+	}
+
+	start := func(v map[string]any) (int, string) {
+		b, _ := json.Marshal(v)
+		return r.do("POST", "/api/sessions/start", string(b), nil)
+	}
+	if held {
+		if code, body := start(map[string]any{"folder": desk, "mode": "resume", "session_id": open, "where": "claude-code"}); code != 400 || !strings.Contains(body, "open_elsewhere") {
+			t.Fatalf("an open conversation continued as it is: %d %s", code, body)
+		}
+	}
+	n := len(r.spawn.console)
+	for _, mode := range []string{"resume", "continue"} {
+		if code, body := start(map[string]any{"folder": desk, "mode": mode, "session_id": open, "where": "claude-code", "copy": true}); code != 202 {
+			t.Fatalf("%s in a copy: %d %s", mode, code, body)
+		}
+		if got := r.spawn.console[n]; !slices.Equal(got, []string{"run", "--", "--resume", tr, "--fork-session"}) || !strings.EqualFold(r.spawn.dirs[n], desk) {
+			t.Fatalf("%s in a copy: %q in %s", mode, got, r.spawn.dirs[n])
+		}
+		n++
+	}
+	if code, _ := start(map[string]any{"folder": desk, "copy": true}); code != 202 || !slices.Equal(r.spawn.console[n], []string{"run"}) {
+		t.Fatalf("a new conversation is never a copy: %q", r.spawn.console[n])
+	}
+}

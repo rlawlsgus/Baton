@@ -18,7 +18,7 @@ import (
 )
 
 // Files that make up an installed baton (the first two are required).
-var installFiles = []string{"baton-app.exe", "baton.exe", "README.md", "LICENSE", "THIRD_PARTY_NOTICES.txt"}
+var installFiles = []string{"baton-app.exe", "baton.exe", "README.md", "README.ko.md", "LICENSE", "THIRD_PARTY_NOTICES.txt"}
 
 var uninstallKey = `Software\Microsoft\Windows\CurrentVersion\Uninstall\baton` // a var for tests
 

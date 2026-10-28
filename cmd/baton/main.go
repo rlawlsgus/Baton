@@ -31,6 +31,10 @@ Usage:
   baton remove <name> [--force]      log out and delete an account's profile
   baton run [--account <name>] [-- <claude args>]
                                      start Claude Code under supervision
+  baton sessions                     list your conversations in every folder, including
+                                     the Claude desktop app's
+  baton resume <id> [--copy]         continue one of them in its folder (--copy leaves
+                                     the original as it is, for one open elsewhere)
   baton switch [<name>] [--run <id>] move a running session to another account
                                      (once its current turn ends)
   baton stop [--run <id>]            end a running session (it can be continued later)
@@ -127,6 +131,10 @@ func main() {
 	switch cmd {
 	case "run":
 		code, err = cmdRun(args)
+	case "resume":
+		code, err = cmdResume(args)
+	case "sessions":
+		err = cmdSessions(args)
 	case "add":
 		err = cmdAdd(args)
 	case "login":
@@ -184,6 +192,6 @@ func main() {
 	}
 	// A session that ended normally says how to continue it; the window can
 	// close. Anything else waits for Enter so the message can be read.
-	holdNewConsole(err == nil && (cmd != "run" || code == 0 && !runNeedsAttention))
+	holdNewConsole(err == nil && (cmd != "run" && cmd != "resume" || code == 0 && !runNeedsAttention))
 	os.Exit(code)
 }

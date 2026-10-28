@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"baton/internal/claude"
 	"baton/internal/ledger"
 	"baton/internal/run"
+	"baton/internal/winproc"
 )
 
 // These tests run the real baton.exe against test/fakeclaude, so account
@@ -454,5 +456,57 @@ func TestStopAndReleaseFlags(t *testing.T) {
 	// Release builds have no test switches for the window.
 	if out, code := c.run(nil, "gui", "--no-window"); code == 0 || !strings.Contains(out, "not defined") {
 		t.Errorf("gui --no-window: %d\n%s", code, out)
+	}
+}
+
+// baton sessions lists the conversations of every folder, the desktop app's
+// included; baton resume refuses what it cannot continue as asked.
+func TestSessionsAndResume(t *testing.T) {
+	c := newCLI(t)
+	home := t.TempDir()
+	env := []string{"CLAUDE_CONFIG_DIR=" + home}
+	proj := t.TempDir()
+	const open, lost = "11111111-2222-4333-8444-555555555551", "11111111-2222-4333-8444-555555555552"
+	write := func(sid, cwd, title string) {
+		p := filepath.Join(home, "projects", "p", sid+".jsonl")
+		_ = os.MkdirAll(filepath.Dir(p), 0o700)
+		row := `{"type":"user","entrypoint":"claude-desktop","cwd":` + strconv.Quote(cwd) + `,"message":{"role":"user","content":"hi"}}` + "\n" +
+			`{"type":"custom-title","customTitle":` + strconv.Quote(title) + `}` + "\n"
+		if err := os.WriteFile(p, []byte(row), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(open, proj, "desk work")
+	write(lost, filepath.Join(t.TempDir(), "deleted"), "old work")
+	pid := os.Getpid()
+	_ = os.MkdirAll(filepath.Join(home, "sessions"), 0o700)
+	_ = os.WriteFile(filepath.Join(home, "sessions", strconv.Itoa(pid)+".json"),
+		[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"`+open+`","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+
+	out, code := c.run(env, "sessions")
+	if code != 0 || !strings.Contains(out, open) || !strings.Contains(out, "desk work") || !strings.Contains(out, proj) ||
+		!strings.Contains(out, "Claude desktop app") || !strings.Contains(out, lost) {
+		t.Fatalf("sessions: %d %s", code, out)
+	}
+	for _, tc := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"resume", "../x"}, 2, "session id"},
+		{[]string{"resume"}, 2, "usage"},
+		{[]string{"resume", "11111111-2222-4333-8444-000000000000"}, 1, "no conversation"},
+		{[]string{"resume", lost, "--copy"}, 1, "is gone"},
+		{[]string{"resume", open}, 1, "--copy"},
+		{[]string{"resume", strings.ToUpper(open)}, 1, "--copy"}, // ids are not case-sensitive
+	} {
+		if out, code := c.run(env, tc.args...); code != tc.code || !strings.Contains(out, tc.want) {
+			t.Errorf("%q: %d %s", tc.args, code, out)
+		}
+	}
+	// Inside a session it refuses before saying where it would continue.
+	if out, code := c.run(append(env, "BATON_RUN=x"), "resume", open, "--copy"); code != 1 || !strings.Contains(out, "inside a baton session") ||
+		strings.Contains(out, "continuing in") {
+		t.Errorf("resume inside a session: %d %s", code, out)
 	}
 }

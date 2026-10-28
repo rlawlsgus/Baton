@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bufio"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -118,6 +117,20 @@ func Holders(profileDirs []string, sessionID string) []LiveSession {
 	return out
 }
 
+// OpenSessions returns the ids of the conversations that a live claude in
+// any of the profiles has open now.
+func OpenSessions(profileDirs []string) map[string]bool {
+	out := map[string]bool{}
+	for _, dir := range profileDirs {
+		for _, s := range ReadSessions(dir) {
+			if s.SessionID != "" && s.Alive() {
+				out[s.SessionID] = true
+			}
+		}
+	}
+	return out
+}
+
 // BusyProfile reports whether any live claude process uses the profile.
 func BusyProfile(profileDir string) bool {
 	for _, s := range ReadSessions(profileDir) {
@@ -152,38 +165,17 @@ func LatestTranscriptFor(profileDirs []string, cwd string) string {
 	var best string
 	var bestMod time.Time
 	for _, dir := range profileDirs {
-		files, _ := filepath.Glob(filepath.Join(dir, "projects", "*", "*.jsonl"))
-		for _, p := range files {
+		for _, p := range transcriptFiles(dir, cwd) {
 			fi, err := os.Stat(p)
 			if err != nil || !fi.ModTime().After(bestMod) {
 				continue
 			}
-			if c := transcriptCwd(p); c != "" && strings.EqualFold(filepath.Clean(c), filepath.Clean(cwd)) {
+			if c := Describe(p, fi).Cwd; c != "" && strings.EqualFold(filepath.Clean(c), filepath.Clean(cwd)) {
 				best, bestMod = p, fi.ModTime()
 			}
 		}
 	}
 	return best
-}
-
-// transcriptCwd reads the cwd recorded in the first rows of a transcript.
-func transcriptCwd(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
-	for i := 0; i < 50 && sc.Scan(); i++ {
-		var row struct {
-			Cwd string `json:"cwd"`
-		}
-		if json.Unmarshal(sc.Bytes(), &row) == nil && row.Cwd != "" {
-			return row.Cwd
-		}
-	}
-	return ""
 }
 
 func itoa(n int) string {

@@ -51,6 +51,19 @@ const T = {
     start_go: '시작', cancel: '취소', close: '닫기',
     start_done: 'Claude Code가 새 창에서 열립니다. 작업은 그 창에서 하세요.', choose_folder_first: '폴더를 고르세요.',
     pick_conv_first: '이어 갈 대화를 고르세요.',
+    // bring in a conversation
+    import_btn: '기존 대화 가져오기', import_title: 'Claude Code 대화 가져오기',
+    import_sub: 'Claude 데스크톱 앱이나 터미널에서 하던 대화를 baton에서 이어 갑니다. 대화를 고른 뒤 시작할 계정을 정합니다.',
+    import_search: '제목, 첫 질문, 폴더로 찾기', import_none: '가져올 대화가 없습니다. Claude Code에서 대화하면 여기에 나옵니다.',
+    import_no_match: '찾는 대화가 없습니다.', import_go: '이 대화 이어 가기',
+    src_desktop: 'Claude 데스크톱 앱', src_cli: '터미널', src_vscode: 'VS Code', src_other: 'Claude Code',
+    conv_open: '다른 창에서 열려 있음', conv_gone: '폴더 없음',
+    conv_open_hint: '이 대화는 Claude 데스크톱 앱 같은 다른 Claude Code 창에서 열려 있습니다. 사본으로 이어 가면 원래 대화는 그대로 두고, 지금까지의 내용을 이어받은 새 대화로 baton에서 계속합니다.',
+    conv_gone_hint: '이 대화를 하던 폴더가 없어져서 이어 갈 수 없습니다.',
+    conv_unusable: '쓸 수 없는 폴더',
+    conv_bad_hint: 'baton은 내 PC의 폴더(C:\\… 등)이면서 경로가 248자보다 짧은 곳에서만 세션을 시작하므로, 이 대화는 여기서 이어 갈 수 없습니다.',
+    import_more: '최근 대화 200개만 보입니다. 더 오래된 대화는 명령줄에서 baton sessions --max 1000으로 찾아 baton resume <id>로 이어 가세요.',
+    copy_ok: '사본으로 이어 가기 (원래 대화는 그대로 둡니다)',
     // accounts
     accounts_title: '계정', accounts_sub: '계정마다 처음 한 번만 로그인(2차 인증 포함)하면 로그인이 유지됩니다. 전환할 때 다시 로그인하지 않습니다.',
     add_account: '계정 추가', check_logins: '로그인 상태 확인', checking: '확인 중…',
@@ -210,6 +223,18 @@ const T = {
     start_go: 'Start', cancel: 'Cancel', close: 'Close',
     start_done: 'Claude Code opens in a new window. Work there.', choose_folder_first: 'Choose a folder.',
     pick_conv_first: 'Choose a conversation to continue.',
+    import_btn: 'Bring in a conversation', import_title: 'Bring in a Claude Code conversation',
+    import_sub: 'Continue in baton a conversation you had in the Claude desktop app or a terminal. Choose one, then the account to start on.',
+    import_search: 'Search by title, first prompt or folder', import_none: 'No conversations yet. Conversations you have in Claude Code show up here.',
+    import_no_match: 'No conversation matches.', import_go: 'Continue this conversation',
+    src_desktop: 'Claude desktop app', src_cli: 'Terminal', src_vscode: 'VS Code', src_other: 'Claude Code',
+    conv_open: 'Open in another window', conv_gone: 'Folder gone',
+    conv_open_hint: 'This conversation is open in another Claude Code window, such as the Claude desktop app. Continuing in a copy leaves it as it is; baton goes on in a new conversation that carries everything said so far.',
+    conv_gone_hint: 'The folder this conversation ran in is gone, so it cannot continue.',
+    conv_unusable: 'Folder not usable',
+    conv_bad_hint: 'baton starts sessions only in folders on this PC (such as C:\\…) with a path shorter than 248 characters, so this conversation cannot continue from here.',
+    import_more: 'Only the newest 200 conversations are shown. For older ones, run baton sessions --max 1000 on the command line and continue one with baton resume <id>.',
+    copy_ok: 'Continue in a copy (leaves the original as it is)',
     accounts_title: 'Accounts', accounts_sub: 'Sign in once per account (including two-factor authentication) and it stays signed in. Switching never signs in again.',
     add_account: 'Add account', check_logins: 'Check sign-ins', checking: 'Checking…',
     no_accounts_title: 'No accounts yet',
@@ -549,7 +574,9 @@ function viewSessions(st) {
   const canStart = usableAccounts(st).length > 0;
   const head = h('div', { class: 'card-head' },
     h('div', {}, h('h2', { text: t('sessions_title') }), h('p', { class: 'muted small', text: t('sessions_sub') })),
-    h('button', { class: 'btn primary', text: t('new_session'), disabled: !canStart || !st.claude.found, onclick: () => startSession() }));
+    h('div', { class: 'actions' },
+      h('button', { class: 'btn', text: t('import_btn'), disabled: !canStart || !st.claude.found, onclick: () => openImport() }),
+      h('button', { class: 'btn primary', text: t('new_session'), disabled: !canStart || !st.claude.found, onclick: () => startSession() })));
   const rows = st.runs.map((r) => runRow(st, r));
   // A session window opened from here stays open after its session ends
   // when there is a message to read: only a new one is "opening".
@@ -573,10 +600,11 @@ function viewSessions(st) {
   const recentSessions = h('div', { class: 'card' }, h('h3', { text: t('recent_sessions') }),
     st.recent_sessions.length ? h('div', {}, st.recent_sessions.map((r) => h('div', { class: 'row' },
       h('div', { class: 'grow' },
-        h('div', { class: 'title', text: r.first_prompt || t('conv_untitled') }),
+        h('div', { class: 'title', text: convTitle(r) }),
         h('div', { class: 'sub', title: r.cwd, text: `${baseName(r.cwd)} · ${ago(r.ended)} · ${r.where === 'claude-code' ? t('conv_where_home') : t('conv_where', { a: r.where })}` })),
       h('button', { class: 'btn', text: t('continue_btn'), disabled: !st.claude.found || !canStart,
-        onclick: () => startSession({ folder: r.cwd, mode: 'pick', session_id: r.session_id, where: r.where }) }))))
+        onclick: () => startSession({ folder: r.cwd, mode: 'pick', session_id: r.session_id, where: r.where,
+          conv: { session_id: r.session_id, where: r.where, title: r.title, first_prompt: r.first_prompt, cwd: r.cwd, modified: r.ended } }) }))))
       : h('p', { class: 'muted', text: t('recent_sessions_none') }));
   const recent = h('div', { class: 'card' }, h('h3', { text: t('recent_title') }),
     st.switches.length ? h('div', {}, st.switches.map((sw) => h('div', { class: 'row' },
@@ -659,16 +687,20 @@ function openStart(pre) {
   pre = pre || {};
   // trusted/checked come from the server's folder check; Start waits for it.
   const form = { folder: pre.folder || st.recent_folders[0] || '', account: '', mode: pre.mode || 'new', sel: pre.session_id ? { session_id: pre.session_id, where: pre.where } : null,
-    trusted: false, checked: false, problem: '', trust: false };
+    trusted: false, checked: false, problem: '', trust: false, copy: false }; // copy: the user's own tick
   const err = h('div', { class: 'err' });
   const folderInput = h('input', { type: 'text', value: form.folder, placeholder: 'C:\\…', oninput: (e) => { form.folder = e.target.value; folderChanged(); } });
   const trustBox = h('div', {});
   const convBox = h('div', {});
+  const copyBox = h('div', {});
   let convs = [];
   let seq = 0;
+  let convSeq = 0;
+  let convsLoad = Promise.resolve(); // the newest list request; Start waits for it
+  let convsStale = false; // the folder changed and its list has not been asked for yet
   let timer;
 
-  function folderChanged() { form.checked = false; clearTimeout(timer); timer = setTimeout(() => { checkFolder(); loadConvs(); }, 250); }
+  function folderChanged() { form.checked = false; convsStale = true; clearTimeout(timer); timer = setTimeout(() => { checkFolder(); loadConvs(); }, 250); }
   let trustFor = ''; // the folder the trust tick was given for
 
   async function checkFolder() {
@@ -688,27 +720,59 @@ function openStart(pre) {
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: form.trust, onchange: (e) => { form.trust = e.target.checked; } }), h('span', { text: t('trust_ok') }))));
   }
 
-  async function loadConvs() {
-    if (form.mode === 'new') { convBox.replaceChildren(); return; }
+  // The conversation a start would continue; one that another Claude Code
+  // has open can only go on in a copy.
+  function target() {
+    if (form.mode === 'continue') return convs[0] || null;
+    if (form.mode === 'pick' && form.sel) return convs.find((c) => c.session_id === form.sel.session_id && c.where === form.sel.where) || null;
+    return null;
+  }
+  const copyOf = (c) => !!c && (c.open || form.copy);
+  function drawCopy() {
+    const c = target();
+    if (!c) { copyBox.replaceChildren(); return; }
+    copyBox.replaceChildren(c.open ? h('div', { class: 'tip', text: t('conv_open_hint') }) : '',
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: copyOf(c), disabled: c.open, onchange: (e) => { form.copy = e.target.checked; } }),
+        h('span', { text: t('copy_ok') })));
+  }
+
+  function loadConvs() { convsLoad = fetchConvs(); return convsLoad; }
+  async function fetchConvs() {
+    const my = ++convSeq;
+    convsStale = false;
+    if (form.mode === 'new') { convBox.replaceChildren(); copyBox.replaceChildren(); return; }
     convBox.replaceChildren(h('p', { class: 'muted small', text: t('conv_loading') }));
     const folder = cleanPath(form.folder);
-    try { convs = folder ? await api('conversations?folder=' + encodeURIComponent(folder)) : []; } catch (_) { convs = []; }
-    if (folder !== cleanPath(form.folder) || form.mode === 'new') return;
-    if (form.sel && !convs.some((c) => c.session_id === form.sel.session_id)) form.sel = null;
+    let got = [];
+    try { got = folder ? await api('conversations?folder=' + encodeURIComponent(folder)) : []; } catch (_) { got = []; }
+    if (my !== convSeq || folder !== cleanPath(form.folder) || form.mode === 'new') return;
+    // A conversation chosen elsewhere (bring in, recent sessions) stays even
+    // when it is not among the folder's newest.
+    const c0 = pre.conv;
+    if (c0 && sameFolder(c0.cwd, folder) && !got.some((c) => c.session_id === c0.session_id && c.where === c0.where)) got = [...got, c0];
+    convs = got;
+    if (form.sel && !convs.some((c) => c.session_id === form.sel.session_id && c.where === form.sel.where)) form.sel = null;
+    drawCopy();
     if (!convs.length) { convBox.replaceChildren(h('p', { class: 'muted small', text: t('conv_none') })); return; }
     if (form.mode === 'continue') {
-      convBox.replaceChildren(h('p', { class: 'muted small', text: t('conv_latest', { p: convs[0].first_prompt || t('conv_untitled') }) }));
+      convBox.replaceChildren(h('p', { class: 'muted small', text: t('conv_latest', { p: convTitle(convs[0]) }) }));
       return;
     }
     const list = h('div', { class: 'list', role: 'listbox' });
-    const pick = (c) => { form.sel = { session_id: c.session_id, where: c.where }; draw(); };
+    const pick = (c, key) => {
+      if (!isSel(c)) form.copy = false; // a tick is for one conversation
+      form.sel = { session_id: c.session_id, where: c.where }; draw(); drawCopy();
+      if (key) { const el = list.querySelector('.selected'); if (el) el.focus(); } // the redraw took the focus away
+    };
+    const isSel = (c) => !!form.sel && form.sel.session_id === c.session_id && form.sel.where === c.where;
     const draw = () => list.replaceChildren(...convs.map((c) => h('div', {
-      class: 'item' + (form.sel && form.sel.session_id === c.session_id ? ' selected' : ''), role: 'option', tabindex: '0',
-      onclick: () => pick(c), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { pick(c); e.preventDefault(); } },
-    }, h('div', { class: 'grow' }, h('div', { text: c.first_prompt || t('conv_untitled') }),
-      h('div', { class: 'sub small muted', text: `${ago(c.modified)} · ${c.where === 'claude-code' ? t('conv_where_home') : t('conv_where', { a: c.where })}` })))));
+      class: 'item' + (isSel(c) ? ' selected' : ''), role: 'option', tabindex: '0', 'aria-selected': String(isSel(c)),
+      onclick: () => pick(c), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { pick(c, true); e.preventDefault(); } },
+    }, convItem(c))));
     draw();
     convBox.replaceChildren(list);
+    const chosen = list.querySelector('.selected');
+    if (chosen) chosen.scrollIntoView({ block: 'nearest' });
   }
 
   const modeChoice = (value, label) => h('label', { class: 'choice' + (form.mode === value ? ' selected' : '') },
@@ -726,16 +790,26 @@ function openStart(pre) {
   const start = h('button', { class: 'btn primary', text: t('start_go'), onclick: async () => {
     err.textContent = '';
     if (!cleanPath(form.folder)) { err.textContent = t('choose_folder_first'); return; }
-    if (form.mode === 'pick' && !form.sel) { err.textContent = t('pick_conv_first'); return; }
     start.disabled = true;
     try {
+      // Whether a copy is needed comes from the folder's list: let it arrive.
+      // Wait for the list of the folder and mode as they are now (the user can
+      // change them meanwhile); a list that was replaced is not good enough.
+      for (;;) {
+        if (convsStale) { clearTimeout(timer); loadConvs(); } // the folder check follows below
+        const p = convsLoad;
+        await p;
+        if (p === convsLoad && !convsStale) break;
+      }
+      if (form.mode === 'pick' && !form.sel) { err.textContent = t('pick_conv_first'); return; }
       // The trust question must be answered before a start, not raced.
       if (!form.checked) { clearTimeout(timer); await checkFolder(); }
       if (!form.checked) { err.textContent = t('folder_bad'); return; }
       if (form.problem) { err.textContent = form.problem === 'long_folder' ? t('folder_long') : t('folder_bad'); return; }
       if (!form.trusted && !form.trust) { err.textContent = t('trust_needed'); return; }
       await api('sessions/start', { folder: cleanPath(form.folder), account: form.account, mode: form.mode === 'pick' ? 'resume' : form.mode,
-        session_id: form.sel ? form.sel.session_id : '', where: form.sel ? form.sel.where : '', trust: form.trust });
+        session_id: form.sel ? form.sel.session_id : '', where: form.sel ? form.sel.where : '', trust: form.trust,
+        copy: form.mode !== 'new' && copyOf(target()) });
       closeDialog(); toast(t('start_done') + ' ' + t('first_start'));
     } catch (e) {
       if (e.code === 'needs_mode') { closeDialog(); openNotice(() => openStart(pre)); return; }
@@ -753,11 +827,93 @@ function openStart(pre) {
         onclick: () => { form.folder = f; folderInput.value = f; checkFolder(); loadConvs(); } }))) : null),
     trustBox,
     h('label', { class: 'field' }, h('span', { text: t('start_account') }), account),
-    h('div', { class: 'field' }, h('span', { class: 'muted small', text: t('start_conv') }), modes, convBox),
+    h('div', { class: 'field' }, h('span', { class: 'muted small', text: t('start_conv') }), modes, convBox, copyBox),
     err,
     h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), start));
   checkFolder();
   loadConvs();
+}
+
+// ---- bring in a conversation ---------------------------------------------------------
+
+function convTitle(c) { return c.title || c.first_prompt || t('conv_untitled'); }
+
+function sameFolder(a, b) {
+  const norm = (p) => cleanPath(p).replace(/[\\/]+$/, '').toLowerCase();
+  return norm(a) === norm(b);
+}
+
+// sourceName says where a conversation is kept: on an account, or in the
+// user's own Claude Code and what made it there.
+function sourceName(c) {
+  if (c.where && c.where !== 'claude-code') return t('conv_where', { a: c.where });
+  return t({ 'claude-desktop': 'src_desktop', cli: 'src_cli', 'claude-vscode': 'src_vscode' }[c.source] || 'src_other');
+}
+
+function convItem(c, withFolder) {
+  return h('div', { class: 'grow' },
+    h('div', { class: 'title' }, h('span', { text: convTitle(c) }),
+      c.open ? h('span', { class: 'pill warn', text: t('conv_open') }) : null,
+      c.folder_ok === false ? h('span', { class: 'pill off', text: c.folder_problem === 'gone' ? t('conv_gone') : t('conv_unusable') }) : null),
+    h('div', { class: 'sub small muted', title: c.cwd || '', text: [withFolder ? baseName(c.cwd) : '', ago(c.modified), sourceName(c)].filter(Boolean).join(' · ') }));
+}
+
+// openImport lists the conversations of every folder (the desktop app's
+// sessions included) to continue one of them in baton.
+async function openImport() {
+  const CAP = 200; // what the server lists at most
+  let convs = null;
+  let failed = '';
+  let capped = false;
+  let sel = null;
+  let q = '';
+  const list = h('div', { class: 'list tall', role: 'listbox', 'aria-label': t('import_title') });
+  const hint = h('div', {});
+  const more = h('div', {});
+  const go = h('button', { class: 'btn primary', text: t('import_go'), disabled: true, onclick: () => {
+    if (!sel || sel.folder_ok === false) return;
+    closeDialog();
+    startSession({ folder: sel.cwd, mode: 'pick', session_id: sel.session_id, where: sel.where, conv: sel });
+  } });
+  const search = h('input', { type: 'text', placeholder: t('import_search'), 'aria-label': t('import_search'), oninput: (e) => { q = e.target.value; draw(); } });
+  const pick = (c, key) => {
+    if (key && sel === c) { go.click(); return; } // Enter on the chosen one continues it
+    sel = c; draw();
+    if (key) { const el = list.querySelector('.selected'); if (el) el.focus(); } // the redraw took the focus away
+  };
+  function draw() {
+    if (!convs) { list.replaceChildren(h('p', { class: 'muted small pad' }, h('span', { class: 'spin' }), ' ', t('conv_loading'))); return; }
+    if (failed) { list.replaceChildren(h('p', { class: 'err pad', text: failed })); return; }
+    const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = convs.filter((c) => {
+      const hay = [c.title, c.first_prompt, c.cwd].join(' ').toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    if (sel && !shown.includes(sel)) sel = null;
+    if (!shown.length) list.replaceChildren(h('p', { class: 'muted small pad', text: convs.length ? t('import_no_match') : t('import_none') }));
+    else list.replaceChildren(...shown.map((c) => h('div', {
+      class: 'item' + (sel === c ? ' selected' : ''), role: 'option', tabindex: '0', 'aria-selected': String(sel === c),
+      onclick: () => pick(c), ondblclick: () => { sel = c; go.click(); },
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { pick(c, true); e.preventDefault(); } },
+    }, convItem(c, true))));
+    const st = S.state;
+    go.disabled = !sel || sel.folder_ok === false || !st.claude.found || !usableAccounts(st).length;
+    const why = !sel ? '' : sel.folder_ok === false ? (sel.folder_problem === 'gone' ? t('conv_gone_hint') : t('conv_bad_hint')) : sel.open ? t('conv_open_hint') : '';
+    hint.replaceChildren(...(why ? [h('div', { class: 'tip', text: why })] : []));
+    more.replaceChildren(...(capped ? [h('p', { class: 'muted small mt6', text: t('import_more') })] : []));
+  }
+  draw();
+  openDialog(h('h2', { text: t('import_title') }), h('p', { class: 'muted small', text: t('import_sub') }),
+    h('div', { class: 'field' }, search), list, more, hint,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
+  search.focus();
+  let got = [];
+  try { got = await api('conversations?all=1'); } catch (e) { failed = errText(e); }
+  capped = got.length >= CAP;
+  // Sessions running in baton right now are on the Sessions tab already.
+  const running = new Set(S.state.runs.map((r) => r.session_id));
+  convs = got.filter((c) => !running.has(c.session_id));
+  draw();
 }
 
 // ---- accounts ------------------------------------------------------------------------

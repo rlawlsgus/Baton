@@ -24,6 +24,8 @@ Scenarios:
   stop       `baton stop` ends a session without switching
   stopask    `baton stop` during the confirm question ends the session after the answer
   stopswitch `baton stop` while a manual switch waits for a turn ends the session
+  import     a conversation from the user's own Claude Code, open in the desktop app, goes on
+             in a copy (`baton resume <id> --copy`) on an account and switches on a limit
 """
 from __future__ import annotations
 
@@ -172,6 +174,20 @@ class World:
 
     def transcripts(self) -> list[str]:
         return glob.glob(os.path.join(self.home, "profiles", "*", "projects", "*", "*.jsonl"))
+
+
+def process_started_ms(pid: int) -> int:
+    """When a process started, in ms since 1970 (what claude writes as startedAt)."""
+    import ctypes
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    times = [wintypes.FILETIME() for _ in range(4)]
+    k32.GetProcessTimes(h, *[ctypes.byref(t) for t in times])
+    k32.CloseHandle(h)
+    t = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
+    return (t - 116444736000000000) // 10000
 
 
 def acct(r: dict, key: str) -> bool:
@@ -887,12 +903,77 @@ def scenario_stopswitch(w: World, res: list) -> dict:
     return {}
 
 
+def scenario_import(w: World, res: list) -> dict:
+    """A conversation kept in the user's own Claude Code and open there (as the desktop
+    app keeps its sessions): `baton resume` refuses to write to it, and `--copy` goes on in
+    a fork on an account, started from another folder, while the original stays as it was.
+    A later limit continues the fork, not the original."""
+    pc = start_on_a_and_answer(w, res, "import-first", "im one in the desktop app")
+    try:
+        sid = json.load(open(os.path.join(w.newest_run_dir(), "run.json"), encoding="utf-8"))["session_id"]
+        check(quit_claude(pc) == 0, "import: first run exits", res)
+    finally:
+        pc.close()
+    src = [p for p in w.transcripts() if os.path.basename(p) == sid + ".jsonl"][0]
+    dst = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(src)), sid + ".jsonl")
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    os.replace(src, dst)
+    with open(dst, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"type": "custom-title", "customTitle": "desktop work", "sessionId": sid}) + "\n")
+    with open(dst, "rb") as f:
+        before = f.read()
+    entry = os.path.join(w.user_claude, "sessions", f"{os.getpid()}.json")
+    os.makedirs(os.path.dirname(entry), exist_ok=True)
+    with open(entry, "w", encoding="utf-8") as f:
+        json.dump({"pid": os.getpid(), "sessionId": sid, "cwd": w.run.proj, "kind": "interactive", "status": "idle",
+                   "startedAt": process_started_ms(os.getpid())}, f)
+    try:
+        listed = w.baton_cmd("sessions")
+        check(sid in listed.stdout and "desktop work" in listed.stdout and "open in another window" in listed.stdout,
+              f"import: baton sessions lists it, named and open ({listed.stdout[:300]!r})", res)
+        refused = w.baton_cmd("resume", sid)
+        check(refused.returncode == 1 and "--copy" in refused.stderr,
+              f"import: resume without --copy refuses an open conversation ({refused.stderr.strip()[:200]!r})", res)
+        w.reset_state()
+        w.accounts_flip("echo", "echo")
+        mark = len(w.mock_rows())
+        pc = PseudoConsole([w.baton, "resume", sid, "--copy", "--account", "acct-a"], cwd=w.run.root, env=w.env(),
+                           log_dir=w.run.logs, name="import-copy")
+        pc.start()
+        try:
+            submit_when_ready(w, pc, 1, "im two in baton")
+            row = w.wait_mock(lambda r: main_turn(r, KEY_A, "im two in baton"), 60, since=mark)
+            check(row is not None, "import: the copy goes on on acct-a", res)
+            check(row["n_messages"] >= 4, f"import: the copy carries the earlier turn (n_messages={row and row['n_messages']})", res)
+            time.sleep(1.5)
+            w.accounts_flip("limit", "echo")
+            mark = len(w.mock_rows())
+            submit(w, pc, "im three hits the limit")
+            b_first = w.wait_mock(lambda r: main_turn(r, KEY_B, CONTINUE_MARK), 90, since=mark)
+            check(b_first is not None, "import: a limit continues the copy on acct-b", res)
+            check(b_first["n_messages"] >= 6, f"import: acct-b reads the copy's own turns (n_messages={b_first['n_messages']})", res)
+            time.sleep(4.0)
+            check(quit_claude(pc) == 0, "import: baton exits 0", res)
+        finally:
+            pc.close()
+    finally:
+        os.remove(entry)
+    with open(dst, "rb") as f:
+        check(f.read() == before, "import: the original conversation is untouched", res)
+    journal = json.load(open(os.path.join(w.newest_run_dir(), "run.json"), encoding="utf-8"))
+    fork = journal["session_id"]
+    files = [p for p in w.transcripts() if os.path.basename(p) == fork + ".jsonl"]
+    check(fork != sid and len(files) == 1, f"import: the copy is a conversation of its own ({fork}, {files})", res)
+    check(os.path.normcase(journal["cwd"]) == os.path.normcase(w.run.proj), f"import: it ran in the conversation's folder ({journal['cwd']})", res)
+    return {"original": sid, "copy": fork}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--baton", default=os.path.join(REPO, "bin", "baton.exe"))
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
-                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch")
+                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import")
     a = ap.parse_args()
     w = World(a.root, a.baton)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

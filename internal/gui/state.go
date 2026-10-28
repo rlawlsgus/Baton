@@ -83,6 +83,7 @@ type recentView struct {
 	Where       string    `json:"where"`
 	Cwd         string    `json:"cwd"`
 	Account     string    `json:"account"`
+	Title       string    `json:"title"`
 	FirstPrompt string    `json:"first_prompt"`
 	Ended       time.Time `json:"ended"`
 }
@@ -242,23 +243,17 @@ func byPriority(in []accounts.Account) []accounts.Account {
 }
 
 // readCache keeps what the state poll read last time, by file size and
-// time, so unchanged journals and transcripts are not parsed again.
+// time, so unchanged journals are not parsed again (claude.Describe does
+// the same for transcripts).
 type readCache struct {
-	mu      sync.Mutex
-	runs    map[string]cachedJournal
-	prompts map[string]cachedPrompt
+	mu   sync.Mutex
+	runs map[string]cachedJournal
 }
 
 type cachedJournal struct {
 	size int64
 	mod  time.Time
 	j    run.Journal
-}
-
-type cachedPrompt struct {
-	size   int64
-	mod    time.Time
-	prompt string
 }
 
 func (c *readCache) journals(runsDir string) []run.Journal {
@@ -289,24 +284,6 @@ func (c *readCache) journals(runsDir string) []run.Journal {
 	}
 	c.runs = next
 	return out
-}
-
-// firstPrompt is claude.FirstPrompt for a transcript whose info is fi.
-func (c *readCache) firstPrompt(path string, fi os.FileInfo) string {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.prompts == nil {
-		c.prompts = map[string]cachedPrompt{}
-	}
-	if e, ok := c.prompts[path]; ok && e.size == fi.Size() && e.mod.Equal(fi.ModTime()) {
-		return e.prompt
-	}
-	if len(c.prompts) > 200 {
-		c.prompts = map[string]cachedPrompt{}
-	}
-	p := claude.FirstPrompt(path)
-	c.prompts[path] = cachedPrompt{fi.Size(), fi.ModTime(), p}
-	return p
 }
 
 // recentSessions are conversations of ended runs whose transcript still
@@ -353,8 +330,9 @@ func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, r
 		if w == "" {
 			continue
 		}
+		t := claude.Describe(j.TranscriptPath, fi)
 		out = append(out, recentView{SessionID: j.SessionID, Where: w, Cwd: j.Cwd, Account: j.Account,
-			FirstPrompt: s.cache.firstPrompt(j.TranscriptPath, fi), Ended: fi.ModTime()})
+			Title: t.Title, FirstPrompt: t.FirstPrompt, Ended: fi.ModTime()})
 		if len(out) == max {
 			break
 		}
