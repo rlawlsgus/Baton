@@ -514,7 +514,8 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	if !fileExists(s.opt.ClaudeExe) {
 		// The desktop app keeps its Claude Code in a folder named after the
 		// version; an app update can remove the old one between two launches.
-		if inst, err := claude.Resolve(s.opt.Config.ClaudePath, s.opt.Config.DesktopBundleAllowed()); err == nil {
+		base, _ := envx.Build(os.Environ(), nil)
+		if inst, _, err := claude.ResolveUsable(s.opt.Config.ClaudePath, s.opt.Config.DesktopBundleAllowed(), base); err == nil {
 			s.notice("Claude Code moved (app update?); now using %s", inst.Path)
 			s.opt.ClaudeExe = inst.Path
 		}

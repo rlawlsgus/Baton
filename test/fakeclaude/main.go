@@ -5,6 +5,7 @@
 //
 //	FAKE_EMAIL       email the next `auth login` signs in as (default: <profile name>@example.com)
 //	FAKE_LOGIN_FAIL  make `auth login` fail (exit 1) and leave any old login in place
+//	FAKE_OLD_CLI     answer --version as an old CLI when run from a .local folder
 package main
 
 import (
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func main() {
@@ -20,6 +22,10 @@ func main() {
 	state := filepath.Join(cfg, "fake-auth.json")
 	switch {
 	case len(args) == 1 && args[0] == "--version":
+		if os.Getenv("FAKE_OLD_CLI") != "" && strings.Contains(strings.ToLower(os.Args[0]), ".local") {
+			fmt.Println("2.0.9 (Claude Code)") // a CLI installed long ago
+			return
+		}
 		fmt.Println("2.1.308 (Claude Code)")
 	case len(args) >= 2 && args[0] == "auth" && args[1] == "login":
 		if os.Getenv("FAKE_LOGIN_FAIL") != "" {

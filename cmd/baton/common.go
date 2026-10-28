@@ -44,27 +44,34 @@ func load() (*env, error) {
 	return &env{paths: p, cfg: cfg, reg: reg}, nil
 }
 
-// resolveClaude finds claude.exe and checks its version.
+// resolveClaude finds a claude.exe that baton can use and checks its version.
 func (e *env) resolveClaude() (claude.Install, error) {
-	inst, err := claude.Resolve(e.cfg.ClaudePath, e.cfg.DesktopBundleAllowed())
-	if err != nil {
-		return inst, err
-	}
+	inst, _, err := e.resolveClaudeAll()
+	return inst, err
+}
+
+// resolveClaudeAll is resolveClaude that also says which copies of Claude
+// Code it passed over (too old, or not runnable).
+func (e *env) resolveClaudeAll() (claude.Install, []claude.Install, error) {
 	base, _ := envx.Build(os.Environ(), nil)
-	v, err := claude.Version(inst.Path, base)
+	inst, skipped, err := claude.ResolveUsable(e.cfg.ClaudePath, e.cfg.DesktopBundleAllowed(), base)
 	if err != nil {
-		return inst, err
+		var old *claude.TooOldError
+		switch {
+		case !errors.As(err, &old):
+		case inst.Source == "config":
+			err = fmt.Errorf("%w; or reset claude_path with: baton config claude_path auto", err)
+		case inst.Source != "desktop" && claude.DesktopAppInstalled() && e.cfg.DesktopBundleAllowed():
+			err = fmt.Errorf("%w; or update the Claude desktop app and open its Code tab once: baton then uses the Claude Code that comes with it", err)
+		}
+		return inst, skipped, err
 	}
-	inst.Version = v
-	warn, err := claude.CheckVersion(v)
-	if err != nil {
-		return inst, err
-	}
+	warn, _ := claude.CheckVersion(inst.Version)
 	if warn != "" {
 		fmt.Fprintln(os.Stderr, say("baton: warning: "+warn,
-			fmt.Sprintf("baton: 참고: Claude Code %s는 이 baton으로 시험한 최신 버전(%s)보다 새 버전입니다", v, claude.TestedMax)))
+			fmt.Sprintf("baton: 참고: Claude Code %s는 이 baton으로 시험한 최신 버전(%s)보다 새 버전입니다", inst.Version, claude.TestedMax)))
 	}
-	return inst, nil
+	return inst, skipped, nil
 }
 
 // loadState reads the account ledger. If it cannot be read, that is said

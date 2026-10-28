@@ -39,6 +39,9 @@ const T = {
     claude_app_setup: 'Claude 데스크톱 앱이 아직 Claude Code를 준비하지 않았습니다. 데스크톱 앱에서 Code 탭을 한 번 열면 준비됩니다.',
     claude_too_old: 'Claude Code 버전이 너무 낮습니다. Claude 데스크톱 앱을 업데이트하세요 (도움말 → 업데이트 확인).',
     claude_cli_old: '설치된 Claude Code CLI가 너무 오래되었습니다. PowerShell에서 claude update를 실행하세요.',
+    claude_cli_old_app: 'CLI를 따로 쓰지 않는다면 Claude 데스크톱 앱을 최신으로 업데이트하고 Code 탭을 한 번 여는 것으로도 됩니다. 그러면 baton이 앱에 들어 있는 Claude Code를 씁니다.',
+    claude_path_old: '설정한 claude_path의 Claude Code가 너무 오래되었습니다. 그 Claude Code를 업데이트하거나, 명령줄에서 baton config claude_path auto로 자동 찾기로 돌아가세요.',
+    claude_old_cli_skipped: '설치된 Claude Code CLI {v}는 너무 오래되어 쓰지 않고, Claude 데스크톱 앱의 Claude Code를 씁니다. CLI를 업데이트하려면 PowerShell에서 claude update를 실행하세요.',
     claude_bundle_off: 'Claude 데스크톱 앱에 들어 있는 Claude Code 사용이 꺼져 있습니다. 설정 → 고급 설정에서 다시 켜세요.',
     recheck: '다시 확인', elevated: 'baton이 관리자 권한으로 실행 중입니다. 세션도 관리자 권한으로 실행되니, 창을 닫고 일반 권한으로 다시 여세요.',
     claude_custom_cli: '다른 위치의 claude.exe를 쓰려면 명령줄에서: baton config claude_path <경로>',
@@ -212,6 +215,9 @@ const T = {
     claude_app_setup: 'The Claude desktop app has not set up Claude Code yet. Open its Code tab once.',
     claude_too_old: 'Claude Code is too old. Update the Claude desktop app (Help → Check for updates).',
     claude_cli_old: 'The installed Claude Code CLI is too old. Run claude update in PowerShell.',
+    claude_cli_old_app: 'If you do not use the CLI itself, you can instead update the Claude desktop app and open its Code tab once. baton then uses the Claude Code that comes with the app.',
+    claude_path_old: 'The Claude Code that claude_path points to is too old. Update it, or go back to finding it automatically with: baton config claude_path auto',
+    claude_old_cli_skipped: 'The installed Claude Code CLI {v} is too old, so baton uses the Claude Code from the Claude desktop app instead. To update the CLI, run claude update in PowerShell.',
     claude_bundle_off: 'Using the Claude Code inside the Claude desktop app is turned off. Turn it on again in Settings → Advanced.',
     recheck: 'Check again', elevated: 'baton is running as administrator, so sessions would too. Close it and open it again normally.',
     claude_custom_cli: 'To use claude.exe from another place, run: baton config claude_path <path>',
@@ -546,7 +552,8 @@ function renderBanners(st) {
   if (st.elevated) out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow', text: t('elevated') })));
   if (!st.claude_pending && !st.claude.found) {
     const msg = st.claude.bundle_off ? t('claude_bundle_off')
-      : st.claude.too_old ? (st.claude.source === 'desktop' ? t('claude_too_old') : t('claude_cli_old'))
+      : st.claude.too_old ? (st.claude.source === 'desktop' ? t('claude_too_old') : st.claude.source === 'config' ? t('claude_path_old')
+        : t('claude_cli_old') + (st.claude.desktop_app && st.config.allow_desktop_bundle ? ' ' + t('claude_cli_old_app') : ''))
         : st.claude.desktop_app ? t('claude_app_setup') : t('ob_claude_missing');
     out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', { text: t('need_claude') }), h('div', { text: msg }),
       st.claude.error ? h('div', { class: 'small muted', text: st.claude.error }) : null),
@@ -1236,6 +1243,7 @@ function viewSettings(st) {
     share,
     h('h3', { text: t('set_claude'), class: 'mt14' }),
     h('p', { class: 'small muted', text: st.claude.found ? st.claude.path : (st.claude.error || '') }),
+    st.claude.found && st.claude.old_cli ? h('p', { class: 'small muted', text: t('claude_old_cli_skipped', { v: st.claude.old_cli }) }) : null,
     bundle,
     c.claude_path ? h('div', { class: 'actions start' }, h('span', { class: 'small mono', text: c.claude_path }),
       h('button', { class: 'btn', text: t('set_claude_auto'), onclick: () => setConfig('claude_path', 'auto') })) : null,

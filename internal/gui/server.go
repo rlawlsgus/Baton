@@ -76,9 +76,12 @@ type ClaudeInfo struct {
 	// found is too old.
 	DesktopApp bool `json:"desktop_app"`
 	TooOld     bool `json:"too_old"`
-	// BundleOff: only the desktop app's Claude Code exists, and using it is
+	// BundleOff: the desktop app's Claude Code exists, and using it is
 	// turned off in the settings.
 	BundleOff bool `json:"bundle_off"`
+	// OldCLI: the version of a Claude Code CLI too old to use, passed over
+	// for the one found.
+	OldCLI string `json:"old_cli,omitempty"`
 }
 
 type Server struct {

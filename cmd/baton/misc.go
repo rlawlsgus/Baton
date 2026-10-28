@@ -246,12 +246,22 @@ func cmdDoctor(args []string) error {
 	}
 	ok := true
 	fmt.Printf("data folder:  %s\n", e.paths.Root)
-	inst, err := e.resolveClaude()
+	inst, skipped, err := e.resolveClaudeAll()
 	if err != nil {
 		fmt.Printf("claude:       PROBLEM: %v\n", err)
 		ok = false
+		inst = claude.Install{}
 	} else {
 		fmt.Printf("claude:       %s (%s, found via %s)\n", inst.Version, inst.Path, inst.Source)
+	}
+	for _, s := range skipped {
+		v := s.Version
+		if v == "" {
+			v = "does not run"
+		} else {
+			v += ", too old"
+		}
+		fmt.Printf("              not used: %s (%s, %s)\n", s.Path, s.Source, v)
 	}
 	switch {
 	case consoleUsable():

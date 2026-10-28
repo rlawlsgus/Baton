@@ -510,3 +510,46 @@ func TestSessionsAndResume(t *testing.T) {
 		t.Errorf("resume inside a session: %d %s", code, out)
 	}
 }
+
+// A Claude Code CLI installed long ago is passed over for the desktop app's
+// copy, and doctor and the window say so.
+func TestOldCLIPassedOverForTheDesktopCopy(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "config", "claude_path", "auto")
+	exe, err := os.ReadFile(fakeClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	place := func(p string) string {
+		_ = os.MkdirAll(filepath.Dir(p), 0o700)
+		if err := os.WriteFile(p, exe, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-time.Hour)
+		_ = os.Chtimes(p, old, old)
+		return p
+	}
+	cli := place(filepath.Join(root, ".local", "bin", "claude.exe"))
+	bundle := place(filepath.Join(root, "local", "Claude-Data", "x", "claude-code", "2.1.308", "abc", "claude.exe"))
+	env := []string{"USERPROFILE=" + root, "APPDATA=" + filepath.Join(root, "roaming"), "LOCALAPPDATA=" + filepath.Join(root, "local"),
+		"PATH=" + filepath.Join(root, "empty"), "FAKE_OLD_CLI=1"}
+	out, _ := c.run(env, "doctor")
+	if !strings.Contains(out, "found via desktop") || !strings.Contains(out, "not used: "+cli+" (native, 2.0.9, too old)") {
+		t.Fatalf("doctor:\n%s", out)
+	}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		t.Setenv(k, v)
+	}
+	info := claudeInfo(filepath.Join(c.home, "config.json"))
+	if !info.Found || info.Source != "desktop" || !strings.EqualFold(info.Path, bundle) || info.OldCLI != "2.0.9" {
+		t.Fatalf("window: %+v", info)
+	}
+	// The desktop copy turned off: the old CLI is reported as too old.
+	c.run(nil, "config", "allow_desktop_bundle", "false")
+	info = claudeInfo(filepath.Join(c.home, "config.json"))
+	if info.Found || !info.TooOld || info.Source != "native" || !info.BundleOff {
+		t.Fatalf("window without the desktop copy: %+v", info)
+	}
+}

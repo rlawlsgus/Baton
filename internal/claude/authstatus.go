@@ -29,6 +29,7 @@ func ReadAuthStatus(exe string, env []string) (AuthStatus, error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, exe, "auth", "status", "--json")
 	cmd.Env = env
+	cmd.SysProcAttr = hidden()
 	cmd.Stdin = nil
 	cmd.Stderr = nil
 	out, err := cmd.Output()

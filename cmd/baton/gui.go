@@ -312,24 +312,23 @@ func claudeInfo(configPath string) gui.ClaudeInfo {
 	if err != nil {
 		return gui.ClaudeInfo{Error: err.Error()}
 	}
-	inst, err := claude.Resolve(cfg.ClaudePath, cfg.DesktopBundleAllowed())
-	if err != nil {
-		return gui.ClaudeInfo{Error: err.Error(), DesktopApp: claude.DesktopAppInstalled(),
-			BundleOff: cfg.ClaudePath == "" && !cfg.DesktopBundleAllowed() && claude.DesktopBundle() != ""}
-	}
-	info := gui.ClaudeInfo{Found: true, Path: inst.Path, Source: inst.Source, DesktopApp: claude.DesktopAppInstalled()}
 	base, _ := envx.Build(os.Environ(), nil)
-	v, err := claude.Version(inst.Path, base)
+	inst, skipped, err := claude.ResolveUsable(cfg.ClaudePath, cfg.DesktopBundleAllowed(), base)
+	info := gui.ClaudeInfo{Path: inst.Path, Source: inst.Source, Version: inst.Version, DesktopApp: claude.DesktopAppInstalled(),
+		BundleOff: cfg.ClaudePath == "" && !cfg.DesktopBundleAllowed() && claude.DesktopBundle() != ""}
 	if err != nil {
-		info.Found, info.Error = false, err.Error()
+		var old *claude.TooOldError
+		info.Error, info.TooOld = err.Error(), errors.As(err, &old)
 		return info
 	}
-	info.Version = v
-	warn, err := claude.CheckVersion(v)
-	if err != nil {
-		info.Found, info.Error, info.TooOld = false, err.Error(), true
+	info.Found = true
+	info.Warning, _ = claude.CheckVersion(inst.Version)
+	for _, s := range skipped {
+		if inst.Source == "desktop" && s.Version != "" {
+			info.OldCLI = s.Version // an old CLI the desktop app's copy is used instead of
+			break
+		}
 	}
-	info.Warning = warn
 	return info
 }
 
