@@ -1,0 +1,17 @@
+# Build output: development builds go to bin\, release zips to dist\
+# (uploaded to GitHub Releases, not committed).
+bin/
+dist/
+*.exe
+*.test
+*.out
+
+# Python caches from the end-to-end test and the Phase 0 harness.
+__pycache__/
+*.pyc
+
+# Editors and OS files.
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

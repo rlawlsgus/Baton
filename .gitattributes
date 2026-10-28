@@ -1,0 +1,9 @@
+# Text files are stored with LF line endings; Go, PowerShell and Python all
+# read them that way on Windows too.
+* text=auto eol=lf
+
+# Windows resource objects (icon, manifest, version info) and images.
+*.syso binary
+*.png binary
+*.ico binary
+*.zip binary

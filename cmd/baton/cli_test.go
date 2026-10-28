@@ -1,0 +1,458 @@
+package main
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+	"time"
+
+	"baton/internal/accounts"
+	"baton/internal/app"
+	"baton/internal/claude"
+	"baton/internal/ledger"
+	"baton/internal/run"
+)
+
+// These tests run the real baton.exe against test/fakeclaude, so account
+// management (which calls `claude auth ...`) is exercised without a real
+// account or a browser.
+
+var batonExe, fakeClaude string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "baton-cli-test")
+	if err != nil {
+		panic(err)
+	}
+	gobin := filepath.Join(runtime.GOROOT(), "bin", "go")
+	batonExe = filepath.Join(dir, "baton.exe")
+	fakeClaude = filepath.Join(dir, "claude.exe")
+	for _, b := range [][2]string{{batonExe, "."}, {fakeClaude, "../../test/fakeclaude"}} {
+		if out, err := exec.Command(gobin, "build", "-o", b[0], b[1]).CombinedOutput(); err != nil {
+			panic(string(out))
+		}
+	}
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+type cli struct {
+	t    *testing.T
+	home string
+}
+
+func newCLI(t *testing.T) *cli {
+	home := t.TempDir()
+	cfg := map[string]any{"claude_path": fakeClaude, "share_user_config": false}
+	b, _ := json.Marshal(cfg)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return &cli{t: t, home: home}
+}
+
+func (c *cli) run(extraEnv []string, args ...string) (string, int) {
+	c.t.Helper()
+	cmd := exec.Command(batonExe, args...)
+	env := []string{"BATON_HOME=" + c.home}
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(strings.ToUpper(kv), "BATON_") {
+			env = append(env, kv)
+		}
+	}
+	cmd.Env = append(env, extraEnv...)
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	} else if err != nil {
+		c.t.Fatal(err)
+	}
+	return string(out), code
+}
+
+func (c *cli) registry() *accounts.Registry {
+	r, err := accounts.Load(filepath.Join(c.home, "accounts.json"))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return &r
+}
+
+func TestAddSignsInAndDetectsDuplicates(t *testing.T) {
+	c := newCLI(t)
+	out, code := c.run(nil, "add", "personal")
+	if code != 0 || !strings.Contains(out, `"personal" signed in: personal@example.com`) {
+		t.Fatalf("add personal: code %d\n%s", code, out)
+	}
+	// The browser was still signed in as personal when "work" was added.
+	out, code = c.run([]string{"FAKE_EMAIL=personal@example.com"}, "add", "work")
+	if code == 0 || !strings.Contains(out, "same Claude account") {
+		t.Fatalf("duplicate not reported: code %d\n%s", code, out)
+	}
+	r := c.registry()
+	if p, w := r.Get("personal"), r.Get("work"); !p.Enabled || !p.LoggedIn || w.Enabled {
+		t.Fatalf("personal must stay enabled, work disabled: %+v / %+v", p, w)
+	}
+	// Signing personal in again (same identity) must not disable it.
+	if out, code := c.run(nil, "login", "personal"); code != 0 || !c.registry().Get("personal").Enabled {
+		t.Fatalf("re-login disabled personal: code %d\n%s", code, out)
+	}
+	// Enabling the duplicate as it is, or signing it in as the same account
+	// again, must not put two copies of one account into rotation.
+	if out, code := c.run(nil, "enable", "work"); code == 0 || c.registry().Get("work").Enabled {
+		t.Fatalf("enable of a duplicate accepted: %d\n%s", code, out)
+	}
+	if out, code := c.run([]string{"FAKE_EMAIL=personal@example.com"}, "login", "work"); code == 0 || c.registry().Get("work").Enabled {
+		t.Fatalf("re-login of a duplicate as the same account accepted: %d\n%s", code, out)
+	}
+	// Fixing "work" with the right account re-enables it.
+	if out, code := c.run([]string{"FAKE_EMAIL=work@example.com"}, "login", "work"); code != 0 || !c.registry().Get("work").Enabled {
+		t.Fatalf("login work as itself: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "list"); code != 0 || !strings.Contains(out, "work@example.com") {
+		t.Fatalf("list: %d\n%s", code, out)
+	}
+}
+
+func TestAddNoLoginMarksNeedsLogin(t *testing.T) {
+	c := newCLI(t)
+	if out, code := c.run(nil, "add", "x", "--no-login"); code != 0 {
+		t.Fatalf("add --no-login: %d\n%s", code, out)
+	}
+	st, _ := ledger.Load(filepath.Join(c.home, "state.json"))
+	if st.StatusOf("x").Status != ledger.StatusNeedsLogin {
+		t.Fatalf("status = %s", st.StatusOf("x").Status)
+	}
+	if out, code := c.run(nil, "login", "x"); code != 0 {
+		t.Fatalf("login: %d\n%s", code, out)
+	}
+	st, _ = ledger.Load(filepath.Join(c.home, "state.json"))
+	if st.StatusOf("x").Status != ledger.StatusOK {
+		t.Fatalf("login did not clear needs_login: %s", st.StatusOf("x").Status)
+	}
+}
+
+func TestBlockedIsClearedByEnable(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	_ = ledger.Update(filepath.Join(c.home, "state.json"), filepath.Join(c.home, "state.lock"), func(s *ledger.State) error {
+		s.Account("a").Status = ledger.StatusBlocked
+		return nil
+	})
+	if out, code := c.run(nil, "enable", "a"); code != 0 || !strings.Contains(out, "Cleared the blocked mark") {
+		t.Fatalf("enable: %d\n%s", code, out)
+	}
+}
+
+func TestRefusedInsideSession(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	inside := []string{"BATON_RUN=r1"}
+	for _, args := range [][]string{{"switch", "a"}, {"config", "switch_mode", "auto"}, {"add", "b"},
+		{"remove", "a"}, {"login", "a"}, {"sync"}, {"run"}, {"stop"}, {"uninstall", "--yes"}, {"gui", "--browser"}} {
+		if out, code := c.run(inside, args...); code == 0 || !strings.Contains(out, "inside a baton session") {
+			t.Errorf("%v from inside a session: code %d\n%s", args, code, out)
+		}
+	}
+}
+
+func TestSwitchModeNeedsAcknowledgement(t *testing.T) {
+	c := newCLI(t)
+	// Not a console: the notice cannot be acknowledged, so auto is refused...
+	if out, code := c.run(nil, "config", "switch_mode", "auto"); code == 0 || !strings.Contains(out, "Usage Policy") {
+		t.Fatalf("auto without acknowledgement: %d\n%s", code, out)
+	}
+	// ...but turning switching off needs no acknowledgement.
+	if out, code := c.run(nil, "config", "switch_mode", "off"); code != 0 {
+		t.Fatalf("off: %d\n%s", code, out)
+	}
+}
+
+func TestRemoveRefusals(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	// Conversation data stored in the profile needs --force.
+	tr := filepath.Join(c.home, "profiles", "a", "projects", "C--p", "s", "tool-results", "x.txt")
+	_ = os.MkdirAll(filepath.Dir(tr), 0o700)
+	_ = os.WriteFile(tr, []byte("out"), 0o600)
+	if out, code := c.run(nil, "remove", "a"); code == 0 || !strings.Contains(out, "--force") {
+		t.Fatalf("remove with session data: %d\n%s", code, out)
+	}
+	// A profile_dir outside baton's folder is never deleted.
+	outside := t.TempDir()
+	_, _ = accounts.Update(filepath.Join(c.home, "accounts.json"), filepath.Join(c.home, "accounts.lock"), func(r *accounts.Registry) error {
+		r.Get("a").ProfileDir = outside
+		return nil
+	})
+	if out, code := c.run(nil, "remove", "a", "--force"); code == 0 || !strings.Contains(out, "will not delete") {
+		t.Fatalf("remove outside: %d\n%s", code, out)
+	}
+	if _, err := os.Stat(outside); err != nil {
+		t.Fatal("outside folder was touched")
+	}
+}
+
+func TestRemoveWithoutConsoleSaysWhyAndYesWorks(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	if out, code := c.run(nil, "remove", "a"); code == 0 || !strings.Contains(out, "not a console") {
+		t.Fatalf("remove without a console must explain: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "remove", "a", "--yes"); code != 0 || c.registry().Get("a") != nil {
+		t.Fatalf("remove --yes: %d\n%s", code, out)
+	}
+	if _, err := os.Stat(filepath.Join(c.home, "profiles", "a")); !os.IsNotExist(err) {
+		t.Fatalf("profile folder left behind: %v", err)
+	}
+}
+
+func TestSwitchWithoutRunAndBadTargets(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	if out, code := c.run(nil, "switch"); code == 0 || !strings.Contains(out, "no running baton session") {
+		t.Fatalf("switch: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "switch", "nope"); code == 0 {
+		t.Fatalf("switch to unknown accepted: %s", out)
+	}
+}
+
+// A hook must read its payload from stdin even when baton was reopened in a
+// new console window (BATON_NEW_CONSOLE must not reach it, and must not make
+// it read the console).
+func TestHookReadsPayloadInNewConsoleMode(t *testing.T) {
+	dir := t.TempDir()
+	cmd := exec.Command(batonExe, "hook", "StopFailure", "--run-dir", dir)
+	cmd.Env = append(os.Environ(), "BATON_NEW_CONSOLE=1", "CLAUDE_PID=42")
+	cmd.Stdin = strings.NewReader(`{"session_id":"s","error":"rate_limit"}`)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Run() }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatal("hook hung")
+	}
+	evs := run.NewTail(dir).Next()
+	if len(evs) != 1 || evs[0].Decode().Error != "rate_limit" || evs[0].ClaudePID != 42 {
+		t.Fatalf("events = %+v", evs)
+	}
+}
+
+func TestRound4CLI(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "work")
+	// `baton run work` must not send "work" to the model as a prompt.
+	if out, code := c.run(nil, "run", "work"); code != 2 || !strings.Contains(out, "--account work") {
+		t.Errorf("run <name>: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "add", "--help"); code != 0 || strings.Contains(out, "help requested") {
+		t.Errorf("add --help: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "config", "switch_mode", "automatic"); code == 0 || strings.Contains(out, "Usage Policy") {
+		t.Errorf("an invalid mode must be rejected before the notice: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "config", "claude_path", `C:\nope\claude.exe`); code == 0 || !strings.Contains(out, "not a file") {
+		t.Errorf("a missing claude_path was accepted: %d %s", code, out)
+	}
+	if out, code := c.run(nil, "list"); code != 0 {
+		t.Errorf("list: %d %s", code, out)
+	}
+	if out, code := c.run(nil, "config", "claude_path", "auto"); code != 0 {
+		t.Errorf("claude_path auto: %d %s", code, out)
+	}
+	if out, _ := c.run(nil, "config", "claude_path"); strings.TrimSpace(out) != "" {
+		t.Errorf("claude_path not cleared: %q", out)
+	}
+	if out, code := c.run(nil, "add", "nul"); code == 0 || !strings.Contains(out, "reserved") {
+		t.Errorf("add nul: %d\n%s", code, out)
+	}
+	c.run(nil, "config", "claude_path", fakeClaude)
+	// A user-disabled account stays disabled after a later login.
+	c.run(nil, "disable", "work")
+	if out, code := c.run(nil, "login", "work"); code != 0 || c.registry().Get("work").Enabled {
+		t.Errorf("login re-enabled a user-disabled account: %d\n%s", code, out)
+	}
+}
+
+func TestVersion(t *testing.T) {
+	c := newCLI(t)
+	if out, code := c.run(nil, "version"); code != 0 || !strings.HasPrefix(out, "baton ") {
+		t.Fatalf("version: %d %q", code, out)
+	}
+}
+
+func (c *cli) state() ledger.State {
+	c.t.Helper()
+	st, err := ledger.Load(filepath.Join(c.home, "state.json"))
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return st
+}
+
+func (c *cli) setState(id string, s ledger.AccountState) {
+	c.t.Helper()
+	if err := ledger.Update(filepath.Join(c.home, "state.json"), filepath.Join(c.home, "state.lock"), func(st *ledger.State) error {
+		*st.Account(id) = s
+		return nil
+	}); err != nil {
+		c.t.Fatal(err)
+	}
+}
+
+func TestRound5CLI(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "personal")
+	c.run(nil, "add", "work")
+
+	// A failed sign-in keeps the old login, so it must not clear a blocked mark.
+	c.setState("personal", ledger.AccountState{Status: ledger.StatusBlocked})
+	if out, code := c.run([]string{"FAKE_LOGIN_FAIL=1"}, "login", "personal"); code == 0 || !strings.Contains(out, "did not finish") ||
+		strings.Contains(out, "signed in:") {
+		t.Errorf("failed login reported as success: %d\n%s", code, out)
+	}
+	if s := c.state().StatusOf("personal").Status; s != ledger.StatusBlocked {
+		t.Errorf("failed login cleared the blocked mark: %s", s)
+	}
+
+	// Clearing needs_login keeps a usage limit that has not reset yet.
+	retry := time.Now().Add(20 * time.Hour)
+	c.setState("personal", ledger.AccountState{Status: ledger.StatusNeedsLogin, RetryAt: retry})
+	if out, code := c.run(nil, "login", "personal"); code != 0 {
+		t.Fatalf("login: %d\n%s", code, out)
+	}
+	if s := c.state().StatusOf("personal"); s.Status != ledger.StatusExhausted || !s.RetryAt.Equal(retry) {
+		t.Errorf("limit lost on login: %+v", s)
+	}
+
+	// A user-disabled account signed in as a duplicate, then correctly, stays
+	// disabled: only accounts baton disabled itself come back.
+	c.run(nil, "disable", "work")
+	if out, code := c.run([]string{"FAKE_EMAIL=personal@example.com"}, "login", "work"); code == 0 {
+		t.Errorf("duplicate login accepted: %s", out)
+	}
+	if out, code := c.run(nil, "login", "work"); code != 0 || c.registry().Get("work").Enabled || !strings.Contains(out, "still disabled") {
+		t.Errorf("user-disabled account re-enabled: %d enabled=%v\n%s", code, c.registry().Get("work").Enabled, out)
+	}
+
+	// claude_path is stored as a full path.
+	if out, code := c.run(nil, "config", "claude_path", "cli_test.go"); code != 0 {
+		t.Errorf("relative claude_path: %d %s", code, out)
+	}
+	if out, _ := c.run(nil, "config", "claude_path"); !filepath.IsAbs(strings.TrimSpace(out)) {
+		t.Errorf("claude_path stored relative: %q", out)
+	}
+	c.run(nil, "config", "claude_path", fakeClaude)
+
+	// --account after -- is baton's option in the wrong place, not claude's.
+	if out, code := c.run(nil, "run", "--", "--account", "work"); code != 2 || !strings.Contains(out, "baton option") {
+		t.Errorf("run -- --account: %d\n%s", code, out)
+	}
+	if out, _ := c.run(nil, "add", "--help"); !strings.Contains(out, "--priority") || !strings.Contains(out, "usage: baton add") {
+		t.Errorf("add --help: %s", out)
+	}
+
+	// An unreadable ledger is reported, not shown as "everything is ok".
+	if err := os.WriteFile(filepath.Join(c.home, "state.json"), []byte("{,"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if out, _ := c.run(nil, "list"); !strings.Contains(out, "unreadable") {
+		t.Errorf("list with a broken state.json: %s", out)
+	}
+	if out, code := c.run(nil, "switch", "personal"); code == 0 || !strings.Contains(out, "unreadable") {
+		t.Errorf("switch with a broken state.json: %d %s", code, out)
+	}
+}
+
+// A conversation from before baton lives in the normal ~/.claude; -r <id>
+// must find it there too.
+func TestResolveResumeLooksInUserHome(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	t.Setenv("BATON_RUN", "")
+	p := filepath.Join(home, "projects", "C--proj", "abc.jsonl")
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	if err := os.WriteFile(p, []byte(`{"sessionId":"abc","cwd":"C:\proj"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := &env{paths: app.Paths{Root: t.TempDir()}}
+	a, err := claude.SplitArgs([]string{"-r", "abc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolveResume(&a, e, `C:\proj`)
+	if a.ResumeArg != p {
+		t.Fatalf("resume arg = %q, want %q", a.ResumeArg, p)
+	}
+}
+
+func TestRound6CLI(t *testing.T) {
+	c := newCLI(t)
+	if out, code := c.run(nil, "enable", "--help"); code != 0 || !strings.Contains(out, "usage: baton enable <name>") {
+		t.Errorf("enable --help: %d %s", code, out)
+	}
+	c.run(nil, "config", "claude_path", "")
+	if out, _ := c.run(nil, "config", "claude_path"); strings.TrimSpace(out) != "" {
+		t.Errorf(`claude_path "" did not reset: %q`, out)
+	}
+	c.run(nil, "config", "claude_path", fakeClaude)
+	c.run(nil, "add", "personal")
+	c.run([]string{"FAKE_EMAIL=personal@example.com"}, "add", "work") // disabled as a duplicate
+	if out, _ := c.run(nil, "doctor"); strings.Contains(out, "same Claude account") {
+		t.Errorf("doctor reports a duplicate that is already disabled:\n%s", out)
+	}
+}
+
+func TestSignInResultFile(t *testing.T) {
+	c := newCLI(t)
+	res := filepath.Join(t.TempDir(), "r.json")
+	read := func() map[string]any {
+		var m map[string]any
+		b, err := os.ReadFile(res)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = json.Unmarshal(b, &m)
+		return m
+	}
+	if out, code := c.run(nil, "add", "personal", "--result-file", res, "--email", "personal@example.com"); code != 0 {
+		t.Fatalf("add: %d\n%s", code, out)
+	}
+	if m := read(); m["ok"] != true || m["code"] != "ok" || m["email"] != "personal@example.com" || m["plan"] != "max" {
+		t.Fatalf("result %v", m)
+	}
+	if _, code := c.run([]string{"FAKE_LOGIN_FAIL=1"}, "login", "personal", "--result-file", res); code == 0 {
+		t.Fatal("failed login exited 0")
+	}
+	if m := read(); m["ok"] != false || m["code"] != "login_failed" {
+		t.Fatalf("result %v", m)
+	}
+	c.run(nil, "add", "work")
+	if _, code := c.run([]string{"FAKE_EMAIL=personal@example.com"}, "login", "work", "--result-file", res); code == 0 {
+		t.Fatal("duplicate login exited 0")
+	}
+	if m := read(); m["code"] != "duplicate" || m["duplicate_of"] != "personal" {
+		t.Fatalf("result %v", m)
+	}
+}
+
+func TestStopAndReleaseFlags(t *testing.T) {
+	c := newCLI(t)
+	if out, code := c.run(nil, "stop"); code == 0 || !strings.Contains(out, "no running baton session") {
+		t.Errorf("stop: %d\n%s", code, out)
+	}
+	// Release builds have no test switches for the window.
+	if out, code := c.run(nil, "gui", "--no-window"); code == 0 || !strings.Contains(out, "not defined") {
+		t.Errorf("gui --no-window: %d\n%s", code, out)
+	}
+}
