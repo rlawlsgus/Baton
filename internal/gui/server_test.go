@@ -1,6 +1,7 @@
 package gui
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -20,6 +21,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/ledger"
 	"baton/internal/run"
+	"baton/internal/update"
 	"baton/internal/usage"
 	"baton/internal/winproc"
 )
@@ -984,5 +986,71 @@ func TestRunDetailsAndRemoteControl(t *testing.T) {
 	_ = json.Unmarshal([]byte(body), &st)
 	if !st.Config.RemoteControl {
 		t.Fatalf("setting not shown: %+v", st.Config)
+	}
+}
+
+// The window asks GitHub (here: a fake) for a newer baton by itself, shows
+// it, and installs it on a click, but not while a session runs.
+func TestUpdateCheckAndInstall(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	page := "https://github.com/" + update.Repo + "/releases/tag/v9.1.0"
+	r.srv.opt.CheckUpdate = func(ctx context.Context) (update.Release, error) {
+		return update.Release{Version: "9.1.0", Tag: "v9.1.0", Notes: "new things", Page: page}, nil
+	}
+	var mu sync.Mutex
+	var installed []string
+	r.srv.opt.Update = func(ctx context.Context, rel update.Release) (string, error) {
+		mu.Lock()
+		installed = append(installed, rel.Version)
+		mu.Unlock()
+		return `C:\installed\baton-app.exe`, nil
+	}
+	relaunched := make(chan string, 1)
+	r.srv.opt.Relaunch = func(app string) error { relaunched <- app; return nil }
+	opened := make(chan string, 1)
+	r.srv.opt.Open = func(p string) error { opened <- p; return nil }
+
+	var st stateView
+	for i := 0; i < 100; i++ {
+		_, body := r.do("GET", "/api/state", "", nil)
+		st = stateView{}
+		_ = json.Unmarshal([]byte(body), &st)
+		if st.Update != nil && st.Update.Newer {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st.Update == nil || !st.Update.Newer || st.Update.Latest != "9.1.0" || st.Update.Notes != "new things" || st.Update.Current != "test" {
+		t.Fatalf("update %+v", st.Update)
+	}
+	// A running session: baton.exe is in use, so no install.
+	pid := os.Getpid()
+	dir := r.paths.Run("20261029-101500-abc123")
+	_ = os.MkdirAll(dir, 0o700)
+	_ = run.SaveJournal(dir, run.Journal{RunID: "20261029-101500-abc123", SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", Cwd: t.TempDir()})
+	if code, body := r.do("POST", "/api/update/install", "{}", nil); code != http.StatusConflict || !strings.Contains(body, "sessions_running") {
+		t.Fatalf("install with a session running: %d %s", code, body)
+	}
+	_ = os.RemoveAll(dir)
+	if code, body := r.do("POST", "/api/update/install", "{}", nil); code != 200 || !strings.Contains(body, `"version":"9.1.0"`) {
+		t.Fatalf("install: %d %s", code, body)
+	}
+	select {
+	case app := <-relaunched:
+		if app != `C:\installed\baton-app.exe` {
+			t.Fatalf("relaunched %q", app)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the installed baton was not opened")
+	}
+	mu.Lock()
+	if len(installed) != 1 || installed[0] != "9.1.0" {
+		t.Fatalf("installed %q", installed)
+	}
+	mu.Unlock()
+	if code, _ := r.do("POST", "/api/open", `{"what":"release"}`, nil); code != 200 || <-opened != page {
+		t.Fatalf("release page: %d", code)
 	}
 }

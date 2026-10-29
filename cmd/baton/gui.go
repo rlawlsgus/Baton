@@ -23,6 +23,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/envx"
 	"baton/internal/gui"
+	"baton/internal/update"
 	"baton/internal/webview2"
 	"baton/internal/winui"
 )
@@ -109,6 +110,8 @@ func cmdGUI(args []string) error {
 		OpenPrivate: func(u string) error {
 			return winui.OpenPrivate(u, filepath.Join(e.paths.Root, "tmp"))
 		},
+		CheckUpdate: func(ctx context.Context) (update.Release, error) { return update.Latest(ctx, userAgent()) },
+		Update:      installUpdate,
 		Install: func() (string, error) {
 			self, err := os.Executable()
 			if err != nil {

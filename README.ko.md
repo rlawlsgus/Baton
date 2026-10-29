@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.4.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.5.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -57,6 +57,7 @@
 - 🎛️ **전환 방식은 내가 정합니다.** 전환할 때마다 묻거나, 알아서 전환하거나, 직접 지시할 때만 전환하게
   할 수 있습니다. 실행 중인 세션을 언제든 다른 계정으로 옮길 수도 있습니다.
 - ⌨️ **명령줄도 함께.** `baton.exe`로 터미널과 스크립트에서 같은 기능을 쓸 수 있습니다.
+- ⬆️ **업데이트는 클릭 한 번.** 새 버전이 나오면 알려 주고, GitHub에서 받아 체크섬을 확인한 뒤 설치합니다.
 
 > [!IMPORTANT]
 > **본인 소유의 계정만** 쓰세요. Anthropic 약관과 이용 정책은 여러 계정으로 제한을 피하는 것도
@@ -96,10 +97,16 @@ Claude 데스크톱 앱 자체의 로그인은 바뀌지 않습니다. baton의 
 <p align="center"><img src="docs/images/ko/import.gif" width="860" alt="데스크톱 앱의 세션을 검색해 고르고, 사본으로 이어 가는 과정"></p>
 
 - **어디에서도 열려 있지 않은 대화:** 그 대화 자체를 baton에서 이어 갑니다.
-- **데스크톱 앱에서 아직 열려 있는 대화:** 두 곳에서 한 대화에 동시에 쓰면 대화가 깨지므로 **사본**으로
-  이어 갑니다. 원래 대화는 데스크톱 앱에 그대로 남습니다. 사본은 지금까지의 내용을 모두 이어받은 새
-  대화이고, 다른 세션처럼 계정을 전환합니다.
+- **데스크톱 앱이나 터미널에서 아직 열려 있는 대화:** 어디에서 열려 있는지 알려 주고, 먼저 그쪽을
+  종료하라고 안내합니다. 데스크톱 앱은 트레이 아이콘에서까지 완전히 종료하고, 터미널이면 그 Claude
+  Code를 끝낸 뒤 *다시 확인*을 누르세요. 두 곳에서 한 대화에 동시에 쓰면 대화가 깨지므로, 열려 있는 채로
+  계속하면 **사본**으로 이어 갑니다. 원래 대화는 그대로 남습니다. 사본은 지금까지의 내용을 모두 이어받은
+  새 대화이지만, 그 뒤로는 원래 대화와 따로 진행됩니다.
 - **폴더가 없어진 대화:** 대화는 원래 폴더에서만 이어 갈 수 있으므로, 폴더가 없다고 표시합니다.
+
+사본이 아니게 가져온 대화는 양쪽이 같은 대화입니다. baton과 데스크톱 앱이 같은 파일을 읽고 씁니다. 한 번에
+한쪽에서만 쓰세요. 데스크톱 앱에서 열기 전에 baton의 세션을 끝내고, 다시 가져오기 전에 데스크톱 앱을
+종료하면, 다음에 여는 쪽이 다른 쪽에서 나눈 대화까지 모두 이어 갑니다.
 
 명령줄에서는 다음과 같이 합니다.
 
@@ -146,11 +153,20 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.4.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.5.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
 어디서나 쓰려면 그 폴더(또는 압축을 푼 폴더)를 `PATH`에 추가하세요.
+
+**업데이트.** **도움말 → baton 업데이트**는 GitHub에서 최신 릴리스를 확인하고 바뀐 점을 보여 줍니다. 창이
+열려 있는 동안에도 몇 시간마다 확인해서, 새 버전이 나오면 배너로 알려 줍니다. *…(으)로 업데이트*를 누르면
+릴리스를 내려받아 그 릴리스의 `checksums.txt`와 비교한 뒤 시작 메뉴에 설치하고 새 창을 엽니다. 실행 중인
+세션은 먼저 끝내고, baton이 연 창도 닫으세요. 명령줄에서는 다음을 실행합니다.
+
+```bash
+baton update
+```
 
 **Claude Code.** Claude Code CLI가 설치되어 있으면 그것을 쓰고, 없으면 Claude 데스크톱 앱에 들어 있는
 것을 씁니다. 데스크톱 앱 쪽은 앱의 Code 탭을 한 번 열면 생깁니다. `baton config allow_desktop_bundle false`로
@@ -174,7 +190,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.0
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -240,6 +256,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton sync` | 평소 Claude Code 설정을 모든 계정 프로필과 공유 (아래 참고) |
 | `baton config [<키> [<값>]]` | 설정 보기와 바꾸기 (아래 참고) |
 | `baton doctor` | claude.exe, 콘솔, 모든 로그인 점검 |
+| `baton update [--check]` | GitHub에서 최신 baton을 받아 설치 (`--check`는 새 버전이 있는지만 확인) |
 | `baton uninstall [--yes]` | baton의 대화를 평소 Claude Code 폴더로 옮기고, 모든 계정을 로그아웃한 뒤 baton 데이터와 시작 메뉴 항목 삭제 |
 
 **설정** (`baton config`):
@@ -256,6 +273,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `claude_path` | `claude.exe`의 전체 경로. `desktop`이면 항상 Claude 데스크톱 앱의 것을 쓰고, `auto`로 하면 다시 자동으로 찾음 |
 | `allow_desktop_bundle` | 데스크톱 앱에 들어 있는 Claude Code 사용 허용 |
 | `remote_control` | 창의 새 세션 시작에서 *리모트 컨트롤 켜기*를 기본으로 체크 |
+| `check_updates` | 창이 몇 시간마다 GitHub에서 새 baton이 있는지 확인 (기본값 `true`) |
 
 <details>
 <summary><b>모든 계정에서 내 Claude Code 설정 쓰기</b></summary>
@@ -348,6 +366,10 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   상태 표시줄에 넘겨 주고, baton의 상태 표시줄이 그것을 기록합니다. 그래서 그 계정으로 baton 세션을 한 번
   쓴 뒤부터, 그 시점 기준으로 표시됩니다. baton이 Anthropic에 따로 묻지는 않습니다. 직접 설정한 상태
   표시줄(설정의 `statusLine`)이 있으면 baton은 그대로 두고, 그 세션의 사용량은 기록하지 않습니다.
+- **업데이트 확인은 GitHub에 묻습니다.** 창을 열 때와 그 뒤 몇 시간마다 `api.github.com`에 baton의
+  릴리스를 묻습니다(`baton config check_updates false`로 끌 수 있고, *업데이트 확인* 버튼은 그대로
+  됩니다). 누르기 전에는 아무것도 설치하지 않습니다. zip이 그 릴리스의 `checksums.txt`와 맞을 때만
+  설치하므로 깨지거나 바뀐 다운로드는 걸러지지만, 두 파일은 같은 GitHub 릴리스에서 옵니다.
 - **Windows 콘솔에서 실행하세요.** Windows Terminal, PowerShell, cmd에서 실행하세요. mintty(ConPTY 없이)
   처럼 Windows 콘솔이 아닌 터미널에서 실행하면 Claude Code를 새 콘솔 창에서 엽니다.
 

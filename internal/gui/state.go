@@ -87,6 +87,7 @@ type configView struct {
 	AllowDesktopBundle    bool   `json:"allow_desktop_bundle"`
 	ClaudePath            string `json:"claude_path"`
 	RemoteControl         bool   `json:"remote_control"`
+	CheckUpdates          bool   `json:"check_updates"`
 	GUILanguage           string `json:"gui_language"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
 }
@@ -120,6 +121,7 @@ type stateView struct {
 	CanInstall    bool          `json:"can_install"`
 	Checking      bool          `json:"checking"`
 	Problems      []string      `json:"problems,omitempty"`
+	Update        *updateView   `json:"update,omitempty"`
 }
 
 func (s *Server) state() stateView {
@@ -136,7 +138,7 @@ func (s *Server) state() stateView {
 		SwitchMode: cfg.SwitchMode, OnExhausted: cfg.OnExhausted, CooldownSeconds: cfg.CooldownSeconds,
 		MaxSwitchesPerHour: cfg.MaxSwitchesPerHour, ExhaustedRetryMinutes: cfg.ExhaustedRetryMinutes,
 		ContinuePrompt: cfg.ContinuePrompt, ShareUserConfig: cfg.ShareEnabled(), AllowDesktopBundle: cfg.DesktopBundleAllowed(),
-		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, GUILanguage: cfg.GUILanguage,
+		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 	}
 	v.Lang = cfg.GUILanguage
@@ -227,6 +229,7 @@ func (s *Server) state() stateView {
 	v.RecentFolders = recentFolders(journals, 8)
 	v.Recent = s.recentSessions(journals, alive, v.Runs, 6)
 	v.Claude, v.ClaudePending = s.claudeInfo()
+	v.Update = s.updateInfo(cfg)
 	if s.opt.Installed != nil {
 		v.Installed, v.CanInstall = s.opt.Installed()
 	}

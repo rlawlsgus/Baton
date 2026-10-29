@@ -12,7 +12,7 @@ import (
 // Keys are the settings `baton config` and the GUI read and change, in
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
-	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control",
+	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control", "check_updates",
 	"gui_language"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
@@ -42,6 +42,8 @@ func (c Config) Get(key string) (string, bool) {
 		return c.ClaudePath, true
 	case "allow_desktop_bundle":
 		return strconv.FormatBool(c.DesktopBundleAllowed()), true
+	case "check_updates":
+		return strconv.FormatBool(c.UpdateChecks()), true
 	case "gui_language":
 		if c.GUILanguage == "" {
 			return "auto", true
@@ -126,6 +128,12 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			return nil, err
 		}
 		return func(c *Config) { c.AllowDesktopBundle = &b }, nil
+	case "check_updates":
+		b, err := boolean()
+		if err != nil {
+			return nil, err
+		}
+		return func(c *Config) { c.CheckUpdates = &b }, nil
 	case "claude_path":
 		v := strings.Trim(strings.TrimSpace(value), `"`)
 		if v == "" || strings.EqualFold(v, "auto") || strings.EqualFold(v, "none") {

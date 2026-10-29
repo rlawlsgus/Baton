@@ -30,6 +30,10 @@ type Config struct {
 	// baton looks it up again each time). Default on: most users have the app,
 	// not the CLI. nil means default.
 	AllowDesktopBundle *bool `json:"allow_desktop_bundle,omitempty"`
+	// CheckUpdates: the window asks GitHub now and then whether a newer
+	// baton is out (it only says so; installing is the user's click). nil
+	// means default (on).
+	CheckUpdates *bool `json:"check_updates,omitempty"`
 
 	// SwitchMode is empty until the user has seen the disclosure and chosen.
 	SwitchMode string `json:"switch_mode,omitempty"`
@@ -64,6 +68,8 @@ func (c Config) ShareEnabled() bool { return c.ShareUserConfig == nil || *c.Shar
 func (c Config) DesktopBundleAllowed() bool {
 	return c.AllowDesktopBundle == nil || *c.AllowDesktopBundle
 }
+
+func (c Config) UpdateChecks() bool { return c.CheckUpdates == nil || *c.CheckUpdates }
 
 func Defaults() Config {
 	return Config{

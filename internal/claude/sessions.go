@@ -22,6 +22,7 @@ type LiveSession struct {
 	// WaitingFor: what a waiting session waits for (a permission
 	// question, input needed...), in Claude Code's words.
 	WaitingFor string `json:"waitingFor"`
+	Entrypoint string `json:"entrypoint"` // what runs it: claude-desktop, cli, claude-vscode...
 	StartedAt  int64  `json:"startedAt"`
 	File       string `json:"-"`
 }
@@ -120,14 +121,18 @@ func Holders(profileDirs []string, sessionID string) []LiveSession {
 	return out
 }
 
-// OpenSessions returns the ids of the conversations that a live claude in
-// any of the profiles has open now.
-func OpenSessions(profileDirs []string) map[string]bool {
-	out := map[string]bool{}
+// OpenSessions returns the conversations that a live claude in any of the
+// profiles has open now, by session id, with what runs that claude (its
+// entrypoint, such as claude-desktop or cli; "?" when it does not say).
+func OpenSessions(profileDirs []string) map[string]string {
+	out := map[string]string{}
 	for _, dir := range profileDirs {
 		for _, s := range ReadSessions(dir) {
 			if s.SessionID != "" && s.Alive() {
-				out[s.SessionID] = true
+				out[s.SessionID] = s.Entrypoint
+				if s.Entrypoint == "" {
+					out[s.SessionID] = "?"
+				}
 			}
 		}
 	}

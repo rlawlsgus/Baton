@@ -930,14 +930,14 @@ def scenario_import(w: World, res: list) -> dict:
     os.makedirs(os.path.dirname(entry), exist_ok=True)
     with open(entry, "w", encoding="utf-8") as f:
         json.dump({"pid": os.getpid(), "sessionId": sid, "cwd": w.run.proj, "kind": "interactive", "status": "idle",
-                   "startedAt": process_started_ms(os.getpid())}, f)
+                   "entrypoint": "claude-desktop", "startedAt": process_started_ms(os.getpid())}, f)
     try:
         listed = w.baton_cmd("sessions")
-        check(sid in listed.stdout and "desktop work" in listed.stdout and "open in another window" in listed.stdout,
-              f"import: baton sessions lists it, named and open ({listed.stdout[:300]!r})", res)
+        check(sid in listed.stdout and "desktop work" in listed.stdout and "open in the Claude desktop app" in listed.stdout,
+              f"import: baton sessions lists it, named and open in the desktop app ({listed.stdout[:300]!r})", res)
         refused = w.baton_cmd("resume", sid)
-        check(refused.returncode == 1 and "--copy" in refused.stderr,
-              f"import: resume without --copy refuses an open conversation ({refused.stderr.strip()[:200]!r})", res)
+        check(refused.returncode == 1 and "the Claude desktop app" in refused.stderr and "--copy" in refused.stderr,
+              f"import: resume without --copy refuses an open conversation and says where ({refused.stderr.strip()[:200]!r})", res)
         w.reset_state()
         w.accounts_flip("echo", "echo")
         mark = len(w.mock_rows())

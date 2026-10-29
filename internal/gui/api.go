@@ -19,6 +19,7 @@ import (
 	"baton/internal/run"
 	"baton/internal/sched"
 	"baton/internal/share"
+	"baton/internal/update"
 	"baton/internal/winui"
 )
 
@@ -102,6 +103,8 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"claude/refresh":   s.apiClaudeRefresh,
 		"install":          s.apiInstall,
 		"uninstall":        s.apiUninstall,
+		"update/check":     s.apiUpdateCheck,
+		"update/install":   s.apiUpdateInstall,
 		"doctor":           s.apiDoctor,
 		"open":             s.apiOpen,
 	}
@@ -553,8 +556,9 @@ type conversationView struct {
 	// Why it cannot: "gone" (the folder no longer exists), or checkFolder's
 	// problem for a folder baton does not start in.
 	FolderProblem string    `json:"folder_problem,omitempty"`
-	Source        string    `json:"source"` // what made it: claude-desktop, cli, claude-vscode...
-	Open          bool      `json:"open"`   // another Claude Code (such as the desktop app) has it open now
+	Source        string    `json:"source"`           // what made it: claude-desktop, cli, claude-vscode...
+	Open          bool      `json:"open"`             // another Claude Code (such as the desktop app) has it open now
+	Holder        string    `json:"holder,omitempty"` // what has it open: claude-desktop, cli, claude-vscode...
 	Modified      time.Time `json:"modified"`
 }
 
@@ -588,7 +592,7 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, conversationView{SessionID: t.SessionID, Where: whereOf[strings.ToLower(filepath.Clean(t.ConfigDir))],
 			Title: t.Title, FirstPrompt: t.FirstPrompt, Cwd: t.Cwd, FolderOK: problem == "", FolderProblem: problem,
-			Source: t.Source, Open: open[t.SessionID], Modified: t.Modified})
+			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], Modified: t.Modified})
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -715,21 +719,11 @@ func (s *Server) apiUninstall(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusNotImplemented, "no_uninstall", "not available", "")
 		return
 	}
-	// Refused here as `baton uninstall` would, before this window closes.
-	busy := len(run.Active(s.opt.Paths.RunsDir(), supervisorAlive)) > 0
-	reg, _ := accounts.Load(s.opt.Paths.Accounts())
-	for _, a := range reg.Accounts {
-		busy = busy || claude.BusyProfile(a.ProfileDir)
-	}
-	if busy {
-		fail(w, http.StatusConflict, "sessions_running", "end the running sessions first", "")
-		return
-	}
-	// A session window that is still open (an ended session waiting for
-	// Enter) holds its log in baton's data folder, which would stop the
-	// deletion partway.
-	if s.anyJobRunning() {
-		fail(w, http.StatusConflict, "windows_open", "close the open baton windows first", "")
+	// Refused here as `baton uninstall` would, before this window closes. A
+	// session window that is still open (an ended session waiting for Enter)
+	// holds its log in baton's data folder, which would stop the deletion.
+	if code, msg := s.replaceRefusal(); code != "" {
+		fail(w, http.StatusConflict, code, msg, "")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -764,7 +758,7 @@ func (s *Server) apiDoctor(w http.ResponseWriter, r *http.Request) {
 // apiOpen shows one of baton's own folders, or a session's project folder.
 func (s *Server) apiOpen(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		What  string `json:"what"` // data | run | folder
+		What  string `json:"what"` // data | run | folder | release
 		RunID string `json:"run_id"`
 	}
 	if !readJSON(w, r, &req) {
@@ -772,6 +766,22 @@ func (s *Server) apiOpen(w http.ResponseWriter, r *http.Request) {
 	}
 	var target string
 	switch req.What {
+	case "release":
+		// The newest release's page on GitHub, in the default browser; only
+		// ever this repository's.
+		s.mu.Lock()
+		rel := s.upd.rel
+		s.mu.Unlock()
+		if rel == nil || !strings.HasPrefix(rel.Page, "https://github.com/"+update.Repo+"/releases/") || s.opt.Open == nil {
+			fail(w, http.StatusNotFound, "missing", "no release page", "")
+			return
+		}
+		if err := s.opt.Open(rel.Page); err != nil {
+			fail(w, http.StatusInternalServerError, "open", err.Error(), "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		return
 	case "data":
 		target = s.opt.Paths.Root
 	case "run", "folder":
@@ -790,7 +800,7 @@ func (s *Server) apiOpen(w http.ResponseWriter, r *http.Request) {
 			target = j.Cwd
 		}
 	default:
-		fail(w, http.StatusBadRequest, "bad_request", "what must be data, run or folder", "")
+		fail(w, http.StatusBadRequest, "bad_request", "what must be data, run, folder or release", "")
 		return
 	}
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {

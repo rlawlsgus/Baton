@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.4.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.5.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -62,6 +62,8 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   any time.
 - ⌨️ **Command line included.** `baton.exe` has the same features for terminals and
   scripts.
+- ⬆️ **Updates in one click.** baton tells you when a new release is out and installs it
+  from GitHub after checking its checksum.
 
 > [!IMPORTANT]
 > Use only accounts you personally own. Anthropic's terms and Usage Policy also forbid
@@ -106,12 +108,20 @@ one, then choose the account to start on. The conversation continues in its own 
 <p align="center"><img src="docs/images/import.gif" width="860" alt="Bringing in a desktop-app session: search, pick it, continue it in a copy on an account"></p>
 
 - **Not open anywhere:** the conversation itself continues under baton.
-- **Still open in the desktop app:** writing to the same conversation from two places
-  would corrupt it, so baton continues in a **copy**. The original stays as it is in the
-  desktop app. The copy is a new conversation that carries everything said so far, and it
-  switches accounts like any other session.
+- **Still open in the desktop app or a terminal:** baton says where it is open and asks you
+  to close it there first: quit the desktop app completely (from the tray icon too), or end
+  Claude Code in that terminal. Then choose *Check again*. Writing to one conversation from
+  two places would corrupt it, so if you go on while it is still open, baton continues in a
+  **copy**. The original stays as it is. The copy is a new conversation that carries
+  everything said so far, but from then on the two go separate ways.
 - **Its folder is gone:** baton shows that, because it can only continue a conversation
   in its own folder.
+
+A conversation brought in without a copy is the same conversation on both sides: baton and
+the desktop app read and write the same file. Hand it over one side at a time. End the
+session in baton before you open the conversation in the desktop app, and quit the desktop
+app before you bring it in again; whichever side opens it next continues from everything
+said on the other.
 
 From the command line:
 
@@ -164,12 +174,22 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.4.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.5.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
 `%LOCALAPPDATA%\Programs\baton`. To use the command line from anywhere, put that folder
 (or the unzipped one) on your `PATH`.
+
+**Updating.** **Help → Update baton** asks GitHub for the newest release and shows what
+changed; while the window is open it also looks every few hours and shows a banner when one
+is out. *Update to …* downloads the release, checks it against the release's
+`checksums.txt`, installs it to the Start menu and opens the new window. End running sessions
+and close the windows baton opened first. From the command line:
+
+```bash
+baton update
+```
 
 **Claude Code.** baton uses the Claude Code CLI if it is installed, and otherwise the copy
 that comes with the Claude desktop app. That copy appears after you open the app's Code tab
@@ -193,7 +213,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -261,6 +281,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton sync` | share your normal Claude Code setup with every account profile (see below) |
 | `baton config [<key> [<value>]]` | show or change settings (below) |
 | `baton doctor` | check claude.exe, the console and every sign-in |
+| `baton update [--check]` | install the newest baton from GitHub (`--check` only says whether one is out) |
 | `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data and its Start menu entry |
 
 **Settings** (`baton config`):
@@ -277,6 +298,7 @@ Claude Code reads every word that follows as one of their values.
 | `claude_path` | full path to `claude.exe`; `desktop` always uses the Claude desktop app's; `auto` goes back to detecting it |
 | `allow_desktop_bundle` | allow the Claude Code that comes with the desktop app |
 | `remote_control` | tick *Turn on Remote Control* in the window's Start dialog by default |
+| `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
 
 <details>
 <summary><b>Your Claude Code setup on every account</b></summary>
@@ -382,6 +404,11 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   baton never asks Anthropic for it itself. If you set a status line of your own
   (`statusLine` in your settings), baton leaves it as it is and records no usage for those
   sessions.
+- **Update checks go to GitHub.** The window asks `api.github.com` for baton's releases when
+  it opens and every few hours after that (`baton config check_updates false` turns this
+  off; *Check for updates* still works). Nothing is installed without your click. An update is
+  installed only if its zip matches the release's `checksums.txt`, which catches a broken or
+  swapped download, but both come from the same GitHub release.
 - **Use a Windows console.** Run baton from Windows Terminal, PowerShell or cmd. From a
   terminal that is not a Windows console, such as mintty without ConPTY, baton opens Claude
   Code in a new console window.

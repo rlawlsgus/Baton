@@ -42,6 +42,19 @@ func sourceName(source string) string {
 	return "Claude Code"
 }
 
+// holderName says what holds a conversation open (a live claude's entrypoint).
+func holderName(entrypoint string) string {
+	switch entrypoint {
+	case "claude-desktop":
+		return say("the Claude desktop app", "Claude 데스크톱 앱")
+	case "cli":
+		return say("Claude Code in a terminal", "터미널의 Claude Code")
+	case "claude-vscode":
+		return "VS Code"
+	}
+	return say("another Claude Code window", "다른 Claude Code 창")
+}
+
 // cmdSessions lists the conversations of every folder, newest first: the
 // ones on baton's accounts and the ones in the normal Claude Code setup,
 // the desktop app's sessions included.
@@ -75,8 +88,9 @@ func cmdSessions(args []string) error {
 			where = sourceName(t.Source)
 		}
 		mark := ""
-		if open[t.SessionID] {
-			mark = say("  [open in another window]", "  [다른 창에서 열려 있음]")
+		if holder := open[t.SessionID]; holder != "" {
+			mark = say("  [open in "+holderName(holder)+"; close it there, or continue in a copy]",
+				"  [열려 있음: "+holderName(holder)+". 그쪽을 닫거나 사본으로 이어 가기]")
 		}
 		fmt.Printf("%s  %s  %s%s\n    %s  (%s)\n", t.SessionID, t.Modified.Local().Format("2006-01-02 15:04"), title, mark, t.Cwd, where)
 	}
@@ -131,8 +145,11 @@ func cmdResume(args []string) (int, error) {
 		return 1, fmt.Errorf(say("the folder this conversation ran in (%s) is gone", "이 대화를 하던 폴더(%s)가 없습니다"), orDash(cwd))
 	}
 	if !*copyIt && len(claude.Holders(dirs, id)) > 0 {
-		return 1, errors.New(say("this conversation is open in another window (such as the Claude desktop app); close it there, or continue in a copy: baton resume "+id+" --copy",
-			"이 대화는 다른 창(Claude 데스크톱 앱 등)에서 열려 있습니다. 그쪽에서 닫거나, 사본으로 이어 가세요: baton resume "+id+" --copy"))
+		holder := claude.OpenSessions(dirs)[id]
+		return 1, errors.New(say("this conversation is open in "+holderName(holder)+". To go on with the same conversation, close it there first and run this again; "+
+			"or continue in a copy, which goes on apart from the original: baton resume "+id+" --copy",
+			"이 대화는 "+holderName(holder)+"에서 열려 있습니다. 같은 대화로 이어 가려면 먼저 그쪽을 닫고 다시 실행하세요. "+
+				"또는 사본으로 이어 갈 수 있지만, 사본은 원래 대화와 따로 진행됩니다: baton resume "+id+" --copy"))
 	}
 	if err := os.Chdir(cwd); err != nil {
 		return 1, err

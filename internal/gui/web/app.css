@@ -211,3 +211,5 @@ button.btn.small-btn { padding: 1px 8px; font-size: 12px; }
 .nums { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .nums .plus { color: var(--ok); }
 .nums .minus { color: var(--bad); }
+.tip.warn-tip { border-left: 3px solid var(--warn); }
+.tip.ok-tip { background: var(--ok-soft); }

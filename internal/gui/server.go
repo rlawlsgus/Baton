@@ -8,6 +8,7 @@
 package gui
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -23,6 +24,7 @@ import (
 	"time"
 
 	"baton/internal/app"
+	"baton/internal/update"
 )
 
 //go:embed web
@@ -62,6 +64,11 @@ type Options struct {
 	Relaunch  func(app string) error
 	Uninstall func() error
 	Installed func() (installed, canInstall bool)
+	// CheckUpdate asks GitHub for baton's newest release; Update downloads
+	// it, checks it against its checksums and installs it like Install,
+	// returning the installed baton-app.exe for Relaunch.
+	CheckUpdate func(ctx context.Context) (update.Release, error)
+	Update      func(ctx context.Context, rel update.Release) (string, error)
 }
 
 type ClaudeInfo struct {
@@ -101,6 +108,7 @@ type Server struct {
 	claudeAt   time.Time
 	claudeBusy bool
 	changes    map[string]*changesEntry // git changes of running sessions, by run id
+	upd        updateState
 }
 
 // page is one load of the page in a window or browser tab. A reload, or a

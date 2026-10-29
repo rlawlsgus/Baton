@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.4.1-dev"
+var version = "0.5.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -44,6 +44,7 @@ Usage:
                                      CLAUDE.md...) with every account profile
   baton config [<key> [<value>]]     show or change settings
   baton doctor                       check claude.exe, the console and every login
+  baton update [--check]             install the newest baton from GitHub
   baton version
 
 Data lives in %LOCALAPPDATA%\baton (override with BATON_HOME).
@@ -135,6 +136,8 @@ func main() {
 		code, err = cmdResume(args)
 	case "sessions":
 		err = cmdSessions(args)
+	case "update":
+		err = cmdUpdate(args)
 	case "add":
 		err = cmdAdd(args)
 	case "login":

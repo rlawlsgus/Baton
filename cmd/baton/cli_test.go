@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -658,5 +660,34 @@ func TestRemoveAndUninstallKeepConversations(t *testing.T) {
 	}
 	if _, err := os.Stat(data); !os.IsNotExist(err) {
 		t.Fatalf("baton's data folder is still there: %v", err)
+	}
+}
+
+// baton update --check asks GitHub (here: a fake) and says what is out.
+func TestUpdateCheck(t *testing.T) {
+	c := newCLI(t)
+	tag := "v9.9.9"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("User-Agent"), "baton/") {
+			http.Error(w, "no user agent", http.StatusForbidden)
+			return
+		}
+		v := strings.TrimPrefix(tag, "v")
+		_ = json.NewEncoder(w).Encode([]map[string]any{{"tag_name": tag, "body": "big news", "html_url": "https://example.com/" + tag,
+			"assets": []map[string]string{
+				{"name": "baton_" + v + "_windows_" + runtime.GOARCH + ".zip", "browser_download_url": "https://example.com/z"},
+				{"name": "checksums.txt", "browser_download_url": "https://example.com/s"}}}})
+	}))
+	defer srv.Close()
+	env := []string{"BATON_UPDATE_API=" + srv.URL}
+	if out, code := c.run(env, "update", "--check"); code != 0 || !strings.Contains(out, "baton 9.9.9 is out") || !strings.Contains(out, "big news") {
+		t.Fatalf("newer: %d\n%s", code, out)
+	}
+	tag = "v0.0.1"
+	if out, code := c.run(env, "update", "--check"); code != 0 || !strings.Contains(out, "is the newest version") {
+		t.Fatalf("older: %d\n%s", code, out)
+	}
+	if out, code := c.run(append(env, "BATON_RUN=x"), "update"); code == 0 || !strings.Contains(out, "inside a baton session") {
+		t.Fatalf("inside a session: %d\n%s", code, out)
 	}
 }

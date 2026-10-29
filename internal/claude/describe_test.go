@@ -157,10 +157,10 @@ func TestOpenSessions(t *testing.T) {
 	entry(pid, "live", winproc.ProcessCreated(pid).UnixMilli())
 	entry(999999, "gone", time.Now().UnixMilli()) // no such process
 	got := OpenSessions([]string{dir})
-	if !got["live"] && BusyProfile(dir) {
+	if got["live"] == "" && BusyProfile(dir) {
 		t.Fatalf("live session not reported: %v", got)
 	}
-	if got["gone"] || len(got) > 1 {
+	if got["gone"] != "" || len(got) > 1 {
 		t.Fatalf("a dead claude's session reported: %v", got)
 	}
 }

@@ -70,8 +70,15 @@ const T = {
     import_search: '제목, 첫 질문, 폴더로 찾기', import_none: '가져올 대화가 없습니다. Claude Code에서 대화하면 여기에 나옵니다.',
     import_no_match: '찾는 대화가 없습니다.', import_go: '이 대화 이어 가기',
     src_desktop: 'Claude 데스크톱 앱', src_cli: '터미널', src_vscode: 'VS Code', src_other: 'Claude Code',
-    conv_open: '다른 창에서 열려 있음', conv_gone: '폴더 없음',
-    conv_open_hint: '이 대화는 Claude 데스크톱 앱 같은 다른 Claude Code 창에서 열려 있습니다. 사본으로 이어 가면 원래 대화는 그대로 두고, 지금까지의 내용을 이어받은 새 대화로 baton에서 계속합니다.',
+    conv_open: '다른 곳에서 열려 있음', conv_gone: '폴더 없음',
+    conv_open_hint: '이 대화는 다른 Claude Code 창에서 열려 있어 사본으로만 이어 갈 수 있습니다. 사본은 지금까지의 내용을 이어받은 새 대화로, 원래 대화와 따로 진행됩니다.',
+    held_desktop: 'Claude 데스크톱 앱', held_cli: '터미널의 Claude Code(CLI)', held_vscode: 'VS Code', held_other: '다른 Claude Code 창',
+    held_title: '이 대화는 지금 {app}에서 열려 있습니다',
+    held_close_desktop: '같은 대화로 이어 가려면 먼저 Claude 데스크톱 앱을 완전히 종료하세요(작업 표시줄 트레이 아이콘에서도 종료). 그다음 아래의 다시 확인을 누르세요.',
+    held_close_cli: '같은 대화로 이어 가려면 먼저 그 터미널에서 Claude Code를 종료하세요(/exit, 또는 Ctrl+C 두 번). 그다음 아래의 다시 확인을 누르세요.',
+    held_close_other: '같은 대화로 이어 가려면 먼저 그 창에서 이 대화를 닫으세요. 그다음 아래의 다시 확인을 누르세요.',
+    held_copy: '그대로 계속하면 사본으로 가져옵니다. 사본은 지금까지의 내용을 이어받은 새 대화이고, 원래 대화와 따로 진행되어 서로 동기화되지 않습니다.',
+    held_recheck: '다시 확인', import_go_copy: '사본으로 이어 가기', held_still: '아직 열려 있습니다.', held_free: '이제 닫혔습니다. 같은 대화로 이어 갈 수 있습니다.',
     conv_gone_hint: '이 대화를 하던 폴더가 없어져서 이어 갈 수 없습니다.',
     conv_unusable: '쓸 수 없는 폴더',
     conv_bad_hint: 'baton은 내 PC의 폴더(C:\\… 등)이면서 경로가 248자보다 짧은 곳에서만 세션을 시작하므로, 이 대화는 여기서 이어 갈 수 없습니다.',
@@ -171,6 +178,16 @@ const T = {
     install_title: '시작 메뉴에 설치', install_body: '지금은 압축을 푼 폴더에서 실행 중입니다. 설치하면 시작 메뉴에서 baton을 열 수 있고, 작업 표시줄에 고정한 아이콘도 계속 동작합니다. 관리자 권한은 필요 없습니다.',
     install_go: '설치하고 다시 열기', installed_note: '시작 메뉴에 설치되어 있습니다.', install_failed: '설치하지 못했습니다: {e}',
     uninstall_title: 'baton 제거', uninstall_body: 'baton이 모든 계정을 로그아웃하고 baton의 데이터(계정별 로그인 정보)를 지웁니다. baton에서 시작한 대화는 지우기 전에 평소 Claude Code 폴더(%USERPROFILE%\\.claude)로 옮겨 보존하므로, claude --resume으로 다시 열 수 있습니다. Claude 계정 자체와 평소 쓰던 Claude Code 설정, Claude 데스크톱 앱의 세션은 그대로입니다.',
+    upd_title: 'baton 업데이트', upd_current: '지금 버전 {v}', upd_newest: '최신 버전입니다.', upd_checked: '{t} 확인',
+    upd_new: '새 버전 {v}이(가) 나왔습니다.', upd_check: '업데이트 확인', upd_checking: '확인하는 중…', upd_go: '{v}(으)로 업데이트',
+    upd_err: '업데이트를 확인하지 못했습니다: {e}', upd_notes: '바뀐 점', upd_page: '릴리스 페이지 열기',
+    upd_confirm_title: 'baton {v}(으)로 업데이트',
+    upd_confirm_body: 'GitHub에서 baton {v}을(를) 내려받아 체크섬으로 확인한 뒤 설치하고, baton 창을 새로 엽니다. 계정, 설정, 대화는 그대로입니다.',
+    upd_portable: '지금은 압축을 푼 폴더에서 실행 중이라, 업데이트한 baton은 시작 메뉴에 설치되고 거기서 다시 열립니다.',
+    upd_installing: '내려받아 설치하는 중… (1분쯤 걸릴 수 있습니다)', upd_done: 'baton {v}을(를) 설치했습니다. 새 창을 엽니다.',
+    upd_failed: '업데이트하지 못했습니다: {e}', upd_err_sessions: '실행 중인 세션이 있습니다. 세션을 모두 끝낸 뒤 업데이트하세요(세션이 baton.exe를 쓰고 있습니다).',
+    upd_err_windows: 'baton이 연 창(세션 창이나 로그인 창)이 아직 열려 있습니다. 그 창들을 닫은 뒤 업데이트하세요.',
+    upd_banner: 'baton {v}이(가) 나왔습니다.', upd_banner_go: '자세히', set_upd: 'baton을 열 때 새 버전이 있는지 확인 (GitHub)',
     uninstall_go: '제거…', uninstall_confirm: '이 창이 닫히고, 제거 창에서 한 번 더 확인합니다. 실행 중인 세션이 있으면 먼저 끝내세요.', uninstall_ok: '제거 창 열기',
     // banners / errors
     problem: '파일을 읽지 못했습니다: {e}', claude_warn: '{w}', need_claude: 'Claude Code를 찾지 못해 세션을 시작할 수 없습니다.',
@@ -255,8 +272,15 @@ const T = {
     import_search: 'Search by title, first prompt or folder', import_none: 'No conversations yet. Conversations you have in Claude Code show up here.',
     import_no_match: 'No conversation matches.', import_go: 'Continue this conversation',
     src_desktop: 'Claude desktop app', src_cli: 'Terminal', src_vscode: 'VS Code', src_other: 'Claude Code',
-    conv_open: 'Open in another window', conv_gone: 'Folder gone',
-    conv_open_hint: 'This conversation is open in another Claude Code window, such as the Claude desktop app. Continuing in a copy leaves it as it is; baton goes on in a new conversation that carries everything said so far.',
+    conv_open: 'Open elsewhere', conv_gone: 'Folder gone',
+    conv_open_hint: 'This conversation is open in another Claude Code window, so it can only continue in a copy: a new conversation that carries everything said so far and goes on apart from the original.',
+    held_desktop: 'the Claude desktop app', held_cli: 'Claude Code in a terminal (CLI)', held_vscode: 'VS Code', held_other: 'another Claude Code window',
+    held_title: 'This conversation is open in {app} right now',
+    held_close_desktop: 'To go on with the same conversation, quit the Claude desktop app completely first (also from its tray icon), then press Check again below.',
+    held_close_cli: 'To go on with the same conversation, end Claude Code in that terminal first (/exit, or Ctrl+C twice), then press Check again below.',
+    held_close_other: 'To go on with the same conversation, close it in that window first, then press Check again below.',
+    held_copy: 'If you go on anyway, baton brings it in as a copy: a new conversation that carries everything said so far, goes on apart from the original and does not sync with it.',
+    held_recheck: 'Check again', import_go_copy: 'Continue in a copy', held_still: 'Still open.', held_free: 'Closed now: it can go on as the same conversation.',
     conv_gone_hint: 'The folder this conversation ran in is gone, so it cannot continue.',
     conv_unusable: 'Folder not usable',
     conv_bad_hint: 'baton starts sessions only in folders on this PC (such as C:\\…) with a path shorter than 248 characters, so this conversation cannot continue from here.',
@@ -350,6 +374,16 @@ const T = {
     install_title: 'Install to the Start menu', install_body: 'baton runs from the extracted folder now. Installing adds it to the Start menu, and a taskbar pin keeps working. No administrator rights needed.',
     install_go: 'Install and reopen', installed_note: 'Installed in the Start menu.', install_failed: 'Could not install: {e}',
     uninstall_title: 'Uninstall baton', uninstall_body: 'baton signs out every account and deletes its data (each account\'s sign-in). Conversations that started in baton are moved to your own Claude Code (%USERPROFILE%\\.claude) first, so claude --resume opens them again. Your Claude accounts, your own Claude Code setup and the Claude desktop app\'s sessions are not affected.',
+    upd_title: 'Update baton', upd_current: 'This is version {v}', upd_newest: 'This is the newest version.', upd_checked: 'checked {t}',
+    upd_new: 'baton {v} is out.', upd_check: 'Check for updates', upd_checking: 'Checking…', upd_go: 'Update to {v}',
+    upd_err: 'Could not check for updates: {e}', upd_notes: 'What changed', upd_page: 'Open the release page',
+    upd_confirm_title: 'Update baton to {v}',
+    upd_confirm_body: 'baton downloads {v} from GitHub, checks it against its checksums, installs it and opens its window again. Your accounts, settings and conversations stay as they are.',
+    upd_portable: 'baton runs from the unzipped folder now, so the update is installed to the Start menu and opens from there.',
+    upd_installing: 'Downloading and installing… (this can take a minute)', upd_done: 'Installed baton {v}. Opening it…',
+    upd_failed: 'Could not update: {e}', upd_err_sessions: 'Sessions are running. End them all, then update (they use baton.exe).',
+    upd_err_windows: 'Windows that baton opened (session or sign-in windows) are still open. Close them, then update.',
+    upd_banner: 'baton {v} is out.', upd_banner_go: 'Details', set_upd: 'Check for a newer baton when it opens (GitHub)',
     uninstall_go: 'Uninstall…', uninstall_confirm: 'This window closes and the uninstall window asks once more. End running sessions first.', uninstall_ok: 'Open uninstall',
     problem: 'Could not read a file: {e}', claude_warn: '{w}', need_claude: 'Claude Code was not found, so sessions cannot start.',
     need_mode: 'You have not chosen how baton switches accounts yet.', choose_now: 'Choose now',
@@ -581,6 +615,11 @@ function renderBanners(st) {
     out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', { text: t('need_claude') }), h('div', { text: msg }),
       st.claude.error ? h('div', { class: 'small muted', text: st.claude.error }) : null),
       h('button', { class: 'btn', text: t('recheck'), onclick: async () => { await api('claude/refresh', {}).catch(showError); refresh(); } })));
+  }
+  if (st.update && st.update.newer && !S.ui.dismissed['upd' + st.update.latest] && S.tab !== 'help') {
+    out.push(h('div', { class: 'banner info' }, h('div', { class: 'grow', text: t('upd_banner', { v: st.update.latest }) }),
+      h('button', { class: 'btn', text: t('upd_banner_go'), onclick: () => { S.tab = 'help'; render(); } }),
+      h('button', { class: 'btn ghost', text: t('dismiss'), onclick: () => { S.ui.dismissed['upd' + st.update.latest] = true; render(); } })));
   }
   const needLogin = st.accounts.filter((a) => a.enabled && a.status === 'needs_login');
   if (needLogin.length && S.tab !== 'accounts') {
@@ -945,6 +984,7 @@ async function openImport() {
   const list = h('div', { class: 'list tall', role: 'listbox', 'aria-label': t('import_title') });
   const hint = h('div', {});
   const more = h('div', {});
+  let note = ''; // the outcome of Check again
   const go = h('button', { class: 'btn primary', text: t('import_go'), disabled: true, onclick: () => {
     if (!sel || sel.folder_ok === false) return;
     closeDialog();
@@ -953,6 +993,7 @@ async function openImport() {
   const search = h('input', { type: 'text', placeholder: t('import_search'), 'aria-label': t('import_search'), oninput: (e) => { q = e.target.value; draw(); } });
   const pick = (c, key) => {
     if (key && sel === c) { go.click(); return; } // Enter on the chosen one continues it
+    if (sel !== c) note = '';
     sel = c; draw();
     if (key) { const el = list.querySelector('.selected'); if (el) el.focus(); } // the redraw took the focus away
   };
@@ -973,8 +1014,14 @@ async function openImport() {
     }, convItem(c, true))));
     const st = S.state;
     go.disabled = !sel || sel.folder_ok === false || !st.claude.found || !usableAccounts(st).length;
-    const why = !sel ? '' : sel.folder_ok === false ? (sel.folder_problem === 'gone' ? t('conv_gone_hint') : t('conv_bad_hint')) : sel.open ? t('conv_open_hint') : '';
-    hint.replaceChildren(...(why ? [h('div', { class: 'tip', text: why })] : []));
+    go.textContent = sel && sel.open && sel.folder_ok !== false ? t('import_go_copy') : t('import_go');
+    if (sel && sel.folder_ok === false) {
+      hint.replaceChildren(h('div', { class: 'tip', text: sel.folder_problem === 'gone' ? t('conv_gone_hint') : t('conv_bad_hint') }));
+    } else if (sel && sel.open) {
+      hint.replaceChildren(heldWarning(sel, recheck, note));
+    } else {
+      hint.replaceChildren(...(note ? [h('div', { class: 'tip ok-tip', text: note })] : []));
+    }
     more.replaceChildren(...(capped ? [h('p', { class: 'muted small mt6', text: t('import_more') })] : []));
   }
   draw();
@@ -982,13 +1029,42 @@ async function openImport() {
     h('div', { class: 'field' }, search), list, more, hint,
     h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
   search.focus();
-  let got = [];
-  try { got = await api('conversations?all=1'); } catch (e) { failed = errText(e); }
-  capped = got.length >= CAP;
-  // Sessions running in baton right now are on the Sessions tab already.
-  const running = new Set(S.state.runs.map((r) => r.session_id));
-  convs = got.filter((c) => !running.has(c.session_id));
+  async function load() {
+    let got = [];
+    failed = '';
+    try { got = await api('conversations?all=1'); } catch (e) { failed = errText(e); }
+    capped = got.length >= CAP;
+    // Sessions running in baton right now are on the Sessions tab already.
+    const running = new Set(S.state.runs.map((r) => r.session_id));
+    convs = got.filter((c) => !running.has(c.session_id));
+    if (sel) sel = convs.find((c) => c.session_id === sel.session_id && c.where === sel.where) || null;
+  }
+  // Check again: the user closed the other app; read the list anew and keep
+  // the conversation chosen.
+  async function recheck() {
+    const was = sel;
+    await load();
+    note = !was ? '' : sel && sel.open ? t('held_still') : sel ? t('held_free') : '';
+    draw();
+  }
+  await load();
   draw();
+}
+
+// heldWarning: the conversation is open in another app. Close that first to
+// go on with the same conversation, or go on in a copy, which does not sync.
+function heldWarning(c, recheck, note) {
+  const app = t({ 'claude-desktop': 'held_desktop', cli: 'held_cli', 'claude-vscode': 'held_vscode' }[c.holder] || 'held_other');
+  const close = t({ 'claude-desktop': 'held_close_desktop', cli: 'held_close_cli' }[c.holder] || 'held_close_other');
+  const btn = h('button', { class: 'btn', text: t('held_recheck'), onclick: async () => {
+    btn.disabled = true;
+    try { await recheck(); } finally { btn.disabled = false; }
+  } });
+  return h('div', { class: 'tip warn-tip' },
+    h('b', { text: '⚠ ' + t('held_title', { app }) }),
+    h('div', { class: 'mt6', text: close }),
+    h('div', { class: 'mt6', text: t('held_copy') }),
+    h('div', { class: 'actions start mt6' }, btn, note ? h('span', { class: 'small', text: note }) : null));
 }
 
 // ---- accounts ------------------------------------------------------------------------
@@ -1359,6 +1435,7 @@ function viewHelp(st) {
         h('button', { class: 'btn', text: t('open_data'), onclick: () => api('open', { what: 'data' }).catch(showError) })), out),
       h('div', { class: 'card' }, h('h3', { text: t('cli_title') }), h('p', { class: 'small', text: t('cli_body') }),
         h('p', { class: 'small muted', text: t('version', { v: st.version }) }), h('p', { class: 'small muted mono', text: st.home }))),
+    updateCard(st),
     h('div', { class: 'grid2' },
       st.can_install ? h('div', { class: 'card' }, h('h3', { text: t('install_title') }), h('p', { class: 'small', text: t('install_body') }),
         h('button', { class: 'btn primary', text: t('install_go'), onclick: async (e) => {
@@ -1372,6 +1449,51 @@ function viewHelp(st) {
           h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }),
             h('button', { class: 'btn primary danger', text: t('uninstall_ok'), onclick: async () => { closeDialog(); await api('uninstall', {}).catch(showError); } }))) }))),
   ];
+}
+
+// ---- updates -------------------------------------------------------------------------------
+
+function updateCard(st) {
+  const u = st.update;
+  if (!u) return null;
+  const status = u.checking || S.ui.updChecking ? h('span', {}, h('span', { class: 'spin' }), ' ', t('upd_checking'))
+    : u.error ? h('span', { class: 'err', text: t('upd_err', { e: u.error }) })
+      : u.newer ? h('b', { text: t('upd_new', { v: u.latest }) })
+        : u.checked ? h('span', { text: t('upd_newest') + ' (' + t('upd_checked', { t: ago(u.checked) }) + ')' }) : null;
+  const check = h('button', { class: 'btn', text: t('upd_check'), disabled: u.checking || S.ui.updChecking, onclick: async () => {
+    S.ui.updChecking = true; render();
+    try { await api('update/check', {}); } catch (e) { showError(e); } finally { S.ui.updChecking = false; refresh(); }
+  } });
+  return h('div', { class: 'card' }, h('h3', { text: t('upd_title') }),
+    h('p', { class: 'small muted', text: t('upd_current', { v: u.current }) }),
+    status ? h('p', { class: 'small' }, status) : null,
+    u.newer && u.notes ? h('details', { class: 'mt6' }, h('summary', { text: t('upd_notes') }), h('pre', { class: 'out', text: u.notes })) : null,
+    h('div', { class: 'actions start mt12' },
+      u.newer ? h('button', { class: 'btn primary', text: t('upd_go', { v: u.latest }), disabled: u.installing, onclick: () => confirmUpdate(st) }) : null,
+      check,
+      u.page && u.newer ? h('button', { class: 'btn ghost', text: t('upd_page'), onclick: () => api('open', { what: 'release' }).catch(showError) }) : null),
+    h('label', { class: 'check mt12' }, h('input', { type: 'checkbox', checked: st.config.check_updates, onchange: (e) => setConfig('check_updates', e.target.checked) }),
+      h('span', { class: 'small', text: t('set_upd') })));
+}
+
+function confirmUpdate(st) {
+  const u = st.update;
+  const err = h('div', { class: 'err' });
+  const go = h('button', { class: 'btn primary', text: t('upd_go', { v: u.latest }), onclick: async () => {
+    go.disabled = true;
+    err.replaceChildren(h('span', { class: 'muted' }, h('span', { class: 'spin' }), ' ', t('upd_installing')));
+    try {
+      await api('update/install', {});
+      err.replaceChildren(h('span', { text: t('upd_done', { v: u.latest }) }));
+    } catch (e) {
+      err.textContent = e.code === 'sessions_running' ? t('upd_err_sessions') : e.code === 'windows_open' ? t('upd_err_windows') : t('upd_failed', { e: errText(e) });
+      go.disabled = false;
+    }
+  } });
+  openDialog(h('h2', { text: t('upd_confirm_title', { v: u.latest }) }), h('p', { text: t('upd_confirm_body', { v: u.latest }) }),
+    st.installed ? null : h('p', { class: 'small muted', text: t('upd_portable') }),
+    u.notes ? h('details', {}, h('summary', { text: t('upd_notes') }), h('pre', { class: 'out', text: u.notes })) : null,
+    err, h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
 }
 
 // ---- start ---------------------------------------------------------------------------------
