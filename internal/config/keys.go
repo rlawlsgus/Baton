@@ -12,7 +12,7 @@ import (
 // Keys are the settings `baton config` and the GUI read and change, in
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
-	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle",
+	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control",
 	"gui_language"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
@@ -36,6 +36,8 @@ func (c Config) Get(key string) (string, bool) {
 		return c.ContinuePrompt, true
 	case "share_user_config":
 		return strconv.FormatBool(c.ShareEnabled()), true
+	case "remote_control":
+		return strconv.FormatBool(c.RemoteControl), true
 	case "claude_path":
 		return c.ClaudePath, true
 	case "allow_desktop_bundle":
@@ -106,6 +108,12 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 		}, nil
 	case "continue_prompt":
 		return func(c *Config) { c.ContinuePrompt = value }, nil
+	case "remote_control":
+		b, err := boolean()
+		if err != nil {
+			return nil, err
+		}
+		return func(c *Config) { c.RemoteControl = b }, nil
 	case "share_user_config":
 		b, err := boolean()
 		if err != nil {

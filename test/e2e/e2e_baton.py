@@ -28,6 +28,8 @@ Scenarios:
              in a copy (`baton resume <id> --copy`) on an account and switches on a limit
   statusline baton's status line runs in the session and shows the account; a profile's own
              status line is left alone
+  remotectl  a session started with Remote Control (--rc) keeps working where Remote Control is
+             not available (API-key accounts), and keeps the flag after a switch
 """
 from __future__ import annotations
 
@@ -982,6 +984,12 @@ def scenario_statusline(w: World, res: list) -> dict:
             sl = (json.load(f).get("statusLine") or {}).get("command", "")
         check(sl.endswith(" statusline") and "\\" not in sl, f"statusline: baton's status line is set, with forward slashes ({sl!r})", res)
         check(pc.wait_for(r"baton\W{1,6}acct-a", 15) is not None, "statusline: the session shows 'baton · acct-a' under the prompt", res)
+        try:
+            with open(os.path.join(d, "status.json"), encoding="utf-8") as f:
+                model = json.load(f).get("model", "")
+        except (OSError, ValueError):
+            model = ""
+        check(bool(model), f"statusline: the run's status.json has the model ({model!r})", res)
         check(quit_claude(pc) == 0, "statusline: first run exits", res)
     finally:
         pc.close()
@@ -1007,12 +1015,44 @@ def scenario_statusline(w: World, res: list) -> dict:
     return {"command": sl}
 
 
+def scenario_remotectl(w: World, res: list) -> dict:
+    """`baton run -- --rc` (what the window's Remote Control option passes): the mock accounts
+    sign in with API keys, where Remote Control is not available, so this checks that the session
+    still works, that the run records Remote Control, and that --rc survives a switch."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto")
+    pc = w.start("remotectl", ["--", "--rc"])
+    try:
+        submit_when_ready(w, pc, 1, "rc one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "rc one"), 60) is not None, "remotectl: A answers with --rc", res)
+        d = w.newest_run_dir()
+        journal = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))
+        check(journal.get("remote_control") is True, "remotectl: the run records Remote Control", res)
+        time.sleep(1.5)
+        w.accounts_flip("limit", "echo")
+        mark = len(w.mock_rows())
+        submit(w, pc, "rc two hits the limit")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_B, CONTINUE_MARK), 90, since=mark) is not None,
+              "remotectl: the session switches to B", res)
+        log = open(os.path.join(d, "baton.log"), encoding="utf-8", errors="replace").read()
+        launches = [l for l in log.splitlines() if "launch account=" in l]
+        rc = [l for l in launches if '"--rc"' in l]
+        check(len(launches) >= 2 and len(rc) == len(launches),
+              f"remotectl: --rc is passed on every launch, the switch included ({len(rc)}/{len(launches)})", res)
+        time.sleep(4.0)
+        check(quit_claude(pc) == 0, "remotectl: baton exits 0", res)
+    finally:
+        pc.close()
+    return {}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--baton", default=os.path.join(REPO, "bin", "baton.exe"))
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
-                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline")
+                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl")
     a = ap.parse_args()
     w = World(a.root, a.baton)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

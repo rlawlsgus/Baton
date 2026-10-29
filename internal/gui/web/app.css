@@ -205,3 +205,9 @@ details > summary { cursor: pointer; font-weight: 600; }
 .meter .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--ok); }
 .meter .fill.warn { background: var(--warn); }
 .meter .fill.bad { background: var(--bad); }
+.sub.changes { display: flex; align-items: center; gap: 8px; }
+button.btn.small-btn { padding: 1px 8px; font-size: 12px; }
+.list .item.change { align-items: center; }
+.nums { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.nums .plus { color: var(--ok); }
+.nums .minus { color: var(--bad); }

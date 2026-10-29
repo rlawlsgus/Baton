@@ -46,6 +46,9 @@ type Config struct {
 	// ShareUserConfig links/copies the user's normal ~/.claude setup (skills,
 	// agents, commands, settings, CLAUDE.md) into every profile. Default on.
 	ShareUserConfig *bool `json:"share_user_config,omitempty"`
+	// RemoteControl: sessions started from the window turn on Claude Code's
+	// Remote Control unless the user unticks it (the window's default).
+	RemoteControl bool `json:"remote_control,omitempty"`
 	// RiskAcknowledged is the DisclosureVersion the user last accepted.
 	RiskAcknowledged int `json:"risk_acknowledged,omitempty"`
 	// GUILanguage is the GUI's language: "" (follow Windows), "ko" or "en".

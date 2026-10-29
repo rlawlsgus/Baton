@@ -100,6 +100,7 @@ type Server struct {
 	claude     ClaudeInfo
 	claudeAt   time.Time
 	claudeBusy bool
+	changes    map[string]*changesEntry // git changes of running sessions, by run id
 }
 
 // page is one load of the page in a window or browser tab. A reload, or a

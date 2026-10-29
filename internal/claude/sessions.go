@@ -18,9 +18,12 @@ type LiveSession struct {
 	SessionID string `json:"sessionId"`
 	Cwd       string `json:"cwd"`
 	Kind      string `json:"kind"`
-	Status    string `json:"status"` // idle | busy
-	StartedAt int64  `json:"startedAt"`
-	File      string `json:"-"`
+	Status    string `json:"status"` // idle | busy | waiting
+	// WaitingFor: what a waiting session waits for (a permission
+	// question, input needed...), in Claude Code's words.
+	WaitingFor string `json:"waitingFor"`
+	StartedAt  int64  `json:"startedAt"`
+	File       string `json:"-"`
 }
 
 // ReadSessions lists a profile's registry entries. A file that cannot be read

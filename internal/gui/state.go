@@ -48,6 +48,15 @@ type runView struct {
 	SessionID  string    `json:"session_id"`
 	Cwd        string    `json:"cwd"`
 	Started    time.Time `json:"started"`
+	// What Claude Code is doing now: busy, idle, or waiting (for an answer
+	// in the session window: waiting_for says what, in Claude Code's words).
+	Claude     string `json:"claude,omitempty"`
+	WaitingFor string `json:"waiting_for,omitempty"`
+	// From the session's status line: the model and how full the context is.
+	Model         string       `json:"model,omitempty"`
+	Context       *float64     `json:"context,omitempty"`
+	RemoteControl bool         `json:"remote_control"`
+	Changes       *changesView `json:"changes,omitempty"` // git changes in the session's folder
 }
 
 type switchView struct {
@@ -77,6 +86,7 @@ type configView struct {
 	ShareUserConfig       bool   `json:"share_user_config"`
 	AllowDesktopBundle    bool   `json:"allow_desktop_bundle"`
 	ClaudePath            string `json:"claude_path"`
+	RemoteControl         bool   `json:"remote_control"`
 	GUILanguage           string `json:"gui_language"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
 }
@@ -126,7 +136,7 @@ func (s *Server) state() stateView {
 		SwitchMode: cfg.SwitchMode, OnExhausted: cfg.OnExhausted, CooldownSeconds: cfg.CooldownSeconds,
 		MaxSwitchesPerHour: cfg.MaxSwitchesPerHour, ExhaustedRetryMinutes: cfg.ExhaustedRetryMinutes,
 		ContinuePrompt: cfg.ContinuePrompt, ShareUserConfig: cfg.ShareEnabled(), AllowDesktopBundle: cfg.DesktopBundleAllowed(),
-		ClaudePath: cfg.ClaudePath, GUILanguage: cfg.GUILanguage,
+		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, GUILanguage: cfg.GUILanguage,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 	}
 	v.Lang = cfg.GUILanguage
@@ -194,10 +204,21 @@ func (s *Server) state() stateView {
 	for _, j := range journals {
 		if j.State != run.StateDone && supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {
 			alive[j.RunID] = true
-			v.Runs = append(v.Runs, runView{RunID: j.RunID, Account: j.Account, SwitchMode: j.SwitchMode, State: j.State,
-				SessionID: j.SessionID, Cwd: j.Cwd, Started: j.Started})
+			rv := runView{RunID: j.RunID, Account: j.Account, SwitchMode: j.SwitchMode, State: j.State,
+				SessionID: j.SessionID, Cwd: j.Cwd, Started: j.Started, RemoteControl: j.RemoteControl}
+			if a := reg.Get(j.Account); a != nil && j.ChildPID > 0 {
+				if ls, ok := claude.SessionFor(a.ProfileDir, j.ChildPID); ok && ls.Alive() {
+					rv.Claude, rv.WaitingFor = ls.Status, ls.WaitingFor
+				}
+			}
+			if st, ok := run.LoadStatus(p.Run(j.RunID)); ok {
+				rv.Model, rv.Context = st.Model, st.Context
+			}
+			rv.Changes = s.changesOf(j.RunID, j.Cwd)
+			v.Runs = append(v.Runs, rv)
 		}
 	}
+	s.forgetChanges(alive)
 	sort.Slice(v.Runs, func(i, k int) bool { return v.Runs[i].Started.Before(v.Runs[k].Started) })
 	for i := len(st.Switches) - 1; i >= 0 && len(v.Switches) < 10; i-- {
 		sw := st.Switches[i]

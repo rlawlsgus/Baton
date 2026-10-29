@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.3.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -49,6 +49,11 @@
 - 📊 **계정마다 한도를 한눈에.** 계정 탭에서 계정마다 5시간 한도와 주간 한도를 얼마나 썼는지, 언제
   초기화되는지 보여 줍니다. 세션 창에도 프롬프트 아래에 계정과 사용량이 나옵니다
   (`baton · work · 5시간 34% · 주간 12%`).
+- 👀 **세션마다 무엇을 하는지 한눈에.** 세션 탭에서 Claude가 작업 중인지, 입력을 기다리는지, 세션 창에서
+  확인이 필요한지 보여 줍니다. 모델, 컨텍스트 사용률, 폴더에서 바뀐 파일도 보여 주고, 데스크톱 앱의
+  변경사항 패널처럼 목록으로도 볼 수 있습니다.
+- 📱 **리모트 컨트롤.** 세션을 시작할 때 켜면 휴대폰의 Claude 앱이나 claude.ai/code에서 세션을 보고 이어서
+  쓸 수 있습니다. 계정이 바뀌어도 알아서 다시 켜집니다.
 - 🎛️ **전환 방식은 내가 정합니다.** 전환할 때마다 묻거나, 알아서 전환하거나, 직접 지시할 때만 전환하게
   할 수 있습니다. 실행 중인 세션을 언제든 다른 계정으로 옮길 수도 있습니다.
 - ⌨️ **명령줄도 함께.** `baton.exe`로 터미널과 스크립트에서 같은 기능을 쓸 수 있습니다.
@@ -141,7 +146,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.3.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.4.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -169,7 +174,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.3.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.0
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -250,6 +255,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `share_user_config` | 평소 Claude Code 설정을 프로필과 공유 (기본값 `true`) |
 | `claude_path` | `claude.exe`의 전체 경로. `desktop`이면 항상 Claude 데스크톱 앱의 것을 쓰고, `auto`로 하면 다시 자동으로 찾음 |
 | `allow_desktop_bundle` | 데스크톱 앱에 들어 있는 Claude Code 사용 허용 |
+| `remote_control` | 창의 새 세션 시작에서 *리모트 컨트롤 켜기*를 기본으로 체크 |
 
 <details>
 <summary><b>모든 계정에서 내 Claude Code 설정 쓰기</b></summary>
@@ -325,6 +331,13 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
 - **baton 세션만 전환됩니다.** baton 창이나 `baton run`으로 시작한 세션만 계정을 전환합니다. 창에서
   시작한 세션도 자기 콘솔에서 실행되는 `baton run`입니다. 데스크톱 앱의 Code 탭이나 IDE 확장에서 실행
   중인 세션은 전환되지 않으니, 위의 *기존 대화 가져오기*로 가져와 쓰세요.
+- **리모트 컨트롤은 계정을 따라갑니다.** 리모트 컨트롤은 세션이 실행 중인 Claude 계정에 세션을 보여 주므로,
+  휴대폰이나 claude.ai/code에서 그 계정으로 로그인해야 보입니다. 어느 계정인지는 세션 탭에 나옵니다.
+  계정이 바뀌면 다음 계정에서 다시 켜집니다. 휴대폰에 로그인해 둔 계정을 계정 순서 맨 위에 두면, 그
+  계정의 한도가 찰 때까지 세션이 그 계정에 머뭅니다. 리모트 컨트롤은 Claude 구독이 필요하고, 조직
+  설정으로 꺼져 있을 수 있습니다.
+- **바뀐 파일은 git으로 봅니다.** 변경사항 줄은 git(Git for Windows)이 설치되어 있고 폴더가 git 저장소일 때
+  나옵니다. 마지막 커밋 이후 커밋하지 않은 변경을 새 파일까지 포함해 보여 줍니다.
 - **세션은 데스크톱 앱이 아니라 Claude Code 창에서 열립니다.** baton은 세션을 계정 사이에서 옮기기 위해
   Claude Code를 직접 실행합니다. Claude 데스크톱 앱에는 앱 자체의 로그인이 하나 있고, baton은 그것을
   건드리지 않습니다. *설정 → 고급 설정 → 사용할 Claude Code*는 어떤 `claude.exe`(설치된 CLI 또는 데스크톱
@@ -382,6 +395,7 @@ go build -tags batontest -o bin/baton-test.exe ./cmd/baton
 - `/clear`, 그리고 계정을 넘나드는 id로 이어 하기
 - 다른 곳에서 열려 있는 대화를 사본으로 가져오기
 - 세션의 baton 상태 표시줄, 그리고 직접 설정한 상태 표시줄은 그대로 두기
+- 계정이 바뀌어도 매번 다시 켜지는 리모트 컨트롤(`--rc`)
 - 설정 공유와 질문 중 Ctrl+C
 - `baton stop`(질문 중이거나 전환을 기다리는 중일 때 포함)
 

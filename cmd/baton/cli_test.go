@@ -597,3 +597,22 @@ func TestStatusLineRecordsUsage(t *testing.T) {
 		t.Fatalf("usage kept after remove: %v", err)
 	}
 }
+
+// In a session the status line also records the model and how full the
+// context is, in the run's folder.
+func TestStatusLineRecordsRunStatus(t *testing.T) {
+	c := newCLI(t)
+	id := "20261029-101500-abc123"
+	dir := filepath.Join(c.home, "runs", id)
+	_ = os.MkdirAll(dir, 0o700)
+	cmd := exec.Command(batonExe, "statusline")
+	cmd.Env = append(os.Environ(), "BATON_HOME="+c.home, "BATON_RUN="+id)
+	cmd.Stdin = strings.NewReader(`{"model":{"id":"m","display_name":"Opus 5.5"},"context_window":{"used_percentage":12.5,"context_window_size":200000}}`)
+	if out, err := cmd.Output(); err != nil || strings.TrimSpace(string(out)) != "baton" {
+		t.Fatalf("statusline: %q %v", out, err)
+	}
+	st, ok := run.LoadStatus(dir)
+	if !ok || st.Model != "Opus 5.5" || st.Context == nil || *st.Context != 12.5 {
+		t.Fatalf("status %+v %v", st, ok)
+	}
+}

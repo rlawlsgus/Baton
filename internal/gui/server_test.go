@@ -920,3 +920,69 @@ func TestStateShowsUsage(t *testing.T) {
 		}
 	}
 }
+
+// A running session's row: what Claude Code is doing (from its live session
+// file), the model and context (from the status line), git changes and
+// Remote Control; and a start with Remote Control passes it to Claude Code.
+func TestRunDetailsAndRemoteControl(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	prof := filepath.Join(r.paths.ProfilesDir(), "a")
+	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+		return reg.Add(accounts.Account{ID: "a", ProfileDir: prof, Enabled: true, LoggedIn: true})
+	})
+	pid := os.Getpid()
+	_ = os.MkdirAll(filepath.Join(prof, "sessions"), 0o700)
+	_ = os.WriteFile(filepath.Join(prof, "sessions", strconv.Itoa(pid)+".json"), []byte(`{"pid":`+strconv.Itoa(pid)+
+		`,"sessionId":"s1","status":"waiting","waitingFor":"permission prompt","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+	proj := t.TempDir()
+	id := "20261029-101500-abc123"
+	dir := r.paths.Run(id)
+	_ = os.MkdirAll(dir, 0o700)
+	_ = run.SaveJournal(dir, run.Journal{RunID: id, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", ChildPID: pid, SessionID: "s1", Cwd: proj, RemoteControl: true})
+	ctx := 37.0
+	_ = run.SaveStatus(dir, run.Status{Model: "Opus 5.5", Context: &ctx, Updated: time.Now()})
+	var st stateView
+	for i := 0; i < 50; i++ { // the git changes are read in the background
+		_, body := r.do("GET", "/api/state", "", nil)
+		st = stateView{}
+		_ = json.Unmarshal([]byte(body), &st)
+		if len(st.Runs) == 1 && st.Runs[0].Changes != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if len(st.Runs) != 1 {
+		t.Fatalf("runs %+v", st.Runs)
+	}
+	rv := st.Runs[0]
+	if rv.Claude != "waiting" || rv.WaitingFor != "permission prompt" || rv.Model != "Opus 5.5" || rv.Context == nil || *rv.Context != 37 ||
+		!rv.RemoteControl || rv.Changes == nil || rv.Changes.Repo {
+		t.Fatalf("run %+v changes %+v", rv, rv.Changes)
+	}
+	if code, body := r.do("GET", "/api/changes?run_id="+id, "", nil); code != 200 || !strings.Contains(body, `"repo":false`) {
+		t.Fatalf("changes: %d %s", code, body)
+	}
+	if code, _ := r.do("GET", "/api/changes?run_id=20261029-101500-ffffff", "", nil); code != http.StatusNotFound {
+		t.Fatalf("changes of a session that is not running: %d", code)
+	}
+
+	n := len(r.spawn.console)
+	b, _ := json.Marshal(map[string]any{"folder": proj, "remote_control": true})
+	if code, body := r.do("POST", "/api/sessions/start", string(b), nil); code != 202 {
+		t.Fatalf("start: %d %s", code, body)
+	}
+	if got := r.spawn.console[n]; !slices.Equal(got, []string{"run", "--", "--remote-control"}) {
+		t.Fatalf("start with Remote Control: %q", got)
+	}
+	if code, _ := r.do("POST", "/api/config", `{"key":"remote_control","value":"true"}`, nil); code != 200 {
+		t.Fatalf("remote_control setting: %d", code)
+	}
+	_, body := r.do("GET", "/api/state", "", nil)
+	st = stateView{}
+	_ = json.Unmarshal([]byte(body), &st)
+	if !st.Config.RemoteControl {
+		t.Fatalf("setting not shown: %+v", st.Config)
+	}
+}

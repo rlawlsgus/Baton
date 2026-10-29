@@ -210,6 +210,7 @@ func (s *Supervisor) prepareRun() error {
 		State:             run.StateRunning,
 		Cwd:               s.opt.Cwd,
 		Started:           now,
+		RemoteControl:     claude.HasFlag(s.opt.ClaudeArgs.Persistent, "--remote-control", "--rc"),
 	}
 	s.logf("run %s cwd=%q claude=%q", s.runID, s.opt.Cwd, s.opt.ClaudeExe)
 	return nil

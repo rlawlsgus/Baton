@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.3.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -51,6 +51,12 @@ on your next signed-in account. You don't need to copy anything or explain it ag
 - 📊 **See each account's limits.** The Accounts tab shows how much of the 5-hour and
   weekly limits each account has used and when they reset, and every session shows its
   account and usage under the prompt (`baton · work · 5h 34% · week 12%`).
+- 👀 **See what each session is doing.** The Sessions tab shows whether Claude is working,
+  waiting for you or needs an answer in the session window, plus the model, how full the
+  context is and the files changed in the folder (with a list of them, like the desktop app's
+  changes panel).
+- 📱 **Remote Control.** Turn it on when you start a session to see and continue it from the
+  Claude app on your phone or from claude.ai/code. It comes back on by itself after a switch.
 - 🎛️ **You decide when it switches.** baton can ask before every switch, switch on its own,
   or switch only when you tell it to. You can also move a session to another account at
   any time.
@@ -158,7 +164,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.3.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.4.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -187,7 +193,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.3.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -270,6 +276,7 @@ Claude Code reads every word that follows as one of their values.
 | `share_user_config` | share your normal Claude Code setup with the profiles (default `true`) |
 | `claude_path` | full path to `claude.exe`; `desktop` always uses the Claude desktop app's; `auto` goes back to detecting it |
 | `allow_desktop_bundle` | allow the Claude Code that comes with the desktop app |
+| `remote_control` | tick *Turn on Remote Control* in the window's Start dialog by default |
 
 <details>
 <summary><b>Your Claude Code setup on every account</b></summary>
@@ -354,6 +361,14 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   `baton run` switches accounts; a session started from the window is a `baton run` in its
   own console. A session that is running in the desktop app's Code tab or in an IDE
   extension does not switch. Bring it in instead (see above).
+- **Remote Control follows the account.** Remote Control shows a session to the Claude
+  account it runs on, so on your phone or at claude.ai/code you sign in with that account; the
+  Sessions tab says which. After a switch, the session comes back on the next account. The
+  account you are signed in with on your phone is a good one to put first in the order, so
+  sessions stay on it until its limit. Remote Control needs a Claude subscription, and an
+  organization can turn it off.
+- **Changed files come from git.** The changes line needs git (Git for Windows) and a folder in
+  a git repository; it lists uncommitted work against the last commit, new files included.
 - **Sessions open in a Claude Code window, not in the desktop app.** baton runs Claude Code
   itself so it can move the session between accounts; the Claude desktop app has one
   sign-in of its own, which baton does not touch. *Settings → Advanced → Claude Code to
@@ -415,6 +430,7 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - `/clear`, and resuming by id across accounts
 - bringing in a conversation that is open elsewhere, as a copy
 - baton's status line in a session, and a status line of your own left alone
+- Remote Control (`--rc`) kept on every launch, the switch included
 - config sharing and Ctrl+C at the question
 - `baton stop`, also during the question and while a switch waits
 

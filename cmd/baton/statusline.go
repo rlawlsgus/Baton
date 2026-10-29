@@ -6,18 +6,21 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
 	"baton/internal/accounts"
 	"baton/internal/app"
+	"baton/internal/run"
 	"baton/internal/usage"
 )
 
 // cmdStatusLine is the status line of a baton session: Claude Code runs it
 // with a JSON payload on stdin and shows what it prints under the prompt. It
 // shows the account the session runs on and its plan usage, and records the
-// usage for the baton window. It must be quick and never fail loudly.
+// usage, the model and how full the context is for the baton window. It must
+// be quick and never fail loudly.
 func cmdStatusLine() {
 	data, _ := io.ReadAll(io.LimitReader(os.Stdin, 1<<20))
 	account := ""
@@ -31,6 +34,14 @@ func cmdStatusLine() {
 		if u, ok = usage.FromStatusLine(data, time.Now()); ok && account != "" {
 			_ = usage.Save(p.UsageDir(), account, u)
 		}
+		// The model and context for the baton window's session list.
+		if id := os.Getenv("BATON_RUN"); runIDPattern.MatchString(id) {
+			if st, found := run.StatusFromLine(data, time.Now()); found {
+				if fi, err := os.Stat(p.Run(id)); err == nil && fi.IsDir() {
+					_ = run.SaveStatus(p.Run(id), st)
+				}
+			}
+		}
 		if !ok && account != "" {
 			// Not reported yet in this claude (it comes with a reply): the
 			// last known, if still current.
@@ -41,6 +52,8 @@ func cmdStatusLine() {
 	}
 	fmt.Println(statusText(account, u, ok))
 }
+
+var runIDPattern = regexp.MustCompile(`^\d{8}-\d{6}-[0-9a-f]{6}$`)
 
 func accountForProfile(reg accounts.Registry, profileDir string) string {
 	if profileDir == "" {

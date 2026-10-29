@@ -16,7 +16,7 @@ const T = {
     no_sessions_body: '작업할 폴더를 골라 Claude Code를 시작하세요. 한도에 걸리면 baton이 같은 대화를 다음 계정에서 이어 갑니다.',
     need_account_first: '먼저 계정을 추가하세요.', go_accounts: '계정 추가하러 가기',
     no_usable: '사용할 수 있는 계정이 없습니다. 계정 탭에서 로그인하거나 사용을 켜세요.', go_accounts_tab: '계정 탭으로',
-    run_running: '작업 중', run_stopping: '현재 응답이 끝나면 전환', run_switching: '계정 전환 중', run_waiting: '기다리는 중',
+    run_running: '실행 중', run_stopping: '현재 응답이 끝나면 전환', run_switching: '계정 전환 중', run_waiting: '기다리는 중',
     waiting_hint: '모든 계정이 한도에 걸렸거나 전환이 너무 잦아 기다리는 중입니다. 다시 시작하는 시각은 세션 창에 나옵니다.',
     waiting_first: '처음 쓸 계정이 풀리기를 기다리는 중', run_on_none: '계정 기다리는 중',
     run_asking: '세션 창에서 확인을 기다리는 중', run_ending: '세션을 끝내는 중', run_on: '{a} 계정', run_since: '{t} 시작',
@@ -31,6 +31,16 @@ const T = {
     stop_btn: '세션 끝내기', stop_title: '이 세션을 끝낼까요?', stop_body: 'Claude Code를 안전하게 멈춥니다. 대화는 저장되어 나중에 ‘최근 세션’에서 이어서 할 수 있습니다. 진행 중인 답변이 있으면 최대 10초 기다리고, 그래도 끝나지 않으면 중단합니다.',
     stop_go: '끝내기', stop_asked: '세션을 끝내도록 요청했습니다.', switch_confirm_hint: '확인 모드: 세션 창에서 Enter로 전환을 확인하세요.',
     recent_sessions: '최근 세션', recent_sessions_none: '끝난 세션이 여기에 표시됩니다.', continue_btn: '이어서 하기',
+    // session details
+    cl_busy: 'Claude 작업 중', cl_idle: '입력 기다리는 중', cl_waiting: '세션 창에서 확인 필요',
+    cl_waiting_hint: '세션 창에서 답해야 계속됩니다: {w}', ctx: '컨텍스트 {p}% 사용',
+    ch_none: '바뀐 파일 없음', ch_n: '바뀐 파일 {n}개 · +{a} −{r}', ch_n1: '바뀐 파일 1개 · +{a} −{r}', ch_btn: '변경사항', ch_title: '{f}의 변경사항',
+    ch_norepo: 'git 저장소가 아닌 폴더라 변경사항을 볼 수 없습니다.', ch_nogit: 'git을 찾지 못했습니다. Git for Windows를 설치하면 변경사항을 볼 수 있습니다.',
+    ch_note: '마지막 커밋 이후 이 폴더에서 바뀐 파일입니다(커밋하지 않은 것, 새 파일 포함).', ch_loading: '변경사항을 읽는 중…', ch_error: 'git이 변경사항을 읽지 못했습니다: {e}',
+    gs_modified: '수정', gs_added: '추가', gs_deleted: '삭제', gs_renamed: '이름 바뀜', gs_untracked: '새 파일', gs_conflict: '충돌',
+    rc_on: '리모트 컨트롤', rc_short: '휴대폰이나 claude.ai/code에서 {a} 계정으로 보기', rc_where: '휴대폰의 Claude 앱이나 claude.ai/code에서 {a} 계정으로 로그인하면 이 세션이 보입니다. 계정이 바뀌면 바뀐 계정에서 보입니다.',
+    start_rc: '리모트 컨트롤 켜기', start_rc_hint: '휴대폰의 Claude 앱이나 claude.ai/code에서 이 세션을 보고 이어서 쓸 수 있습니다. 세션이 실행 중인 계정으로 로그인해야 보이고, 계정이 바뀌면 그 계정에서 다시 켜집니다.',
+    set_rc: '새 세션에서 리모트 컨트롤 켜기를 기본으로',
     trust_q: '이 폴더를 신뢰하나요?', trust_body: 'Claude Code가 이 폴더의 파일을 읽고 고치고 명령을 실행할 수 있게 됩니다. 믿을 수 있는 폴더일 때만 체크하세요.',
     trust_ok: '이 폴더를 신뢰합니다', trust_needed: '신뢰하는 폴더에서만 시작할 수 있습니다. 체크한 뒤 다시 누르세요.',
     folder_bad: '있는 폴더를 고르세요 (내 PC의 폴더, 예: C:\\Users\\…).', folder_long: '경로가 너무 깁니다. 더 짧은 경로의 폴더를 고르세요.',
@@ -197,7 +207,7 @@ const T = {
     no_sessions_body: 'Pick a project folder and start Claude Code. When an account hits its limit, baton continues the same conversation on the next one.',
     need_account_first: 'Add an account first.', go_accounts: 'Add an account',
     no_usable: 'No account can be used. Sign one in or turn one on in the Accounts tab.', go_accounts_tab: 'Go to Accounts',
-    run_running: 'Working', run_stopping: 'Switching after this turn', run_switching: 'Switching account', run_waiting: 'Waiting',
+    run_running: 'Running', run_stopping: 'Switching after this turn', run_switching: 'Switching account', run_waiting: 'Waiting',
     waiting_hint: 'Every account is limited, or switching is happening too often, so baton waits. The session window says when it continues.',
     waiting_first: 'Waiting for the first account to free up', run_on_none: 'waiting for an account',
     run_asking: 'Waiting for your answer in the session window', run_ending: 'Ending the session', run_on: 'on {a}', run_since: 'started {t}',
@@ -212,6 +222,15 @@ const T = {
     stop_btn: 'End session', stop_title: 'End this session?', stop_body: 'Claude Code is stopped safely. The conversation is saved and can be continued later from Recent sessions. If an answer is in progress, baton waits up to 10 seconds, then interrupts it.',
     stop_go: 'End', stop_asked: 'Asked the session to end.', switch_confirm_hint: 'Confirm mode: confirm the switch with Enter in the session window.',
     recent_sessions: 'Recent sessions', recent_sessions_none: 'Ended sessions show up here.', continue_btn: 'Continue',
+    cl_busy: 'Claude is working', cl_idle: 'Waiting for you', cl_waiting: 'Needs an answer in the session window',
+    cl_waiting_hint: 'Answer in the session window to go on: {w}', ctx: 'context {p}% used',
+    ch_none: 'No changed files', ch_n: '{n} changed files · +{a} −{r}', ch_n1: '1 changed file · +{a} −{r}', ch_btn: 'Changes', ch_title: 'Changes in {f}',
+    ch_norepo: 'This folder is not a git repository, so there are no changes to show.', ch_nogit: 'git was not found. Install Git for Windows to see changes.',
+    ch_note: 'Files changed in this folder since the last commit (uncommitted work, new files included).', ch_loading: 'Reading changes…', ch_error: 'git could not read the changes: {e}',
+    gs_modified: 'modified', gs_added: 'added', gs_deleted: 'deleted', gs_renamed: 'renamed', gs_untracked: 'new', gs_conflict: 'conflict',
+    rc_on: 'Remote Control', rc_short: 'see it on your phone or claude.ai/code as {a}', rc_where: 'Sign in to the Claude app on your phone or to claude.ai/code with the account {a} to see this session. After a switch it shows on the new account.',
+    start_rc: 'Turn on Remote Control', start_rc_hint: 'See and continue this session from the Claude app on your phone or claude.ai/code. It shows for the account the session runs on, and comes back on for the next account after a switch.',
+    set_rc: 'Turn on Remote Control for new sessions by default',
     trust_q: 'Do you trust this folder?', trust_body: 'Claude Code will be able to read and change files in it and run commands. Tick only for a folder you trust.',
     trust_ok: 'I trust this folder', trust_needed: 'Sessions start only in a trusted folder. Tick the box and press Start again.',
     folder_bad: 'Choose an existing folder on this PC (e.g. C:\\Users\\…).', folder_long: 'That path is too long. Choose a folder with a shorter path.',
@@ -668,9 +687,14 @@ function runRow(st, r) {
   const asking = r.state === 'asking';
   return h('div', { class: 'row' },
     h('div', { class: 'grow' },
-      h('div', { class: 'title' }, baseName(r.cwd), runState(r)),
+      h('div', { class: 'title' }, baseName(r.cwd), runState(r), claudeState(r)),
       h('div', { class: 'sub', title: r.cwd, text: `${r.cwd}` }),
-      h('div', { class: 'sub', text: `${r.account ? t('run_on', { a: r.account }) : t('run_on_none')} · ${t('run_since', { t: clock(r.started) })}` }),
+      h('div', { class: 'sub', text: [r.account ? t('run_on', { a: r.account }) : t('run_on_none'), t('run_since', { t: clock(r.started) }),
+        r.model, r.context != null ? t('ctx', { p: Math.round(r.context) }) : ''].filter(Boolean).join(' · ') }),
+      r.claude === 'waiting' && r.waiting_for ? h('div', { class: 'small', text: t('cl_waiting_hint', { w: r.waiting_for }) }) : null,
+      changesLine(r),
+      r.remote_control ? h('div', { class: 'sub', title: t('rc_where', { a: r.account || '' }) },
+        h('span', { class: 'pill info', text: t('rc_on') }), ' ', r.account ? t('rc_short', { a: r.account }) : '') : null,
       asking ? h('div', { class: 'small', text: t('asking_hint') + ' ' + t('asking_stop_hint') }) : null,
       waiting ? h('div', { class: 'small', text: r.account ? t('waiting_hint') : t('waiting_first') }) : null),
     h('div', { class: 'actions' }, canSwitch ? sel : null,
@@ -678,6 +702,43 @@ function runRow(st, r) {
       asking || r.state === 'ending' ? null : h('button', { class: 'btn ghost danger', text: t('stop_btn'), onclick: () => confirmStop(r) }),
       h('button', { class: 'btn ghost', text: t('open_folder'), onclick: () => api('open', { what: 'folder', run_id: r.run_id }).catch(showError) }),
       h('button', { class: 'btn ghost', text: t('open_log'), onclick: () => api('open', { what: 'run', run_id: r.run_id }).catch(showError) })));
+}
+
+// claudeState: what Claude Code itself is doing in the session.
+function claudeState(r) {
+  if (!r.claude || r.state !== 'running' && r.state !== 'stopping') return null;
+  if (r.claude === 'busy') return h('span', { class: 'pill info' }, h('span', { class: 'spin' }), ' ', t('cl_busy'));
+  if (r.claude === 'waiting') return h('span', { class: 'pill warn', text: t('cl_waiting') });
+  return h('span', { class: 'pill off', text: t('cl_idle') });
+}
+
+function changesLine(r) {
+  const c = r.changes;
+  if (!c || c.error === 'no_git' || (!c.repo && !c.error)) return null;
+  const text = c.error ? t('ch_error', { e: c.error }) : c.files ? t(c.files === 1 ? 'ch_n1' : 'ch_n', { n: c.files, a: c.added, r: c.removed }) : t('ch_none');
+  return h('div', { class: 'sub changes' }, h('span', { text }),
+    c.repo && c.files ? h('button', { class: 'btn ghost small-btn', text: t('ch_btn'), onclick: () => openChanges(r) }) : null);
+}
+
+// openChanges lists a session's changed files, the way the desktop app's
+// changes panel does.
+async function openChanges(r) {
+  const body = h('div', {}, h('p', { class: 'muted small' }, h('span', { class: 'spin' }), ' ', t('ch_loading')));
+  openDialog(h('h2', { text: t('ch_title', { f: baseName(r.cwd) }) }), h('p', { class: 'muted small', text: t('ch_note') }), body,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('open_folder'), onclick: () => api('open', { what: 'folder', run_id: r.run_id }).catch(showError) }),
+      h('button', { class: 'btn primary', text: t('close'), onclick: closeDialog })));
+  let c;
+  try { c = await api('changes?run_id=' + encodeURIComponent(r.run_id)); } catch (e) { body.replaceChildren(h('p', { class: 'err', text: errText(e) })); return; }
+  if (c.error) { body.replaceChildren(h('p', { class: 'err', text: c.error === 'no_git' ? t('ch_nogit') : t('ch_error', { e: c.error }) })); return; }
+  if (!c.repo) { body.replaceChildren(h('p', { class: 'muted', text: t('ch_norepo') })); return; }
+  if (!c.files.length) { body.replaceChildren(h('p', { class: 'muted', text: t('ch_none') })); return; }
+  const cls = { modified: 'info', added: 'ok', untracked: 'ok', deleted: 'bad', renamed: 'info', conflict: 'warn' };
+  body.replaceChildren(h('p', { class: 'small', text: t(c.files.length === 1 ? 'ch_n1' : 'ch_n', { n: c.files.length, a: c.added, r: c.removed }) }),
+    h('div', { class: 'list tall' }, c.files.map((f) => h('div', { class: 'item change' },
+      h('span', { class: 'pill ' + (cls[f.status] || 'off'), text: t('gs_' + f.status) }),
+      h('span', { class: 'grow mono', text: f.path }),
+      h('span', { class: 'small nums' }, f.added >= 0 ? h('span', { class: 'plus', text: '+' + f.added }) : null, ' ',
+        f.removed >= 0 ? h('span', { class: 'minus', text: '−' + f.removed }) : null)))));
 }
 
 function confirmStop(r) {
@@ -704,7 +765,8 @@ function openStart(pre) {
   pre = pre || {};
   // trusted/checked come from the server's folder check; Start waits for it.
   const form = { folder: pre.folder || st.recent_folders[0] || '', account: '', mode: pre.mode || 'new', sel: pre.session_id ? { session_id: pre.session_id, where: pre.where } : null,
-    trusted: false, checked: false, problem: '', trust: false, copy: false }; // copy: the user's own tick
+    trusted: false, checked: false, problem: '', trust: false, copy: false, // copy: the user's own tick
+    rc: !!st.config.remote_control };
   const err = h('div', { class: 'err' });
   const folderInput = h('input', { type: 'text', value: form.folder, placeholder: 'C:\\…', oninput: (e) => { form.folder = e.target.value; folderChanged(); } });
   const trustBox = h('div', {});
@@ -826,7 +888,7 @@ function openStart(pre) {
       if (!form.trusted && !form.trust) { err.textContent = t('trust_needed'); return; }
       await api('sessions/start', { folder: cleanPath(form.folder), account: form.account, mode: form.mode === 'pick' ? 'resume' : form.mode,
         session_id: form.sel ? form.sel.session_id : '', where: form.sel ? form.sel.where : '', trust: form.trust,
-        copy: form.mode !== 'new' && copyOf(target()) });
+        copy: form.mode !== 'new' && copyOf(target()), remote_control: form.rc });
       closeDialog(); toast(t('start_done') + ' ' + t('first_start'));
     } catch (e) {
       if (e.code === 'needs_mode') { closeDialog(); openNotice(() => openStart(pre)); return; }
@@ -844,6 +906,8 @@ function openStart(pre) {
         onclick: () => { form.folder = f; folderInput.value = f; checkFolder(); loadConvs(); } }))) : null),
     trustBox,
     h('label', { class: 'field' }, h('span', { text: t('start_account') }), account),
+    h('div', { class: 'field' }, h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: form.rc, onchange: (e) => { form.rc = e.target.checked; } }),
+      h('span', {}, h('b', { text: t('start_rc') }), h('div', { class: 'small muted', text: t('start_rc_hint') })))),
     h('div', { class: 'field' }, h('span', { class: 'muted small', text: t('start_conv') }), modes, convBox, copyBox),
     err,
     h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), start));
@@ -1271,6 +1335,8 @@ function viewSettings(st) {
     h('label', { class: 'field' }, h('span', { text: t('set_prompt') }), prompt,
       h('div', { class: 'mt6' }, h('button', { class: 'btn', text: t('apply'), onclick: () => setConfig('continue_prompt', prompt.value) }))),
     share,
+    h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.remote_control, onchange: (e) => setConfig('remote_control', e.target.checked) }),
+      h('span', { text: t('set_rc') })),
     h('h3', { text: t('set_claude'), class: 'mt14' }),
     h('p', { class: 'small muted', text: st.claude.found ? st.claude.path : (st.claude.error || '') }),
     st.claude.found && st.claude.old_cli ? h('p', { class: 'small muted', text: t('claude_old_cli_skipped', { v: st.claude.old_cli }) }) : null,

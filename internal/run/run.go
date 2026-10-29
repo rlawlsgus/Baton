@@ -26,6 +26,7 @@ import (
 func SettingsPath(dir string) string { return filepath.Join(dir, "settings.json") }
 func EventsPath(dir string) string   { return filepath.Join(dir, "events.jsonl") }
 func JournalPath(dir string) string  { return filepath.Join(dir, "run.json") }
+func StatusPath(dir string) string   { return filepath.Join(dir, "status.json") }
 func ControlPath(dir string) string  { return filepath.Join(dir, "switch.json") }
 func StopPath(dir string) string     { return filepath.Join(dir, "stop.json") }
 
@@ -145,6 +146,7 @@ type Journal struct {
 	Account           string    `json:"account"`
 	SwitchMode        string    `json:"switch_mode,omitempty"`
 	ChildPID          int       `json:"child_pid,omitempty"`
+	RemoteControl     bool      `json:"remote_control,omitempty"` // claude runs with --remote-control
 	SessionID         string    `json:"session_id,omitempty"`
 	TranscriptPath    string    `json:"transcript_path,omitempty"`
 	Cwd               string    `json:"cwd"`

@@ -82,6 +82,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 	get := map[string]func(http.ResponseWriter, *http.Request){
 		"state":         s.apiState,
 		"conversations": s.apiConversations,
+		"changes":       s.apiChanges,
 		"folder/info":   s.apiFolderInfo,
 	}
 	post := map[string]func(http.ResponseWriter, *http.Request){
@@ -364,6 +365,9 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		Where     string `json:"where"` // resume: an account id, or "claude-code" for the user's own setup
 		Trust     bool   `json:"trust"` // the user said in the window that they trust the folder
 		Copy      bool   `json:"copy"`  // continue or resume: go on in a copy, leaving the conversation as it is
+		// RemoteControl: Claude Code's Remote Control, on whichever account
+		// the session runs (claude.ai/code or the Claude app, signed in with it).
+		RemoteControl bool `json:"remote_control"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -391,6 +395,7 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 	} else if id := s.idleStart(reg, folder); id != "" {
 		args = append(args, "--account", id)
 	}
+	var cargs []string // Claude Code's own options, after "--"
 	switch req.Mode {
 	case "", "new":
 	case "continue":
@@ -405,14 +410,14 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
 			return
 		}
-		args = append(args, "--", "--resume", t)
+		cargs = append(cargs, "--resume", t)
 	case "resume":
 		t, code := s.findTranscript(req.SessionID, req.Where, req.Copy)
 		if code != "" {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
 			return
 		}
-		args = append(args, "--", "--resume", t)
+		cargs = append(cargs, "--resume", t)
 	default:
 		fail(w, http.StatusBadRequest, "bad_request", "mode must be new, continue or resume", "")
 		return
@@ -420,7 +425,14 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 	if req.Copy && (req.Mode == "continue" || req.Mode == "resume") {
 		// Claude Code reads the conversation and goes on under a new session
 		// id in the account's profile; the original file is never written.
-		args = append(args, "--fork-session")
+		cargs = append(cargs, "--fork-session")
+	}
+	if req.RemoteControl {
+		// Kept on every relaunch, so it comes back on after a switch.
+		cargs = append(cargs, "--remote-control")
+	}
+	if len(cargs) > 0 {
+		args = append(append(args, "--"), cargs...)
 	}
 	// A new account's first start would stop at Claude Code's first-run
 	// screens (in English, and the folder question exits on Enter): answer
