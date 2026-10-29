@@ -116,11 +116,8 @@ const T = {
     login_started: '로그인 창을 열었습니다.',
     bad_name: '이름은 영문 소문자·숫자·- 로 1~32자, 첫 글자는 문자나 숫자여야 합니다.',
     // remove
-    remove_title: '‘{a}’ 계정 삭제', remove_body: 'baton에서 이 계정을 로그아웃하고 지웁니다. 다시 쓰려면 로그인(2차 인증 포함)을 처음부터 해야 합니다. Claude 계정 자체는 그대로입니다.',
+    remove_title: '‘{a}’ 계정 삭제', remove_body: 'baton에서 이 계정을 로그아웃하고 지웁니다. 다시 쓰려면 로그인(2차 인증 포함)을 처음부터 해야 합니다. 이 계정에서 시작한 대화는 지우지 않고 평소 Claude Code 폴더로 옮겨 보존합니다. Claude 계정 자체는 그대로입니다.',
     remove_go: '삭제', removed: '‘{a}’ 계정을 삭제했습니다.',
-    remove_force_title: '이 계정에 저장된 대화가 있습니다',
-    remove_force_body: '이 계정에서 시작한 대화가 이 계정의 폴더에 저장되어 있습니다. 함께 삭제하면 그 대화는 더 이상 이어 갈 수 없습니다. 쓰지 않으려면 삭제 대신 사용을 끄는 것을 권합니다.',
-    turn_off: '사용 끄기', remove_all: '대화까지 삭제',
     // notice / onboarding
     notice_title: '시작하기 전에 꼭 읽어 주세요',
     notice_points: [
@@ -173,7 +170,7 @@ const T = {
     version: '버전 {v}',
     install_title: '시작 메뉴에 설치', install_body: '지금은 압축을 푼 폴더에서 실행 중입니다. 설치하면 시작 메뉴에서 baton을 열 수 있고, 작업 표시줄에 고정한 아이콘도 계속 동작합니다. 관리자 권한은 필요 없습니다.',
     install_go: '설치하고 다시 열기', installed_note: '시작 메뉴에 설치되어 있습니다.', install_failed: '설치하지 못했습니다: {e}',
-    uninstall_title: 'baton 제거', uninstall_body: 'baton이 모든 계정을 로그아웃하고, baton의 데이터(계정별 로그인 정보와 계정에 저장된 대화)를 지웁니다. Claude 계정 자체와 평소 쓰던 Claude Code 설정은 그대로입니다.',
+    uninstall_title: 'baton 제거', uninstall_body: 'baton이 모든 계정을 로그아웃하고 baton의 데이터(계정별 로그인 정보)를 지웁니다. baton에서 시작한 대화는 지우기 전에 평소 Claude Code 폴더(%USERPROFILE%\\.claude)로 옮겨 보존하므로, claude --resume으로 다시 열 수 있습니다. Claude 계정 자체와 평소 쓰던 Claude Code 설정, Claude 데스크톱 앱의 세션은 그대로입니다.',
     uninstall_go: '제거…', uninstall_confirm: '이 창이 닫히고, 제거 창에서 한 번 더 확인합니다. 실행 중인 세션이 있으면 먼저 끝내세요.', uninstall_ok: '제거 창 열기',
     // banners / errors
     problem: '파일을 읽지 못했습니다: {e}', claude_warn: '{w}', need_claude: 'Claude Code를 찾지 못해 세션을 시작할 수 없습니다.',
@@ -301,11 +298,8 @@ const T = {
     add_started: 'Sign-in window opened. Finish signing in in your browser.',
     login_started: 'Sign-in window opened.',
     bad_name: 'Use 1-32 lowercase letters, digits or -, starting with a letter or digit.',
-    remove_title: 'Remove “{a}”', remove_body: 'baton signs this account out and deletes it. Using it again means signing in (with two-factor authentication) from scratch. Your Claude account itself is not affected.',
+    remove_title: 'Remove “{a}”', remove_body: 'baton signs this account out and deletes it. Using it again means signing in (with two-factor authentication) from scratch. Conversations that started on it are not deleted: they move to your own Claude Code. Your Claude account itself is not affected.',
     remove_go: 'Remove', removed: 'Removed “{a}”.',
-    remove_force_title: 'Conversations are stored on this account',
-    remove_force_body: 'Conversations that started on this account are stored in its folder. Removing it deletes them and they can no longer be continued. To stop using it, turning it off is better.',
-    turn_off: 'Turn off', remove_all: 'Remove with conversations',
     notice_title: 'Please read this first',
     notice_points: [
       'Being signed in to several of your own accounts is not what this notice is about. It is about continuing on another account after a usage limit.',
@@ -355,7 +349,7 @@ const T = {
     version: 'version {v}',
     install_title: 'Install to the Start menu', install_body: 'baton runs from the extracted folder now. Installing adds it to the Start menu, and a taskbar pin keeps working. No administrator rights needed.',
     install_go: 'Install and reopen', installed_note: 'Installed in the Start menu.', install_failed: 'Could not install: {e}',
-    uninstall_title: 'Uninstall baton', uninstall_body: 'baton signs out every account and deletes its data (each account\'s sign-in and the conversations stored on accounts). Your Claude accounts and your own Claude Code setup are not affected.',
+    uninstall_title: 'Uninstall baton', uninstall_body: 'baton signs out every account and deletes its data (each account\'s sign-in). Conversations that started in baton are moved to your own Claude Code (%USERPROFILE%\\.claude) first, so claude --resume opens them again. Your Claude accounts, your own Claude Code setup and the Claude desktop app\'s sessions are not affected.',
     uninstall_go: 'Uninstall…', uninstall_confirm: 'This window closes and the uninstall window asks once more. End running sessions first.', uninstall_ok: 'Open uninstall',
     problem: 'Could not read a file: {e}', claude_warn: '{w}', need_claude: 'Claude Code was not found, so sessions cannot start.',
     need_mode: 'You have not chosen how baton switches accounts yet.', choose_now: 'Choose now',
@@ -1207,23 +1201,15 @@ async function openPrivate() {
 
 function openRemove(id) {
   const err = h('div', { class: 'err' });
-  const go = h('button', { class: 'btn primary danger', text: t('remove_go'), onclick: () => doRemove(false) });
-  async function doRemove(force) {
+  const go = h('button', { class: 'btn primary danger', text: t('remove_go'), onclick: () => doRemove() });
+  async function doRemove() {
     go.disabled = true;
     try {
-      await api('accounts/remove', { name: id, force });
+      await api('accounts/remove', { name: id });
       closeDialog(); toast(t('removed', { a: id })); refresh();
     } catch (e) {
-      if (!force && e.details && e.details.includes('--force')) { askForce(); return; }
       err.textContent = errText(e);
     } finally { go.disabled = false; }
-  }
-  function askForce() {
-    openDialog(h('h2', { text: t('remove_force_title') }), h('p', { text: t('remove_force_body') }), err,
-      h('div', { class: 'foot' },
-        h('button', { class: 'btn left', text: t('cancel'), onclick: closeDialog }),
-        h('button', { class: 'btn', text: t('turn_off'), onclick: async () => { closeDialog(); await accountCmd('disable', id); } }),
-        h('button', { class: 'btn danger', text: t('remove_all'), onclick: () => doRemove(true) })));
   }
   openDialog(h('h2', { text: t('remove_title', { a: id }) }), h('p', { text: t('remove_body') }), err,
     h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));

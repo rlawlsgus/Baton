@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.4.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -164,7 +164,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.4.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.4.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -193,7 +193,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.1
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -251,7 +251,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton login <name> [--email <address>]` | sign an account in again, for example when `baton list` shows `needs_login`; refuses while a session runs on it |
 | `baton list` | show accounts, their plan, status (`ok`, `limited until …`, `needs_login`, `blocked`) and last known usage |
 | `baton enable` / `disable <name>` | include or skip an account (`enable` also clears a `blocked` mark) |
-| `baton remove <name> [--force]` | log out and delete the profile (refuses if conversations started there) |
+| `baton remove <name>` | log out and delete the profile; its conversations are moved to your own Claude Code first |
 | `baton run [--account <name>] [-- <claude args>]` | start a supervised session |
 | `baton sessions [--max N]` | list your conversations in every folder, the desktop app's included |
 | `baton resume <id> [--account <name>] [--copy]` | continue one of them in its folder (`--copy` leaves the original as it is) |
@@ -261,7 +261,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton sync` | share your normal Claude Code setup with every account profile (see below) |
 | `baton config [<key> [<value>]]` | show or change settings (below) |
 | `baton doctor` | check claude.exe, the console and every sign-in |
-| `baton uninstall [--yes]` | sign every account out and delete baton's data and its Start menu entry |
+| `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data and its Start menu entry |
 
 **Settings** (`baton config`):
 
@@ -355,8 +355,11 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   never causes a switch.
 - **The first start on each profile downloads about 15 MB.** That is Claude Code's official
   plugin marketplace, which Claude Code downloads for any new profile.
-- **Conversations live in the account that started them.** Removing that account deletes
-  its conversations, so `baton remove` refuses unless you pass `--force`.
+- **Conversations live in the account that started them, and are never deleted with it.**
+  Removing that account, or uninstalling baton, first moves its conversations into your own
+  Claude Code (`%USERPROFILE%\.claude`), where `claude --resume` finds them. A file you already
+  have there is never overwritten; a different one with the same name is kept next to it as
+  `<name> (baton <account>)`.
 - **Only baton's sessions are covered.** A session started from baton's window or with
   `baton run` switches accounts; a session started from the window is a `baton run` in its
   own console. A session that is running in the desktop app's Code tab or in an IDE
@@ -391,11 +394,13 @@ In the window, choose **Help → Uninstall baton**. Or from the command line:
 baton uninstall
 ```
 
-The uninstaller signs every account out through Claude Code and deletes baton's data folder
-(`%LOCALAPPDATA%\baton`). That folder holds each account's profile, including
-conversations that started there. It also removes the Start menu entry, the entry in
-Windows' installed apps and the install folder. End running sessions first. Your Claude
-accounts and your own Claude Code setup are not touched.
+The uninstaller first moves the conversations that started in baton into your own Claude
+Code (`%USERPROFILE%\.claude`), so `claude --resume` opens them again. If one cannot be moved,
+it stops and deletes nothing. Then it signs every account out through Claude Code and deletes
+baton's data folder (`%LOCALAPPDATA%\baton`, each account's profile). It also removes the
+Start menu entry, the entry in Windows' installed apps and the install folder. End running
+sessions first. Your Claude accounts, your own Claude Code setup and the Claude desktop app's
+sessions are not touched.
 
 Do not delete `%LOCALAPPDATA%\baton` by hand with a tool that follows folder links while
 profiles exist, because they link into `%USERPROFILE%\.claude`. baton's own uninstaller

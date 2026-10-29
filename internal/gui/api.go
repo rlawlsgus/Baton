@@ -218,8 +218,7 @@ func (s *Server) apiAccountCmd(cmd string) http.HandlerFunc {
 
 func (s *Server) apiRemove(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Name  string `json:"name"`
-		Force bool   `json:"force"`
+		Name string `json:"name"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -228,11 +227,8 @@ func (s *Server) apiRemove(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad_name", err.Error(), "")
 		return
 	}
-	args := []string{"remove", req.Name, "--yes"}
-	if req.Force {
-		args = append(args, "--force")
-	}
-	s.hidden(w, args)
+	// The account's conversations are moved to the user's own Claude Code.
+	s.hidden(w, []string{"remove", req.Name, "--yes"})
 }
 
 // apiMove moves an account one place up or down in the switching order.

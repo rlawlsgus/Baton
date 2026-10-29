@@ -179,13 +179,6 @@ func TestSwitchModeNeedsAcknowledgement(t *testing.T) {
 func TestRemoveRefusals(t *testing.T) {
 	c := newCLI(t)
 	c.run(nil, "add", "a")
-	// Conversation data stored in the profile needs --force.
-	tr := filepath.Join(c.home, "profiles", "a", "projects", "C--p", "s", "tool-results", "x.txt")
-	_ = os.MkdirAll(filepath.Dir(tr), 0o700)
-	_ = os.WriteFile(tr, []byte("out"), 0o600)
-	if out, code := c.run(nil, "remove", "a"); code == 0 || !strings.Contains(out, "--force") {
-		t.Fatalf("remove with session data: %d\n%s", code, out)
-	}
 	// A profile_dir outside baton's folder is never deleted.
 	outside := t.TempDir()
 	_, _ = accounts.Update(filepath.Join(c.home, "accounts.json"), filepath.Join(c.home, "accounts.lock"), func(r *accounts.Registry) error {
@@ -614,5 +607,56 @@ func TestStatusLineRecordsRunStatus(t *testing.T) {
 	st, ok := run.LoadStatus(dir)
 	if !ok || st.Model != "Opus 5.5" || st.Context == nil || *st.Context != 12.5 {
 		t.Fatalf("status %+v %v", st, ok)
+	}
+}
+
+// Removing an account, and uninstalling baton, keep the conversations that
+// started on it: they move to the user's own Claude Code.
+func TestRemoveAndUninstallKeepConversations(t *testing.T) {
+	c := newCLI(t)
+	home := t.TempDir()
+	env := []string{"CLAUDE_CONFIG_DIR=" + home}
+	c.run(env, "add", "a")
+	c.run(env, "add", "b")
+	write := func(account, sid string) string {
+		p := filepath.Join(c.home, "profiles", account, "projects", "C--proj", sid+".jsonl")
+		_ = os.MkdirAll(filepath.Join(filepath.Dir(p), sid, "tool-results"), 0o700)
+		_ = os.WriteFile(filepath.Join(filepath.Dir(p), sid, "tool-results", "x.txt"), []byte("out"), 0o600)
+		if err := os.WriteFile(p, []byte(`{"type":"user","cwd":"C:\proj"}`+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return filepath.Join(home, "projects", "C--proj", sid+".jsonl")
+	}
+	keptA := write("a", "11111111-2222-4333-8444-00000000000a")
+	keptB := write("b", "11111111-2222-4333-8444-00000000000b")
+	out, code := c.run(env, "remove", "a", "--yes")
+	if code != 0 || !strings.Contains(out, "moved 1 conversation") {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	if _, err := os.Stat(keptA); err != nil {
+		t.Fatalf("a's conversation was not kept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(keptA), "11111111-2222-4333-8444-00000000000a", "tool-results", "x.txt")); err != nil {
+		t.Fatalf("its tool results were not kept: %v", err)
+	}
+	// baton's data folder is deleted only when it is named baton.
+	data := filepath.Join(t.TempDir(), "baton")
+	if err := os.Rename(c.home, data); err != nil {
+		t.Fatal(err)
+	}
+	c.home = data
+	_, _ = accounts.Update(filepath.Join(data, "accounts.json"), filepath.Join(data, "accounts.lock"), func(r *accounts.Registry) error {
+		r.Get("b").ProfileDir = filepath.Join(data, "profiles", "b")
+		return nil
+	})
+	out, code = c.run(env, "uninstall", "--yes")
+	if code != 0 || !strings.Contains(out, "moved 1 conversation") {
+		t.Fatalf("uninstall: %d\n%s", code, out)
+	}
+	if _, err := os.Stat(keptB); err != nil {
+		t.Fatalf("b's conversation was not kept: %v", err)
+	}
+	if _, err := os.Stat(data); !os.IsNotExist(err) {
+		t.Fatalf("baton's data folder is still there: %v", err)
 	}
 }

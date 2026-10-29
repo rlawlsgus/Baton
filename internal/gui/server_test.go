@@ -353,7 +353,7 @@ func TestAccountActionsRunBaton(t *testing.T) {
 	if code, _ := r.do("POST", "/api/accounts/add", `{"name":"work"}`, nil); code != http.StatusAccepted {
 		t.Fatalf("add: %d", code)
 	}
-	if code, _ := r.do("POST", "/api/accounts/remove", `{"name":"work","force":true}`, nil); code != 200 {
+	if code, _ := r.do("POST", "/api/accounts/remove", `{"name":"work"}`, nil); code != 200 {
 		t.Fatalf("remove: %d", code)
 	}
 	r.spawn.code, r.spawn.out = 1, "baton: no account named \"x\"\n"
@@ -369,7 +369,7 @@ func TestAccountActionsRunBaton(t *testing.T) {
 		}
 	}
 	if !slices.Equal(r.spawn.console[0][:3], []string{"add", "work", "--result-file"}) || len(hidden) != 2 ||
-		!slices.Equal(hidden[0], []string{"remove", "work", "--yes", "--force"}) ||
+		!slices.Equal(hidden[0], []string{"remove", "work", "--yes"}) ||
 		!slices.Equal(hidden[1], []string{"enable", "x"}) {
 		t.Fatalf("spawned: console=%q hidden=%q", r.spawn.console, r.spawn.hidden)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -455,14 +456,14 @@ func cmdSetEnabled(args []string, enabled bool) error {
 }
 
 func cmdRemove(args []string) error {
-	fs := newFlags("remove", "baton remove <name> [--force] [--yes]")
-	force := fs.Bool("force", false, "also delete conversations that started on this account")
+	fs := newFlags("remove", "baton remove <name> [--yes]")
+	_ = fs.Bool("force", false, "no longer needed: conversations are always kept")
 	assumeYes := fs.Bool("yes", false, "do not ask for confirmation")
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
 		return err
 	}
-	name, err := oneName(pos, "baton remove <name> [--force]")
+	name, err := oneName(pos, "baton remove <name>")
 	if err != nil {
 		return err
 	}
@@ -490,9 +491,10 @@ func cmdRemove(args []string) error {
 	if err := profileInUse(e, name, dir); err != nil {
 		return err
 	}
-	if claude.ProfileHasTranscripts(dir) && !*force {
-		return fmt.Errorf("conversations that started on %q are stored in its profile (other accounts continue them in place). "+
-			"Use `baton disable %s` to stop using it, or `baton remove %s --force` to delete them too", name, name, name)
+	home := share.UserHome(e.paths.ProfilesDir())
+	if claude.ProfileHasTranscripts(dir) {
+		fmt.Fprintf(os.Stderr, say("Conversations that started on %q are moved to your own Claude Code (%s) first.\n",
+			"%q 계정에서 시작한 대화는 먼저 평소 Claude Code 폴더(%s)로 옮겨 보존합니다.\n"), name, orDash(home))
 	}
 	if !*assumeYes {
 		ok, err := yes(fmt.Sprintf("Log out %q and delete %s? [y/N] ", name, dir))
@@ -521,6 +523,15 @@ func cmdRemove(args []string) error {
 	if err := profileInUse(e, name, dir); err != nil {
 		_ = setEnabled(wasEnabled) // nothing was removed: leave the account as it was
 		return err
+	}
+	// The conversations go to the user's own Claude Code before the profile
+	// is deleted; one that cannot be moved stops the removal.
+	if n, err := share.KeepConversations(dir, home, name); err != nil {
+		_ = setEnabled(wasEnabled)
+		return fmt.Errorf(say("could not move the conversations of %q to your own Claude Code (%v); nothing was deleted",
+			"%q 계정의 대화를 평소 Claude Code 폴더로 옮기지 못했습니다 (%v). 아무것도 지우지 않았습니다"), name, err)
+	} else if n > 0 {
+		fmt.Fprintf(os.Stderr, say("baton: moved %d conversation(s) to %s\n", "baton: 대화 %d개를 %s 폴더로 옮겼습니다\n"), n, filepath.Join(home, "projects"))
 	}
 	if inst, err := e.resolveClaude(); err == nil {
 		pe, _ := envx.ForProfile(dir, nil)

@@ -13,15 +13,17 @@ import (
 	"baton/internal/envx"
 	"baton/internal/fsx"
 	"baton/internal/run"
+	"baton/internal/share"
 	"baton/internal/winui"
 
 	"golang.org/x/sys/windows"
 )
 
-// cmdUninstall removes baton for the current user: every account is signed
-// out through Claude Code, baton's data folder (account profiles, including
-// conversations that started there) is deleted, and so are the Start menu
-// entry, the installed-apps entry and the install folder.
+// cmdUninstall removes baton for the current user: the conversations that
+// started on baton's accounts are moved into the user's own Claude Code,
+// every account is signed out through Claude Code, baton's data folder is
+// deleted, and so are the Start menu entry, the installed-apps entry and the
+// install folder.
 func cmdUninstall(args []string) error {
 	fs := newFlags("uninstall", "baton uninstall [--yes]")
 	assumeYes := fs.Bool("yes", false, "do not ask for confirmation")
@@ -50,19 +52,20 @@ func cmdUninstall(args []string) error {
 	// Only a folder that is clearly baton's own is deleted: BATON_HOME could
 	// point anywhere.
 	deleteData := strings.EqualFold(filepath.Base(e.paths.Root), "baton")
+	home := share.UserHome(e.paths.ProfilesDir())
 	conversations := 0
 	for _, a := range e.reg.Accounts {
 		if claude.ProfileHasTranscripts(a.ProfileDir) {
 			conversations++
 		}
 	}
-	fmt.Fprintf(os.Stderr, say("This signs out %d account(s) and deletes %s", "계정 %d개를 로그아웃하고 %s 폴더를 지웁니다"), len(e.reg.Accounts), e.paths.Root)
+	fmt.Fprintf(os.Stderr, say("This signs out %d account(s) and deletes %s.\n", "계정 %d개를 로그아웃하고 %s 폴더를 지웁니다.\n"), len(e.reg.Accounts), e.paths.Root)
 	if conversations > 0 {
-		fmt.Fprintf(os.Stderr, say(", including conversations stored on %d account(s)", " (계정 %d개에 저장된 대화 포함)"), conversations)
+		fmt.Fprintf(os.Stderr, say("Conversations that started on %d account(s) are moved to your own Claude Code (%s) first; claude --resume finds them there.\n",
+			"계정 %d개에서 시작한 대화는 먼저 평소 Claude Code 폴더(%s)로 옮겨 보존합니다. claude --resume으로 다시 열 수 있습니다.\n"), conversations, orDash(home))
 	}
-	fmt.Fprintln(os.Stderr, ".")
-	fmt.Fprintln(os.Stderr, say("Your Claude accounts and your own Claude Code setup are not affected.",
-		"Claude 계정 자체와 평소 쓰던 Claude Code 설정은 그대로입니다."))
+	fmt.Fprintln(os.Stderr, say("Your Claude accounts, your own Claude Code setup and the Claude desktop app's sessions are not affected.",
+		"Claude 계정 자체와 평소 쓰던 Claude Code 설정, Claude 데스크톱 앱의 세션은 그대로입니다."))
 	if !*assumeYes {
 		ok, err := yes(say("Uninstall baton? [y/N] ", "baton을 제거할까요? [y/N] "))
 		if err != nil {
@@ -71,6 +74,20 @@ func cmdUninstall(args []string) error {
 		if !ok {
 			return errors.New(say("cancelled", "취소했습니다"))
 		}
+	}
+	// Keep the user's work before anything is deleted: a conversation that
+	// cannot be moved stops the uninstall.
+	moved := 0
+	for _, a := range e.reg.Accounts {
+		n, err := share.KeepConversations(a.ProfileDir, home, a.ID)
+		moved += n
+		if err != nil {
+			return fmt.Errorf(say("could not move the conversations of %q to your own Claude Code (%v); nothing was deleted",
+				"%q 계정의 대화를 평소 Claude Code 폴더로 옮기지 못했습니다 (%v). 아무것도 지우지 않았습니다"), a.ID, err)
+		}
+	}
+	if moved > 0 {
+		fmt.Fprintf(os.Stderr, say("baton: moved %d conversation(s) to %s\n", "baton: 대화 %d개를 %s 폴더로 옮겼습니다\n"), moved, filepath.Join(home, "projects"))
 	}
 	if inst, err := e.resolveClaude(); err == nil {
 		for _, a := range e.reg.Accounts {

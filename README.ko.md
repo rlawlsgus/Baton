@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.4.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.4.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -146,7 +146,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.4.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.4.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -174,7 +174,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.4.1
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -230,7 +230,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton login <이름> [--email <주소>]` | 계정을 다시 로그인. 예를 들어 `baton list`가 `needs_login`을 보일 때. 그 계정에서 세션이 실행 중이면 거절 |
 | `baton list` | 계정과 요금제, 상태(`ok`, `limited until …`, `needs_login`, `blocked`), 마지막으로 확인한 사용량 보기 |
 | `baton enable` / `disable <이름>` | 계정을 쓰거나 건너뛰기 (`enable`은 `blocked` 표시도 지움) |
-| `baton remove <이름> [--force]` | 로그아웃하고 프로필 삭제 (그 계정에서 시작한 대화가 있으면 거절) |
+| `baton remove <이름>` | 로그아웃하고 프로필 삭제. 그 계정의 대화는 먼저 평소 Claude Code 폴더로 옮김 |
 | `baton run [--account <이름>] [-- <claude 인수>]` | baton이 지켜보는 세션 시작 |
 | `baton sessions [--max N]` | 데스크톱 앱 것을 포함해 모든 폴더의 대화 보기 |
 | `baton resume <id> [--account <이름>] [--copy]` | 그중 하나를 그 폴더에서 이어 가기 (`--copy`는 원래 대화를 그대로 둠) |
@@ -240,7 +240,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton sync` | 평소 Claude Code 설정을 모든 계정 프로필과 공유 (아래 참고) |
 | `baton config [<키> [<값>]]` | 설정 보기와 바꾸기 (아래 참고) |
 | `baton doctor` | claude.exe, 콘솔, 모든 로그인 점검 |
-| `baton uninstall [--yes]` | 모든 계정을 로그아웃하고 baton 데이터와 시작 메뉴 항목 삭제 |
+| `baton uninstall [--yes]` | baton의 대화를 평소 Claude Code 폴더로 옮기고, 모든 계정을 로그아웃한 뒤 baton 데이터와 시작 메뉴 항목 삭제 |
 
 **설정** (`baton config`):
 
@@ -326,8 +326,10 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   재시도하므로, baton은 그 뒤에 넘어갑니다. 529 "overloaded" 오류로는 절대 전환하지 않습니다.
 - **프로필마다 처음 시작할 때 약 15 MB를 받습니다.** Claude Code의 공식 플러그인 마켓플레이스이며,
   Claude Code는 새 프로필마다 이것을 받습니다.
-- **대화는 그 대화를 시작한 계정에 저장됩니다.** 그 계정을 삭제하면 그 대화도 지워지므로,
-  `baton remove`는 `--force` 없이는 거절합니다.
+- **대화는 그 대화를 시작한 계정에 저장되고, 계정과 함께 지워지지 않습니다.** 그 계정을 삭제하거나 baton을
+  제거하면, 먼저 그 대화를 평소 Claude Code 폴더(`%USERPROFILE%\.claude`)로 옮깁니다. 그러면
+  `claude --resume`으로 다시 열 수 있습니다. 그 폴더에 이미 있는 파일은 덮어쓰지 않고, 이름은 같지만
+  내용이 다른 파일은 `<이름> (baton <계정>)`으로 옆에 둡니다.
 - **baton 세션만 전환됩니다.** baton 창이나 `baton run`으로 시작한 세션만 계정을 전환합니다. 창에서
   시작한 세션도 자기 콘솔에서 실행되는 `baton run`입니다. 데스크톱 앱의 Code 탭이나 IDE 확장에서 실행
   중인 세션은 전환되지 않으니, 위의 *기존 대화 가져오기*로 가져와 쓰세요.
@@ -357,10 +359,12 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
 baton uninstall
 ```
 
-제거 프로그램은 Claude Code로 모든 계정을 로그아웃하고 baton 데이터 폴더(`%LOCALAPPDATA%\baton`)를
-지웁니다. 이 폴더에는 계정마다의 프로필과 거기서 시작한 대화가 들어 있습니다. 시작 메뉴 항목, Windows
-설치된 앱 목록의 항목, 설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내세요. Claude 계정 자체와 평소
-쓰던 Claude Code 설정은 건드리지 않습니다.
+제거 프로그램은 먼저 baton에서 시작한 대화를 평소 Claude Code 폴더(`%USERPROFILE%\.claude`)로 옮겨
+보존합니다. 그래서 `claude --resume`으로 다시 열 수 있습니다. 옮기지 못한 대화가 있으면 거기서 멈추고
+아무것도 지우지 않습니다. 그다음 Claude Code로 모든 계정을 로그아웃하고 baton 데이터 폴더
+(`%LOCALAPPDATA%\baton`, 계정마다의 프로필)를 지웁니다. 시작 메뉴 항목, Windows 설치된 앱 목록의 항목,
+설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내세요. Claude 계정 자체와 평소 쓰던 Claude Code 설정,
+Claude 데스크톱 앱의 세션은 건드리지 않습니다.
 
 프로필이 남아 있을 때는 폴더 링크를 따라가는 도구로 `%LOCALAPPDATA%\baton`을 직접 지우지 마세요.
 프로필이 `%USERPROFILE%\.claude`로 연결되어 있기 때문입니다. baton의 제거 기능은 링크를 따라가지
