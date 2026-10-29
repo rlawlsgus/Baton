@@ -673,13 +673,19 @@ func TestUpdateCheck(t *testing.T) {
 			return
 		}
 		v := strings.TrimPrefix(tag, "v")
-		_ = json.NewEncoder(w).Encode([]map[string]any{{"tag_name": tag, "body": "big news", "html_url": "https://example.com/" + tag,
-			"assets": []map[string]string{
-				{"name": "baton_" + v + "_windows_" + runtime.GOARCH + ".zip", "browser_download_url": "https://example.com/z"},
-				{"name": "checksums.txt", "browser_download_url": "https://example.com/s"}}}})
+		switch r.URL.Path {
+		case "/rlawlsgus/Baton/releases.atom":
+			_, _ = w.Write([]byte(`<feed xmlns="http://www.w3.org/2005/Atom"><entry><updated>2026-10-29T04:33:47Z</updated>` +
+				`<link rel="alternate" href="https://github.com/rlawlsgus/Baton/releases/tag/` + tag + `"/>` +
+				`<content type="html">&lt;p&gt;big news&lt;/p&gt;</content></entry></feed>`))
+		case "/rlawlsgus/Baton/releases/download/" + tag + "/checksums.txt":
+			_, _ = w.Write([]byte(strings.Repeat("0", 64) + "  baton_" + v + "_windows_" + runtime.GOARCH + ".zip\n"))
+		default:
+			http.NotFound(w, r)
+		}
 	}))
 	defer srv.Close()
-	env := []string{"BATON_UPDATE_API=" + srv.URL}
+	env := []string{"BATON_UPDATE_SITE=" + srv.URL}
 	if out, code := c.run(env, "update", "--check"); code != 0 || !strings.Contains(out, "baton 9.9.9 is out") || !strings.Contains(out, "big news") {
 		t.Fatalf("newer: %d\n%s", code, out)
 	}

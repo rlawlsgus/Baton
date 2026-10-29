@@ -9,15 +9,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"encoding/xml"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -26,35 +30,48 @@ import (
 // Repo is where baton is released.
 const Repo = "rlawlsgus/Baton"
 
-// API is GitHub's REST API; BATON_UPDATE_API points baton at another one
-// (a test server).
-func API() string {
-	if v := os.Getenv("BATON_UPDATE_API"); v != "" {
+// Site is GitHub; BATON_UPDATE_SITE points baton at another one (a test
+// server). baton reads the repository's releases feed and the releases'
+// download links there, not GitHub's REST API: the API answers only 60
+// requests an hour to everyone behind one address without signing in, which
+// an office network uses up.
+func Site() string {
+	if v := os.Getenv("BATON_UPDATE_SITE"); v != "" {
 		return strings.TrimRight(v, "/")
 	}
-	return "https://api.github.com"
+	return "https://github.com"
 }
 
 // Release is a version of baton that can be installed on this PC.
 type Release struct {
 	Version string    `json:"version"` // 0.5.0
 	Tag     string    `json:"tag"`     // v0.5.0
-	Notes   string    `json:"notes"`   // the release page's text (Markdown)
+	Notes   string    `json:"notes"`   // the release page's text, as plain text
 	Page    string    `json:"page"`    // the release page
 	Date    time.Time `json:"date"`
 	ZipName string    `json:"zip_name"`
-	zipURL  string
-	sumsURL string
+}
+
+// asset is the download link of one of the release's files.
+func (r Release) asset(name string) string {
+	return Site() + "/" + Repo + "/releases/download/" + url.PathEscape(r.Tag) + "/" + name
 }
 
 var client = &http.Client{Timeout: 5 * time.Minute}
+
+// statusError is an answer other than 200 OK.
+type statusError struct {
+	url, status string
+	code        int
+}
+
+func (e *statusError) Error() string { return e.url + ": " + e.status }
 
 func get(ctx context.Context, url, userAgent string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", userAgent)
 	resp, err := client.Do(req)
 	if err != nil {
@@ -62,64 +79,127 @@ func get(ctx context.Context, url, userAgent string) (*http.Response, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("%s: %s", url, resp.Status)
+		return nil, &statusError{url: url, status: resp.Status, code: resp.StatusCode}
 	}
 	return resp, nil
 }
 
 var versionRx = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)$`)
 
-// Latest is the newest release that has a zip for this processor (pre-releases
-// included: a preview is still the newest baton). userAgent names baton and
-// its version, as GitHub asks.
+// errNoZip: the release's checksums.txt names no zip for this processor.
+var errNoZip = errors.New("no zip for this PC")
+
+// Latest is the newest release that has a zip for this processor and a
+// checksums.txt that lists it (pre-releases included: a preview is still the
+// newest baton; drafts are not in the feed). userAgent names baton and its
+// version.
 func Latest(ctx context.Context, userAgent string) (Release, error) {
-	resp, err := get(ctx, API()+"/repos/"+Repo+"/releases?per_page=20", userAgent)
+	resp, err := get(ctx, Site()+"/"+Repo+"/releases.atom", userAgent)
 	if err != nil {
 		return Release{}, err
 	}
 	defer resp.Body.Close()
-	var list []struct {
-		Tag       string    `json:"tag_name"`
-		Body      string    `json:"body"`
-		Page      string    `json:"html_url"`
-		Draft     bool      `json:"draft"`
-		Published time.Time `json:"published_at"`
-		Assets    []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
-		} `json:"assets"`
+	var feed struct {
+		Entries []struct {
+			Updated time.Time `xml:"updated"`
+			Link    struct {
+				Href string `xml:"href,attr"`
+			} `xml:"link"`
+			Content string `xml:"content"`
+		} `xml:"entry"`
 	}
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&list); err != nil {
+	if err := xml.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&feed); err != nil {
 		return Release{}, fmt.Errorf("reading the releases: %w", err)
 	}
-	var best Release
-	for _, r := range list {
-		m := versionRx.FindStringSubmatch(r.Tag)
-		if r.Draft || m == nil {
+	var found []Release
+	for _, e := range feed.Entries {
+		tag, err := url.PathUnescape(path.Base(e.Link.Href))
+		m := versionRx.FindStringSubmatch(tag)
+		if err != nil || m == nil || !strings.Contains(e.Link.Href, "/releases/tag/") {
 			continue
 		}
 		v := m[1] + "." + m[2] + "." + m[3]
-		rel := Release{Version: v, Tag: r.Tag, Notes: r.Body, Page: r.Page, Date: r.Published,
-			ZipName: fmt.Sprintf("baton_%s_windows_%s.zip", v, runtime.GOARCH)}
-		for _, a := range r.Assets {
-			switch a.Name {
-			case rel.ZipName:
-				rel.zipURL = a.URL
-			case "checksums.txt":
-				rel.sumsURL = a.URL
-			}
+		found = append(found, Release{Version: v, Tag: tag, Notes: plainText(e.Content),
+			Page: Site() + "/" + Repo + "/releases/tag/" + url.PathEscape(tag), Date: e.Updated,
+			ZipName: fmt.Sprintf("baton_%s_windows_%s.zip", v, runtime.GOARCH)})
+	}
+	sort.SliceStable(found, func(i, j int) bool { return Compare(found[i].Version, found[j].Version) > 0 })
+	// The newest one built for this PC; a few are tried, so a release without
+	// this processor's zip does not hide the one before it.
+	for i, rel := range found {
+		if i == 3 {
+			break
 		}
-		if rel.zipURL == "" || rel.sumsURL == "" {
+		_, err := checksum(ctx, rel, userAgent)
+		var se *statusError
+		if errors.Is(err, errNoZip) || errors.As(err, &se) && se.code == http.StatusNotFound {
 			continue // not built for this PC, or not checkable
 		}
-		if best.Version == "" || Compare(rel.Version, best.Version) > 0 {
-			best = rel
+		if err != nil {
+			return Release{}, err
+		}
+		return rel, nil
+	}
+	return Release{}, errors.New("no release of baton for this PC was found")
+}
+
+var tagRx = regexp.MustCompile(`<(/?)([a-zA-Z][a-zA-Z0-9]*)[^>]*>`)
+
+// plainText turns a release's notes, which the feed gives as HTML, back into
+// text close to the Markdown they were written in.
+func plainText(h string) string {
+	var b strings.Builder
+	depth, last, afterBreak := 0, 0, false
+	text := func(s string) {
+		if afterBreak { // GitHub writes "<br>\n"
+			s, afterBreak = strings.TrimPrefix(s, "\n"), false
+		}
+		if strings.TrimSpace(s) == "" && strings.Contains(s, "\n") {
+			return // the line breaks GitHub puts between blocks
+		}
+		if depth > 0 {
+			s = strings.ReplaceAll(s, "\n", "\n"+strings.Repeat("  ", depth))
+		}
+		b.WriteString(s)
+	}
+	for _, m := range tagRx.FindAllStringSubmatchIndex(h, -1) {
+		text(h[last:m[0]])
+		last = m[1]
+		closing := h[m[2]:m[3]] == "/"
+		switch strings.ToLower(h[m[4]:m[5]]) {
+		case "li":
+			if closing {
+				depth--
+				b.WriteString("\n")
+			} else {
+				b.WriteString(strings.Repeat("  ", depth) + "- ")
+				depth++
+			}
+		case "br":
+			b.WriteString("\n" + strings.Repeat("  ", depth))
+			afterBreak = true
+		case "p", "h1", "h2", "h3", "h4", "h5", "h6", "pre", "blockquote":
+			if closing {
+				b.WriteString("\n")
+			} else {
+				b.WriteString("\n\n")
+			}
+		case "ul", "ol":
+			b.WriteString("\n")
+		case "hr":
+			b.WriteString("\n\n---\n\n")
 		}
 	}
-	if best.Version == "" {
-		return Release{}, errors.New("no release of baton for this PC was found")
+	text(h[last:])
+	lines := strings.Split(html.UnescapeString(b.String()), "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t")
 	}
-	return best, nil
+	out := strings.Join(lines, "\n")
+	for strings.Contains(out, "\n\n\n") {
+		out = strings.ReplaceAll(out, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(out)
 }
 
 // Compare compares two versions ("0.5.0", "v0.5.0", "0.5.0-dev"; a -dev build
@@ -153,7 +233,7 @@ func parts(v string) [3]int {
 // release's checksums.txt and unpacks it. It returns the folder that holds
 // baton.exe and baton-app.exe.
 func Download(ctx context.Context, rel Release, dir, userAgent string) (string, error) {
-	if rel.zipURL == "" || rel.sumsURL == "" {
+	if rel.Tag == "" || rel.ZipName == "" {
 		return "", errors.New("this release has no download for this PC")
 	}
 	want, err := checksum(ctx, rel, userAgent)
@@ -161,7 +241,7 @@ func Download(ctx context.Context, rel Release, dir, userAgent string) (string, 
 		return "", err
 	}
 	zipPath := filepath.Join(dir, rel.ZipName)
-	resp, err := get(ctx, rel.zipURL, userAgent)
+	resp, err := get(ctx, rel.asset(rel.ZipName), userAgent)
 	if err != nil {
 		return "", err
 	}
@@ -195,7 +275,7 @@ func Download(ctx context.Context, rel Release, dir, userAgent string) (string, 
 
 // checksum is the SHA-256 that checksums.txt gives for the release's zip.
 func checksum(ctx context.Context, rel Release, userAgent string) (string, error) {
-	resp, err := get(ctx, rel.sumsURL, userAgent)
+	resp, err := get(ctx, rel.asset("checksums.txt"), userAgent)
 	if err != nil {
 		return "", err
 	}
@@ -210,7 +290,7 @@ func checksum(ctx context.Context, rel Release, userAgent string) (string, error
 			return f[0], nil
 		}
 	}
-	return "", fmt.Errorf("checksums.txt has no line for %s", rel.ZipName)
+	return "", fmt.Errorf("checksums.txt has no line for %s: %w", rel.ZipName, errNoZip)
 }
 
 // unzip unpacks a zip into dir, refusing any entry that would land outside it.

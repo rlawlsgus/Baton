@@ -6,7 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,54 +32,49 @@ func zipOf(t *testing.T, files map[string]string) []byte {
 	return b.Bytes()
 }
 
-// fakeGitHub serves a releases list and the files it names.
+// fakeGitHub serves a releases feed like GitHub's and the releases' files:
+// v0.5.2 has no checksums.txt, v0.5.1 has one without a zip for this PC, and
+// "nightly" is not a version.
 func fakeGitHub(t *testing.T, zips map[string][]byte, sums func(name string, data []byte) string) *httptest.Server {
 	mux := http.NewServeMux()
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	arch := runtime.GOARCH
-	asset := func(name string) map[string]string {
-		return map[string]string{"name": name, "browser_download_url": srv.URL + "/dl/" + name}
+	entry := func(tag string) string {
+		notes := "<p>notes for " + tag + "</p>\n<ul>\n<li><strong>One.</strong> It&#39;s<br>\nlong.</li>\n<li>Two</li>\n</ul>"
+		return `<entry><id>tag:github.com,2008:Repository/1/` + tag + `</id><updated>2026-10-29T04:33:47Z</updated>` +
+			`<link rel="alternate" type="text/html" href="https://github.com/` + Repo + `/releases/tag/` + tag + `"/>` +
+			`<title>Baton ` + tag + `</title><content type="html">` + html.EscapeString(notes) + `</content></entry>`
 	}
-	release := func(tag string, draft bool, names ...string) map[string]any {
-		var as []map[string]string
-		for _, n := range names {
-			as = append(as, asset(n))
-		}
-		return map[string]any{"tag_name": tag, "draft": draft, "body": "notes for " + tag, "html_url": "https://example.com/" + tag, "assets": as}
-	}
-	list := []map[string]any{
-		release("v0.6.0", true, "baton_0.6.0_windows_"+arch+".zip", "checksums.txt"), // a draft
-		release("v0.5.1", false, "baton_0.5.1_windows_other.zip", "checksums.txt"),   // not for this PC
-		release("v0.5.0", false, "baton_0.5.0_windows_"+arch+".zip", "checksums.txt"),
-		release("v0.4.1", false, "baton_0.4.1_windows_"+arch+".zip", "checksums.txt"),
-		release("nightly", false, "x.zip"),
-	}
-	mux.HandleFunc("/repos/"+Repo+"/releases", func(w http.ResponseWriter, r *http.Request) {
+	feed := `<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">` +
+		entry("v0.4.1") + entry("nightly") + entry("v0.5.2") + entry("v0.5.1") + entry("v0.5.0") + `</feed>`
+	mux.HandleFunc("/"+Repo+"/releases.atom", func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("User-Agent") == "" {
 			http.Error(w, "no user agent", http.StatusForbidden)
 			return
 		}
-		_ = json.NewEncoder(w).Encode(list)
+		_, _ = w.Write([]byte(feed))
 	})
-	mux.HandleFunc("/dl/", func(w http.ResponseWriter, r *http.Request) {
-		name := strings.TrimPrefix(r.URL.Path, "/dl/")
-		if name == "checksums.txt" {
-			var lines []string
+	mux.HandleFunc("/"+Repo+"/releases/download/", func(w http.ResponseWriter, r *http.Request) {
+		tag, name, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/"+Repo+"/releases/download/"), "/")
+		v := strings.TrimPrefix(tag, "v")
+		if name == "checksums.txt" && tag != "v0.5.2" {
+			lines := []string{strings.Repeat("1", 64) + "  baton_" + v + "_windows_other.zip"}
 			for n, data := range zips {
-				lines = append(lines, sums(n, data))
+				if strings.Contains(n, "_"+v+"_") {
+					lines = append(lines, sums(n, data))
+				}
 			}
 			_, _ = w.Write([]byte(strings.Join(lines, "\n") + "\n"))
 			return
 		}
 		data, ok := zips[name]
-		if !ok {
+		if !ok || !strings.Contains(name, "_"+v+"_") {
 			http.NotFound(w, r)
 			return
 		}
 		_, _ = w.Write(data)
 	})
-	t.Setenv("BATON_UPDATE_API", srv.URL)
+	t.Setenv("BATON_UPDATE_SITE", srv.URL)
 	return srv
 }
 
@@ -92,9 +87,11 @@ func TestLatestAndDownload(t *testing.T) {
 	name := "baton_0.5.0_windows_" + runtime.GOARCH + ".zip"
 	zips := map[string][]byte{name: zipOf(t, map[string]string{
 		"baton.exe": "cli", "baton-app.exe": "app", "README.md": "readme", "docs/images/a.png": "png"})}
-	fakeGitHub(t, zips, goodSum)
+	srv := fakeGitHub(t, zips, goodSum)
 	rel, err := Latest(context.Background(), "baton-test")
-	if err != nil || rel.Version != "0.5.0" || rel.Tag != "v0.5.0" || rel.Notes != "notes for v0.5.0" || rel.ZipName != name {
+	notes := "notes for v0.5.0\n\n- One. It's\n  long.\n- Two"
+	if err != nil || rel.Version != "0.5.0" || rel.Tag != "v0.5.0" || rel.Notes != notes || rel.ZipName != name ||
+		rel.Page != srv.URL+"/"+Repo+"/releases/tag/v0.5.0" {
 		t.Fatalf("latest %+v %v", rel, err)
 	}
 	dir, err := Download(context.Background(), rel, t.TempDir(), "baton-test")
@@ -134,6 +131,18 @@ func TestDownloadRefusesABadZip(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "evil.txt")); err == nil {
 		t.Fatal("an entry outside the folder was written")
+	}
+}
+
+// TestPlainText uses the shape of GitHub's feed for baton 0.5.0's notes.
+func TestPlainText(t *testing.T) {
+	in := "<p>baton can now update itself.</p>\n<h2>New</h2>\n<ul>\n<li><strong>Updates.</strong> <strong>Help → Update baton</strong> asks GitHub<br>\n" +
+		"changed. <code>baton update</code> &amp; <code>&lt;name&gt;</code>.</li>\n<li>Second</li>\n</ul>\n<hr>\n<h2>한국어</h2>\n" +
+		"<p><strong>새 기능</strong></p>\n<ul>\n<li>업데이트</li>\n</ul>\n<h2>SHA-256</h2>\n<pre><code>aaaa  baton_0.5.0_windows_amd64.zip\nbbbb  baton_0.5.0_windows_arm64.zip\n</code></pre>"
+	want := "baton can now update itself.\n\nNew\n\n- Updates. Help → Update baton asks GitHub\n  changed. baton update & <name>.\n- Second\n\n---\n\n" +
+		"한국어\n\n새 기능\n\n- 업데이트\n\nSHA-256\n\naaaa  baton_0.5.0_windows_amd64.zip\nbbbb  baton_0.5.0_windows_arm64.zip"
+	if got := plainText(in); got != want {
+		t.Errorf("plainText:\n%s\n-- want --\n%s", got, want)
 	}
 }
 

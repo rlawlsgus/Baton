@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.5.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.5.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -153,7 +153,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.5.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.5.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -190,7 +190,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.1
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -366,9 +366,11 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   상태 표시줄에 넘겨 주고, baton의 상태 표시줄이 그것을 기록합니다. 그래서 그 계정으로 baton 세션을 한 번
   쓴 뒤부터, 그 시점 기준으로 표시됩니다. baton이 Anthropic에 따로 묻지는 않습니다. 직접 설정한 상태
   표시줄(설정의 `statusLine`)이 있으면 baton은 그대로 두고, 그 세션의 사용량은 기록하지 않습니다.
-- **업데이트 확인은 GitHub에 묻습니다.** 창을 열 때와 그 뒤 몇 시간마다 `api.github.com`에 baton의
-  릴리스를 묻습니다(`baton config check_updates false`로 끌 수 있고, *업데이트 확인* 버튼은 그대로
-  됩니다). 누르기 전에는 아무것도 설치하지 않습니다. zip이 그 릴리스의 `checksums.txt`와 맞을 때만
+- **업데이트 확인은 GitHub에 묻습니다.** 창을 열 때와 그 뒤 몇 시간마다 baton GitHub 페이지의 릴리스
+  피드(`github.com/rlawlsgus/Baton/releases.atom`)와 최신 릴리스의 `checksums.txt`를 읽습니다
+  (`baton config check_updates false`로 끌 수 있고, *업데이트 확인* 버튼은 그대로 됩니다). GitHub API는
+  쓰지 않습니다. 로그인하지 않은 컴퓨터의 API 한도는 회사 네트워크에서 모두가 나눠 쓰기 때문입니다.
+  누르기 전에는 아무것도 설치하지 않습니다. zip이 그 릴리스의 `checksums.txt`와 맞을 때만
   설치하므로 깨지거나 바뀐 다운로드는 걸러지지만, 두 파일은 같은 GitHub 릴리스에서 옵니다.
 - **Windows 콘솔에서 실행하세요.** Windows Terminal, PowerShell, cmd에서 실행하세요. mintty(ConPTY 없이)
   처럼 Windows 콘솔이 아닌 터미널에서 실행하면 Claude Code를 새 콘솔 창에서 엽니다.
