@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.5.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.5.2-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -153,7 +153,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.5.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.5.2_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -190,7 +190,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.2
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.

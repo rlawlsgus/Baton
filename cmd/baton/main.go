@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.5.1-dev"
+var version = "0.5.2-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 

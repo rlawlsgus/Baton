@@ -205,7 +205,6 @@ details > summary { cursor: pointer; font-weight: 600; }
 .meter .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--ok); }
 .meter .fill.warn { background: var(--warn); }
 .meter .fill.bad { background: var(--bad); }
-.sub.changes { display: flex; align-items: center; gap: 8px; }
 button.btn.small-btn { padding: 1px 8px; font-size: 12px; }
 .list .item.change { align-items: center; }
 .nums { white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -213,3 +212,21 @@ button.btn.small-btn { padding: 1px 8px; font-size: 12px; }
 .nums .minus { color: var(--bad); }
 .tip.warn-tip { border-left: 3px solid var(--warn); }
 .tip.ok-tip { background: var(--ok-soft); }
+/* A session row: one line of facts; the rest opens with "Details". */
+.row.run { align-items: flex-start; flex-wrap: wrap; row-gap: 8px; }
+.row.run > .grow { flex: 1 1 320px; }
+.row.run > .actions { margin-left: auto; padding-top: 1px; }
+.facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; margin-top: 4px; font-size: 12.5px; color: var(--muted); }
+.fact { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.fact.strong { color: var(--text); font-weight: 600; }
+button.fact.link { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 4px; }
+button.fact.link:hover .muted { color: var(--text); text-decoration: underline; }
+.meter.mini { display: inline-block; width: 44px; height: 5px; }
+.hint { font-size: 12.5px; margin-top: 6px; padding: 4px 10px; border-radius: 6px; background: var(--warn-soft); color: var(--text); }
+.details { margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: var(--off-soft); font-size: 12.5px; display: grid; gap: 6px; }
+.detail { display: grid; grid-template-columns: 7em 1fr; gap: 8px; align-items: baseline; }
+.detail-label { color: var(--muted); }
+.detail-value { min-width: 0; }
+.details .actions { margin-top: 2px; }
+button.btn.details-btn { font-size: 12.5px; }
+.err-inline { color: var(--bad); }

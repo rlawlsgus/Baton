@@ -4,7 +4,6 @@
 
 const T = {
   ko: {
-    tagline: '여러 Claude 계정으로 Claude Code를 끊김 없이',
     tab_sessions: '세션', tab_accounts: '계정', tab_settings: '설정', tab_help: '도움말',
     claude_desktop: 'Claude 데스크톱 앱의 Claude Code {v}', claude_cli: 'Claude Code {v}', claude_checking: 'Claude Code 확인 중…',
     claude_missing: 'Claude Code 없음',
@@ -34,11 +33,11 @@ const T = {
     // session details
     cl_busy: 'Claude 작업 중', cl_idle: '입력 기다리는 중', cl_waiting: '세션 창에서 확인 필요',
     cl_waiting_hint: '세션 창에서 답해야 계속됩니다: {w}', ctx: '컨텍스트 {p}% 사용',
-    ch_none: '바뀐 파일 없음', ch_n: '바뀐 파일 {n}개 · +{a} −{r}', ch_n1: '바뀐 파일 1개 · +{a} −{r}', ch_btn: '변경사항', ch_title: '{f}의 변경사항',
+    ch_none: '바뀐 파일 없음', ch_files: '파일 {n}개', ch_files1: '파일 1개', ch_btn: '변경사항', ch_title: '{f}의 변경사항',
     ch_norepo: 'git 저장소가 아닌 폴더라 변경사항을 볼 수 없습니다.', ch_nogit: 'git을 찾지 못했습니다. Git for Windows를 설치하면 변경사항을 볼 수 있습니다.',
     ch_note: '마지막 커밋 이후 이 폴더에서 바뀐 파일입니다(커밋하지 않은 것, 새 파일 포함).', ch_loading: '변경사항을 읽는 중…', ch_error: 'git이 변경사항을 읽지 못했습니다: {e}',
     gs_modified: '수정', gs_added: '추가', gs_deleted: '삭제', gs_renamed: '이름 바뀜', gs_untracked: '새 파일', gs_conflict: '충돌',
-    rc_on: '리모트 컨트롤', rc_short: '휴대폰이나 claude.ai/code에서 {a} 계정으로 보기', rc_where: '휴대폰의 Claude 앱이나 claude.ai/code에서 {a} 계정으로 로그인하면 이 세션이 보입니다. 계정이 바뀌면 바뀐 계정에서 보입니다.',
+    rc_on: '리모트 컨트롤', details_more: '자세히', details_less: '접기', d_path: '폴더', d_started: '시작', d_changes: '변경', ctx_short: '컨텍스트', rc_where: '휴대폰의 Claude 앱이나 claude.ai/code에서 {a} 계정으로 로그인하면 이 세션이 보입니다. 계정이 바뀌면 바뀐 계정에서 보입니다.',
     start_rc: '리모트 컨트롤 켜기', start_rc_hint: '휴대폰의 Claude 앱이나 claude.ai/code에서 이 세션을 보고 이어서 쓸 수 있습니다. 세션이 실행 중인 계정으로 로그인해야 보이고, 계정이 바뀌면 그 계정에서 다시 켜집니다.',
     set_rc: '새 세션에서 리모트 컨트롤 켜기를 기본으로',
     trust_q: '이 폴더를 신뢰하나요?', trust_body: 'Claude Code가 이 폴더의 파일을 읽고 고치고 명령을 실행할 수 있게 됩니다. 믿을 수 있는 폴더일 때만 체크하세요.',
@@ -210,7 +209,6 @@ const T = {
     ago_now: '방금', ago_min: '{n}분 전', ago_hour: '{n}시간 전', ago_day: '{n}일 전',
   },
   en: {
-    tagline: 'Keep Claude Code going across your Claude accounts',
     tab_sessions: 'Sessions', tab_accounts: 'Accounts', tab_settings: 'Settings', tab_help: 'Help',
     claude_desktop: 'Claude Code {v} from the Claude desktop app', claude_cli: 'Claude Code {v}', claude_checking: 'Checking Claude Code…',
     claude_missing: 'Claude Code not found',
@@ -238,11 +236,11 @@ const T = {
     recent_sessions: 'Recent sessions', recent_sessions_none: 'Ended sessions show up here.', continue_btn: 'Continue',
     cl_busy: 'Claude is working', cl_idle: 'Waiting for you', cl_waiting: 'Needs an answer in the session window',
     cl_waiting_hint: 'Answer in the session window to go on: {w}', ctx: 'context {p}% used',
-    ch_none: 'No changed files', ch_n: '{n} changed files · +{a} −{r}', ch_n1: '1 changed file · +{a} −{r}', ch_btn: 'Changes', ch_title: 'Changes in {f}',
+    ch_none: 'No changed files', ch_files: '{n} files', ch_files1: '1 file', ch_btn: 'Changes', ch_title: 'Changes in {f}',
     ch_norepo: 'This folder is not a git repository, so there are no changes to show.', ch_nogit: 'git was not found. Install Git for Windows to see changes.',
     ch_note: 'Files changed in this folder since the last commit (uncommitted work, new files included).', ch_loading: 'Reading changes…', ch_error: 'git could not read the changes: {e}',
     gs_modified: 'modified', gs_added: 'added', gs_deleted: 'deleted', gs_renamed: 'renamed', gs_untracked: 'new', gs_conflict: 'conflict',
-    rc_on: 'Remote Control', rc_short: 'see it on your phone or claude.ai/code as {a}', rc_where: 'Sign in to the Claude app on your phone or to claude.ai/code with the account {a} to see this session. After a switch it shows on the new account.',
+    rc_on: 'Remote Control', details_more: 'Details', details_less: 'Less', d_path: 'Folder', d_started: 'Started', d_changes: 'Changes', ctx_short: 'Context', rc_where: 'Sign in to the Claude app on your phone or to claude.ai/code with the account {a} to see this session. After a switch it shows on the new account.',
     start_rc: 'Turn on Remote Control', start_rc_hint: 'See and continue this session from the Claude app on your phone or claude.ai/code. It shows for the account the session runs on, and comes back on for the next account after a switch.',
     set_rc: 'Turn on Remote Control for new sessions by default',
     trust_q: 'Do you trust this folder?', trust_body: 'Claude Code will be able to read and change files in it and run commands. Tick only for a folder you trust.',
@@ -407,7 +405,7 @@ const T = {
 };
 
 const S = { state: null, lang: 'ko', tab: null, lastJSON: '', onboardingShown: false, mainDirty: false,
-  ui: { doctorOut: null, doctorOk: true, doctorRunning: false, advancedOpen: false, signinPrivate: false, dismissed: {} } };
+  ui: { doctorOut: null, doctorOk: true, doctorRunning: false, advancedOpen: false, signinPrivate: false, dismissed: {}, runOpen: {} } };
 
 function t(key, vars) {
   let s = (T[S.lang] && T[S.lang][key]) ?? T.en[key] ?? key;
@@ -547,7 +545,6 @@ window.addEventListener('pagehide', () => {
 function render() {
   const st = S.state;
   if (!st) return;
-  document.getElementById('tagline').textContent = t('tagline');
   renderTop(st);
   renderTabs(st);
   renderBanners(st);
@@ -718,23 +715,74 @@ function runRow(st, r) {
   sel.classList.add('auto-w');
   const canSwitch = (r.state === 'running' || r.state === 'stopping' || waiting) && (others.length > 0 || retry);
   const asking = r.state === 'asking';
-  return h('div', { class: 'row' },
+  // At a glance: where, what state, which account, how full the context is,
+  // what changed and Remote Control. The rest waits behind "Details".
+  const open = !!S.ui.runOpen[r.run_id];
+  const toggle = h('button', { class: 'btn ghost details-btn', 'aria-expanded': String(open), text: open ? t('details_less') : t('details_more'),
+    onclick: () => { S.ui.runOpen[r.run_id] = !open; render(); } });
+  const facts = [
+    h('span', { class: 'fact strong', text: r.account ? t('run_on', { a: r.account }) : t('run_on_none') }),
+    r.context != null ? contextFact(r.context) : null,
+    changesFact(r),
+    r.remote_control ? h('span', { class: 'pill info', title: t('rc_where', { a: r.account || '' }), text: t('rc_on') }) : null,
+  ].filter(Boolean);
+  return h('div', { class: 'row run' + (open ? ' open' : '') },
     h('div', { class: 'grow' },
-      h('div', { class: 'title' }, baseName(r.cwd), runState(r), claudeState(r)),
-      h('div', { class: 'sub', title: r.cwd, text: `${r.cwd}` }),
-      h('div', { class: 'sub', text: [r.account ? t('run_on', { a: r.account }) : t('run_on_none'), t('run_since', { t: clock(r.started) }),
-        r.model, r.context != null ? t('ctx', { p: Math.round(r.context) }) : ''].filter(Boolean).join(' · ') }),
-      r.claude === 'waiting' && r.waiting_for ? h('div', { class: 'small', text: t('cl_waiting_hint', { w: r.waiting_for }) }) : null,
-      changesLine(r),
-      r.remote_control ? h('div', { class: 'sub', title: t('rc_where', { a: r.account || '' }) },
-        h('span', { class: 'pill info', text: t('rc_on') }), ' ', r.account ? t('rc_short', { a: r.account }) : '') : null,
-      asking ? h('div', { class: 'small', text: t('asking_hint') + ' ' + t('asking_stop_hint') }) : null,
-      waiting ? h('div', { class: 'small', text: r.account ? t('waiting_hint') : t('waiting_first') }) : null),
+      h('div', { class: 'title' }, h('span', { title: r.cwd, text: baseName(r.cwd) }), runState(r), claudeState(r)),
+      h('div', { class: 'facts' }, facts),
+      r.claude === 'waiting' && r.waiting_for ? h('div', { class: 'hint', text: t('cl_waiting_hint', { w: r.waiting_for }) }) : null,
+      asking ? h('div', { class: 'hint', text: t('asking_hint') + ' ' + t('asking_stop_hint') }) : null,
+      waiting ? h('div', { class: 'hint', text: r.account ? t('waiting_hint') : t('waiting_first') }) : null,
+      open ? runDetails(r) : null),
     h('div', { class: 'actions' }, canSwitch ? sel : null,
       // While the session window asks, baton reads only that window.
       asking || r.state === 'ending' ? null : h('button', { class: 'btn ghost danger', text: t('stop_btn'), onclick: () => confirmStop(r) }),
-      h('button', { class: 'btn ghost', text: t('open_folder'), onclick: () => api('open', { what: 'folder', run_id: r.run_id }).catch(showError) }),
-      h('button', { class: 'btn ghost', text: t('open_log'), onclick: () => api('open', { what: 'run', run_id: r.run_id }).catch(showError) })));
+      toggle));
+}
+
+// runDetails is what a session row shows once opened.
+function runDetails(r) {
+  const c = r.changes;
+  const line = (label, ...value) => h('div', { class: 'detail' }, h('span', { class: 'detail-label', text: label }), h('span', { class: 'detail-value' }, ...value));
+  return h('div', { class: 'details' },
+    line(t('d_path'), h('span', { class: 'mono', text: r.cwd })),
+    line(t('d_started'), clock(r.started) + (r.model ? ' · ' + r.model : '')),
+    c && c.error && c.error !== 'no_git' ? line(t('d_changes'), h('span', { class: 'err-inline', text: t('ch_error', { e: c.error }) })) : null,
+    c && c.repo && !c.error ? line(t('d_changes'), c.files ? changeCount(c.files, c.added, c.removed) : t('ch_none')) : null,
+    r.remote_control ? line(t('rc_on'), t('rc_where', { a: r.account || '' })) : null,
+    h('div', { class: 'actions start' },
+      c && c.repo && c.files ? h('button', { class: 'btn small-btn', text: t('ch_btn'), onclick: () => openChanges(r) }) : null,
+      h('button', { class: 'btn small-btn', text: t('open_folder'), onclick: () => api('open', { what: 'folder', run_id: r.run_id }).catch(showError) }),
+      h('button', { class: 'btn small-btn', text: t('open_log'), onclick: () => api('open', { what: 'run', run_id: r.run_id }).catch(showError) })));
+}
+
+// contextFact: how full the session's context window is, as a small meter.
+function contextFact(p) {
+  const pct = Math.max(0, Math.min(100, p));
+  const fill = h('span', { class: 'fill ' + (pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok') });
+  fill.style.width = pct + '%'; // CSSOM: the page's CSP allows no inline style attributes
+  return h('span', { class: 'fact', title: t('ctx', { p: Math.round(pct) }) }, t('ctx_short'),
+    h('span', { class: 'meter mini', role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-label': t('ctx_short') }, fill),
+    h('span', { class: 'nums', text: Math.round(pct) + '%' }));
+}
+
+// changeNums: lines added in green, removed in red.
+function changeNums(added, removed) {
+  return h('span', { class: 'nums' }, added >= 0 ? h('span', { class: 'plus', text: '+' + added }) : null, ' ',
+    removed >= 0 ? h('span', { class: 'minus', text: '−' + removed }) : null);
+}
+
+function changeCount(n, added, removed) {
+  return h('span', {}, t(n === 1 ? 'ch_files1' : 'ch_files', { n }), ' ', changeNums(added, removed));
+}
+
+// changesFact: the folder's uncommitted changes; a click lists them.
+function changesFact(r) {
+  const c = r.changes;
+  if (!c || c.error || !c.repo) return null;
+  if (!c.files) return h('span', { class: 'fact', text: t('ch_none') });
+  return h('button', { class: 'fact link', title: t('ch_btn'), onclick: () => openChanges(r) }, changeNums(c.added, c.removed),
+    h('span', { class: 'muted', text: t(c.files === 1 ? 'ch_files1' : 'ch_files', { n: c.files }) }));
 }
 
 // claudeState: what Claude Code itself is doing in the session.
@@ -743,14 +791,6 @@ function claudeState(r) {
   if (r.claude === 'busy') return h('span', { class: 'pill info' }, h('span', { class: 'spin' }), ' ', t('cl_busy'));
   if (r.claude === 'waiting') return h('span', { class: 'pill warn', text: t('cl_waiting') });
   return h('span', { class: 'pill off', text: t('cl_idle') });
-}
-
-function changesLine(r) {
-  const c = r.changes;
-  if (!c || c.error === 'no_git' || (!c.repo && !c.error)) return null;
-  const text = c.error ? t('ch_error', { e: c.error }) : c.files ? t(c.files === 1 ? 'ch_n1' : 'ch_n', { n: c.files, a: c.added, r: c.removed }) : t('ch_none');
-  return h('div', { class: 'sub changes' }, h('span', { text }),
-    c.repo && c.files ? h('button', { class: 'btn ghost small-btn', text: t('ch_btn'), onclick: () => openChanges(r) }) : null);
 }
 
 // openChanges lists a session's changed files, the way the desktop app's
@@ -766,12 +806,11 @@ async function openChanges(r) {
   if (!c.repo) { body.replaceChildren(h('p', { class: 'muted', text: t('ch_norepo') })); return; }
   if (!c.files.length) { body.replaceChildren(h('p', { class: 'muted', text: t('ch_none') })); return; }
   const cls = { modified: 'info', added: 'ok', untracked: 'ok', deleted: 'bad', renamed: 'info', conflict: 'warn' };
-  body.replaceChildren(h('p', { class: 'small', text: t(c.files.length === 1 ? 'ch_n1' : 'ch_n', { n: c.files.length, a: c.added, r: c.removed }) }),
+  body.replaceChildren(h('p', { class: 'small' }, changeCount(c.files.length, c.added, c.removed)),
     h('div', { class: 'list tall' }, c.files.map((f) => h('div', { class: 'item change' },
       h('span', { class: 'pill ' + (cls[f.status] || 'off'), text: t('gs_' + f.status) }),
       h('span', { class: 'grow mono', text: f.path }),
-      h('span', { class: 'small nums' }, f.added >= 0 ? h('span', { class: 'plus', text: '+' + f.added }) : null, ' ',
-        f.removed >= 0 ? h('span', { class: 'minus', text: '−' + f.removed }) : null)))));
+      h('span', { class: 'small' }, changeNums(f.added, f.removed))))));
 }
 
 function confirmStop(r) {
