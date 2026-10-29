@@ -20,6 +20,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/ledger"
 	"baton/internal/run"
+	"baton/internal/usage"
 	"baton/internal/winproc"
 )
 
@@ -883,5 +884,39 @@ func TestImportListsEveryFolderAndCopiesOpenOnes(t *testing.T) {
 	}
 	if code, _ := start(map[string]any{"folder": desk, "copy": true}); code != 202 || !slices.Equal(r.spawn.console[n], []string{"run"}) {
 		t.Fatalf("a new conversation is never a copy: %q", r.spawn.console[n])
+	}
+}
+
+// The Accounts tab gets each account's last known usage, as of now.
+func TestStateShowsUsage(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+		if err := reg.Add(accounts.Account{ID: "a", ProfileDir: filepath.Join(r.paths.ProfilesDir(), "a"), Enabled: true, LoggedIn: true}); err != nil {
+			return err
+		}
+		return reg.Add(accounts.Account{ID: "b", ProfileDir: filepath.Join(r.paths.ProfilesDir(), "b"), Enabled: true, LoggedIn: true})
+	})
+	now := time.Now().UTC().Truncate(time.Second)
+	_ = usage.Save(r.paths.UsageDir(), "a", usage.Usage{
+		FiveHour: &usage.Window{Used: 80, ResetsAt: now.Add(-time.Minute)}, // has reset since
+		SevenDay: &usage.Window{Used: 40, ResetsAt: now.Add(48 * time.Hour)}, Updated: now.Add(-2 * time.Hour)})
+	_, body := r.do("GET", "/api/state", "", nil)
+	var st stateView
+	_ = json.Unmarshal([]byte(body), &st)
+	if len(st.Accounts) != 2 {
+		t.Fatalf("accounts %+v", st.Accounts)
+	}
+	for _, a := range st.Accounts {
+		switch a.ID {
+		case "a":
+			if a.Usage == nil || a.Usage.FiveHour.Used != 0 || a.Usage.SevenDay.Used != 40 {
+				t.Fatalf("a: %+v", a.Usage)
+			}
+		case "b":
+			if a.Usage != nil {
+				t.Fatalf("b has usage it never reported: %+v", a.Usage)
+			}
+		}
 	}
 }

@@ -75,6 +75,8 @@ const T = {
     st_ok: '사용 가능', st_limited: '{t}까지 한도', st_needs_login: '다시 로그인 필요', st_signed_out: '로그인 안 됨',
     st_blocked: '차단됨', st_off: '꺼짐', st_dup: '같은 계정 중복', st_signing: '로그인 진행 중…',
     kept: '로그인됨', checked_at: '{t} 확인', not_checked: '아직 확인 안 함',
+    use_5h: '5시간 한도', use_7d: '주간 한도', use_resets: '{t} 초기화', use_asof: '{t} 기준',
+    use_unknown: '사용량은 이 계정으로 baton 세션을 쓰면 표시됩니다.',
     login_again: '다시 로그인', enabled_label: '자동 전환에 사용', use_short: '사용', up: '위로', down: '아래로', remove: '삭제',
     unblock: '해결됨 — 다시 사용',
     order_hint: '위에 있는 계정부터 사용합니다. Claude 데스크톱 앱에서 쓰는 계정을 맨 아래에 두면 데스크톱 채팅의 한도를 아낄 수 있습니다.',
@@ -142,7 +144,10 @@ const T = {
     set_exhausted: '모든 계정이 한도에 걸리면', ex_wait: '가장 먼저 풀리는 계정을 기다렸다가 이어 가기', ex_stop: '멈추고 이어 하는 방법 알려 주기',
     set_advanced: '고급 설정', set_cooldown: '전환 사이 최소 간격(초)', set_max: '시간당 최대 전환 횟수', set_retry: '해제 시각을 모를 때 다시 시도할 때까지(분)',
     set_prompt: '다음 계정에 보낼 이어 가기 안내 문장', set_share: '평소 Claude Code 설정(skills·CLAUDE.md 등)을 모든 계정에 공유',
-    set_claude: 'Claude Code 위치', set_claude_auto: '자동으로 찾기', set_claude_bundle: 'Claude 데스크톱 앱에 들어 있는 Claude Code도 사용',
+    set_claude: 'Claude Code 위치', set_claude_auto: '자동으로 찾기',
+    set_claude_which: '사용할 Claude Code', claude_which_auto: '자동 (설치된 CLI가 있으면 CLI, 없거나 오래되었으면 데스크톱 앱의 것)',
+    claude_which_desktop: '항상 Claude 데스크톱 앱에 들어 있는 것',
+    claude_which_note: '어느 쪽이든 세션은 별도의 Claude Code 창(터미널 화면)에서 열립니다. 데스크톱 앱 화면 안에서 열 수는 없습니다.', set_claude_bundle: 'Claude 데스크톱 앱에 들어 있는 Claude Code도 사용',
     set_claude_custom: '직접 지정 (claude.exe 전체 경로)', saved: '저장했습니다.', set_lang: '화면 언어', lang_auto: 'Windows 설정 따르기',
     // help
     help_title: 'baton은 이렇게 동작합니다',
@@ -248,6 +253,8 @@ const T = {
     st_ok: 'Ready', st_limited: 'Limited until {t}', st_needs_login: 'Sign in again', st_signed_out: 'Not signed in',
     st_blocked: 'Blocked', st_off: 'Off', st_dup: 'Duplicate account', st_signing: 'Signing in…',
     kept: 'Signed in', checked_at: 'checked {t}', not_checked: 'not checked yet',
+    use_5h: '5-hour limit', use_7d: 'Weekly limit', use_resets: 'resets {t}', use_asof: 'as of {t}',
+    use_unknown: 'Usage shows up once a baton session has run on this account.',
     login_again: 'Sign in again', enabled_label: 'Use for switching', use_short: 'Use', up: 'Up', down: 'Down', remove: 'Remove',
     unblock: 'Resolved — use again',
     order_hint: 'Accounts are used from the top. Putting the account you use in the Claude desktop app last saves its desktop chat limit.',
@@ -311,7 +318,10 @@ const T = {
     set_exhausted: 'When every account is limited', ex_wait: 'Wait for the first account to free up, then continue', ex_stop: 'Stop and show how to continue later',
     set_advanced: 'Advanced', set_cooldown: 'Minimum seconds between switches', set_max: 'Most switches per hour', set_retry: 'Minutes to wait when the reset time is unknown',
     set_prompt: 'Message sent to the next account to continue', set_share: 'Share your usual Claude Code setup (skills, CLAUDE.md, …) with every account',
-    set_claude: 'Claude Code location', set_claude_auto: 'Find automatically', set_claude_bundle: 'Also use the Claude Code inside the Claude desktop app',
+    set_claude: 'Claude Code location', set_claude_auto: 'Find automatically',
+    set_claude_which: 'Claude Code to use', claude_which_auto: 'Automatic (the installed CLI if there is one and it is not too old, else the desktop app\'s)',
+    claude_which_desktop: 'Always the one inside the Claude desktop app',
+    claude_which_note: 'Either way, sessions open in a Claude Code window of their own (a terminal screen), not inside the desktop app.', set_claude_bundle: 'Also use the Claude Code inside the Claude desktop app',
     set_claude_custom: 'Custom (full path to claude.exe)', saved: 'Saved.', set_lang: 'Language', lang_auto: 'Same as Windows',
     help_title: 'How baton works',
     help_points: [
@@ -964,6 +974,7 @@ function accountRow(st, a, i) {
       h('div', { class: 'title' }, a.id, accountStatus(a), a.in_use ? h('span', { class: 'pill info', text: t('in_use'), title: t('in_use_hint') }) : null),
       h('div', { class: 'sub', text: [a.email, a.plan, a.org].filter(Boolean).join(' · ') || '—' }),
       loginLine ? h('div', { class: 'sub', text: loginLine }) : null,
+      usageBlock(a),
       a.status === 'blocked' && !a.disabled_as_duplicate ? h('div', { class: 'small', text: t('blocked_hint') }) : null,
       a.disabled_as_duplicate ? h('div', { class: 'small', text: t('dup_hint') }) : null),
     h('div', { class: 'actions' },
@@ -975,6 +986,25 @@ function accountRow(st, a, i) {
       h('button', { class: 'btn ghost', text: '▼', title: t('down'), 'aria-label': t('down'), disabled: i === st.accounts.length - 1, onclick: () => move(a.id, 'down') }),
       toggle,
       h('button', { class: 'btn ghost danger', text: t('remove'), onclick: () => openRemove(a.id) })));
+}
+
+// usageBlock shows an account's 5-hour and weekly limits as a baton session
+// on it last saw them.
+function usageBlock(a) {
+  const u = a.usage;
+  if (!u) return a.logged_in && a.enabled ? h('div', { class: 'sub small', text: t('use_unknown') }) : null;
+  const one = (label, w) => {
+    if (!w) return null;
+    const pct = Math.max(0, Math.min(100, w.used));
+    const fill = h('span', { class: 'fill ' + (pct >= 90 ? 'bad' : pct >= 70 ? 'warn' : 'ok') });
+    fill.style.width = pct + '%'; // CSSOM: the page's CSP allows no inline style attributes
+    return h('div', { class: 'usage-row' }, h('span', { class: 'usage-label', text: label }),
+      h('span', { class: 'meter', role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-label': label }, fill),
+      h('span', { class: 'usage-num', text: Math.round(pct) + '%' }),
+      h('span', { class: 'usage-reset', text: t('use_resets', { t: clock(w.resets_at) }) }));
+  };
+  return h('div', { class: 'usage' }, one(t('use_5h'), u.five_hour), one(t('use_7d'), u.seven_day),
+    h('div', { class: 'sub small', text: t('use_asof', { t: ago(u.updated) }) }));
 }
 
 // retryEmail is the address a new sign-in of a pre-fills: its own, but not
@@ -1244,8 +1274,14 @@ function viewSettings(st) {
     h('h3', { text: t('set_claude'), class: 'mt14' }),
     h('p', { class: 'small muted', text: st.claude.found ? st.claude.path : (st.claude.error || '') }),
     st.claude.found && st.claude.old_cli ? h('p', { class: 'small muted', text: t('claude_old_cli_skipped', { v: st.claude.old_cli }) }) : null,
-    bundle,
-    c.claude_path ? h('div', { class: 'actions start' }, h('span', { class: 'small mono', text: c.claude_path }),
+    h('label', { class: 'field' }, h('span', { text: t('set_claude_which') }),
+      h('select', { onchange: (e) => setConfig('claude_path', e.target.value) },
+        h('option', { value: 'auto', text: t('claude_which_auto'), selected: !c.claude_path }),
+        h('option', { value: 'desktop', text: t('claude_which_desktop'), selected: c.claude_path === 'desktop' }),
+        c.claude_path && c.claude_path !== 'desktop' ? h('option', { value: c.claude_path, text: c.claude_path, selected: true }) : null),
+      h('div', { class: 'small muted', text: t('claude_which_note') })),
+    c.claude_path !== 'desktop' ? bundle : null,
+    c.claude_path && c.claude_path !== 'desktop' ? h('div', { class: 'actions start' }, h('span', { class: 'small mono', text: c.claude_path }),
       h('button', { class: 'btn', text: t('set_claude_auto'), onclick: () => setConfig('claude_path', 'auto') })) : null,
     h('p', { class: 'small muted', text: t('claude_custom_cli') })));
   return [h('div', { class: 'card' }, h('h2', { text: t('settings_title') }),

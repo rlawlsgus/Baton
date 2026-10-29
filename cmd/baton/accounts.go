@@ -5,7 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"math"
 	"os"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"baton/internal/ledger"
 	"baton/internal/run"
 	"baton/internal/share"
+	"baton/internal/usage"
 )
 
 func cmdAdd(args []string) (err error) {
@@ -347,13 +350,13 @@ func cmdList(args []string) error {
 		fmt.Println("No accounts yet. Add one with: baton add <name>")
 		return nil
 	}
-	printAccounts(e.reg, e.loadState())
+	printAccounts(e.reg, e.loadState(), e.paths.UsageDir())
 	return nil
 }
 
-func printAccounts(reg accounts.Registry, st ledger.State) {
+func printAccounts(reg accounts.Registry, st ledger.State, usageDir string) {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tPRIORITY\tENABLED\tACCOUNT\tPLAN\tSTATUS")
+	fmt.Fprintln(w, "NAME\tPRIORITY\tENABLED\tACCOUNT\tPLAN\tSTATUS\tUSAGE")
 	for _, a := range sortedByPriority(reg.Accounts) {
 		s := st.StatusOf(a.ID)
 		status := s.Status
@@ -367,9 +370,37 @@ func printAccounts(reg accounts.Registry, st ledger.State) {
 		if !a.LoggedIn && status == ledger.StatusOK {
 			status = "not signed in"
 		}
-		fmt.Fprintf(w, "%s\t%d\t%v\t%s\t%s\t%s\n", a.ID, a.Priority, a.Enabled, orDash(a.Email), orDash(a.Subscription), status)
+		fmt.Fprintf(w, "%s\t%d\t%v\t%s\t%s\t%s\t%s\n", a.ID, a.Priority, a.Enabled, orDash(a.Email), orDash(a.Subscription), status,
+			planUsageText(usageDir, a.ID))
 	}
 	w.Flush()
+}
+
+// planUsageText is an account's last known usage, e.g. "5h 34%, week 12% (5 min ago)".
+func planUsageText(dir, account string) string {
+	u, ok := usage.Load(dir, account)
+	if !ok {
+		return "-"
+	}
+	u = u.Current(time.Now())
+	var parts []string
+	if w := u.FiveHour; w != nil {
+		parts = append(parts, fmt.Sprintf("5h %d%%", int(math.Round(w.Used))))
+	}
+	if w := u.SevenDay; w != nil {
+		parts = append(parts, fmt.Sprintf("week %d%%", int(math.Round(w.Used))))
+	}
+	ago := time.Since(u.Updated).Round(time.Minute)
+	when := "just now"
+	switch {
+	case ago >= 48*time.Hour:
+		when = fmt.Sprintf("%d days ago", int(ago.Hours()/24))
+	case ago >= time.Hour:
+		when = fmt.Sprintf("%d h ago", int(ago.Hours()))
+	case ago >= time.Minute:
+		when = fmt.Sprintf("%d min ago", int(ago.Minutes()))
+	}
+	return strings.Join(parts, ", ") + " (" + when + ")"
 }
 
 func cmdSetEnabled(args []string, enabled bool) error {
@@ -510,6 +541,7 @@ func cmdRemove(args []string) error {
 		delete(st.Accounts, name)
 		return nil
 	})
+	usage.Remove(e.paths.UsageDir(), name)
 	fmt.Fprintf(os.Stderr, "Removed %q\n", name)
 	return nil
 }

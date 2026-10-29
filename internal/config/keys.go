@@ -124,6 +124,10 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			// Back to auto-detect ("auto" because PowerShell 5.1 cannot pass "").
 			return func(c *Config) { c.ClaudePath = "" }, nil
 		}
+		if strings.EqualFold(v, "desktop") {
+			// Always the Claude desktop app's own Claude Code.
+			return func(c *Config) { c.ClaudePath = "desktop" }, nil
+		}
 		// Stored absolute: a relative path would mean a different file in every
 		// folder baton runs in.
 		abs, err := filepath.Abs(v)

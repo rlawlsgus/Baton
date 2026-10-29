@@ -26,6 +26,8 @@ Scenarios:
   stopswitch `baton stop` while a manual switch waits for a turn ends the session
   import     a conversation from the user's own Claude Code, open in the desktop app, goes on
              in a copy (`baton resume <id> --copy`) on an account and switches on a limit
+  statusline baton's status line runs in the session and shows the account; a profile's own
+             status line is left alone
 """
 from __future__ import annotations
 
@@ -968,12 +970,49 @@ def scenario_import(w: World, res: list) -> dict:
     return {"original": sid, "copy": fork}
 
 
+def scenario_statusline(w: World, res: list) -> dict:
+    """baton's status line (`baton statusline`) runs in a real session and shows the account.
+    The mock accounts sign in with API keys, so Claude Code sends no plan usage (it does only
+    for a Claude subscription); the unit tests cover recording it. A profile that has its own
+    status line keeps it."""
+    pc = start_on_a_and_answer(w, res, "statusline", "sl one")
+    try:
+        d = w.newest_run_dir()
+        with open(os.path.join(d, "settings.json"), encoding="utf-8") as f:
+            sl = (json.load(f).get("statusLine") or {}).get("command", "")
+        check(sl.endswith(" statusline") and "\\" not in sl, f"statusline: baton's status line is set, with forward slashes ({sl!r})", res)
+        check(pc.wait_for(r"baton\W{1,6}acct-a", 15) is not None, "statusline: the session shows 'baton · acct-a' under the prompt", res)
+        check(quit_claude(pc) == 0, "statusline: first run exits", res)
+    finally:
+        pc.close()
+    sp = os.path.join(w.a.dir, "settings.json")
+    with open(sp, encoding="utf-8") as f:
+        before = f.read()
+    own = json.loads(before)
+    own["statusLine"] = {"type": "command", "command": "echo MY-OWN-LINE"}
+    with open(sp, "w", encoding="utf-8") as f:
+        json.dump(own, f)
+    try:
+        pc = start_on_a_and_answer(w, res, "statusline-own", "sl two")
+        try:
+            with open(os.path.join(w.newest_run_dir(), "settings.json"), encoding="utf-8") as f:
+                check("statusLine" not in json.load(f), "statusline: a profile's own status line is not replaced", res)
+            check(pc.wait_for("MY-OWN-LINE", 15) is not None, "statusline: the profile's own status line shows", res)
+            check(quit_claude(pc) == 0, "statusline: second run exits", res)
+        finally:
+            pc.close()
+    finally:
+        with open(sp, "w", encoding="utf-8") as f:
+            f.write(before)
+    return {"command": sl}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--baton", default=os.path.join(REPO, "bin", "baton.exe"))
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
-                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import")
+                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline")
     a = ap.parse_args()
     w = World(a.root, a.baton)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

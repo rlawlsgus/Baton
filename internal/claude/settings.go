@@ -17,9 +17,10 @@ import (
 var HookEvents = []string{"SessionStart", "Stop", "StopFailure", "SessionEnd"}
 
 // RunSettings is the launcher-owned file passed with --settings. Hooks given
-// this way merge with the user's own hooks. It deliberately sets no statusLine:
-// that is a single value and would replace the user's. extra adds settings
-// baton carries over between accounts (see BypassAccepted).
+// this way merge with the user's own hooks. A statusLine is a single value
+// and would replace the user's, so it comes only through extra, when the
+// user has none (see UserStatusLine). extra also adds settings baton carries
+// over between accounts (see BypassAccepted).
 func RunSettings(batonExe, runDir string, extra map[string]any) map[string]any {
 	hooks := map[string]any{}
 	for _, ev := range HookEvents {

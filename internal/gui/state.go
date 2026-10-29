@@ -13,6 +13,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/ledger"
 	"baton/internal/run"
+	"baton/internal/usage"
 	"baton/internal/winproc"
 
 	"golang.org/x/sys/windows"
@@ -34,6 +35,9 @@ type accountView struct {
 	Detail              string     `json:"detail,omitempty"`
 	SigningIn           bool       `json:"signing_in"` // a sign-in window from this GUI is open for it
 	InUse               bool       `json:"in_use"`     // a claude runs on this profile now
+	// Usage: the 5-hour and weekly limits as a baton session on this
+	// account last saw them (nil until one has).
+	Usage *usage.Usage `json:"usage,omitempty"`
 }
 
 type runView struct {
@@ -156,6 +160,10 @@ func (s *Server) state() stateView {
 		av := accountView{ID: a.ID, Enabled: a.Enabled, DisabledAsDuplicate: a.DisabledAsDuplicate, LoggedIn: a.LoggedIn,
 			Email: a.Email, Plan: a.Subscription, Org: a.OrgName, AuthMethod: a.AuthMethod, Priority: a.Priority,
 			Detail: ls.Detail, SigningIn: signingIn[a.ID], InUse: claude.BusyProfile(a.ProfileDir)}
+		if u, ok := usage.Load(p.UsageDir(), a.ID); ok {
+			cur := u.Current(now)
+			av.Usage = &cur
+		}
 		if !a.CheckedAt.IsZero() {
 			t := a.CheckedAt
 			av.CheckedAt = &t

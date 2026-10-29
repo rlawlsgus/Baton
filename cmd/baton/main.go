@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.2.1-dev"
+var version = "0.3.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -173,6 +173,9 @@ func main() {
 		err = cmdGUI(args)
 	case "hook":
 		os.Exit(cmdHook(args)) // called by claude.exe; must never block or fail loudly
+	case "statusline":
+		cmdStatusLine() // called by claude.exe for the line under its prompt
+		os.Exit(0)
 	case "version", "--version", "-v":
 		fmt.Println("baton", version)
 	case "help", "-h", "--help":

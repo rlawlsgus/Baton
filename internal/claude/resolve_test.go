@@ -94,3 +94,26 @@ func TestCandidatesSameFileOnce(t *testing.T) {
 		t.Fatalf("got %+v %v", c, err)
 	}
 }
+
+// claude_path "desktop" always means the desktop app's own copy, whatever
+// else is installed.
+func TestDesktopChoice(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("USERPROFILE", root)
+	t.Setenv("LOCALAPPDATA", filepath.Join(root, "local"))
+	cli := filepath.Join(root, ".local", "bin", "claude.exe")
+	_ = os.MkdirAll(filepath.Dir(cli), 0o700)
+	_ = os.WriteFile(cli, []byte("MZ"), 0o700)
+	if _, err := Candidates(DesktopChoice, true); err == nil || !strings.Contains(err.Error(), "Code tab") {
+		t.Fatalf("no desktop copy yet: %v", err)
+	}
+	bundle := filepath.Join(root, "local", "Claude-Data", "x", "claude-code", TestedMax, "abc", "claude.exe")
+	_ = os.MkdirAll(filepath.Dir(bundle), 0o700)
+	_ = os.WriteFile(bundle, []byte("MZ"), 0o700)
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(bundle, old, old)
+	c, err := Candidates("Desktop", false)
+	if err != nil || len(c) != 1 || !strings.EqualFold(c[0].Path, bundle) || c[0].Source != "desktop" {
+		t.Fatalf("got %+v %v", c, err)
+	}
+}

@@ -167,7 +167,7 @@ func cmdStatus(args []string) error {
 	}
 	st := e.loadState()
 	if len(e.reg.Accounts) > 0 {
-		printAccounts(e.reg, st)
+		printAccounts(e.reg, st, e.paths.UsageDir())
 	} else {
 		fmt.Println("No accounts yet. Add one with: baton add <name>")
 	}

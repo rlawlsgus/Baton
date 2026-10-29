@@ -45,6 +45,7 @@ func (p Paths) ProfilesDir() string      { return filepath.Join(p.Root, "profile
 func (p Paths) Profile(id string) string { return filepath.Join(p.ProfilesDir(), id) }
 func (p Paths) RunsDir() string          { return filepath.Join(p.Root, "runs") }
 func (p Paths) Run(id string) string     { return filepath.Join(p.RunsDir(), id) }
+func (p Paths) UsageDir() string         { return filepath.Join(p.Root, "usage") }
 
 func (p Paths) Ensure() error {
 	for _, d := range []string{p.Root, p.ProfilesDir(), p.RunsDir()} {

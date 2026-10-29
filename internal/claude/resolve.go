@@ -44,10 +44,22 @@ func Resolve(configured string, allowDesktop bool) (Install, error) {
 	return c[0], nil
 }
 
+// DesktopChoice is the claude_path value that always means the Claude
+// desktop app's own Claude Code (its folder changes with every app update).
+const DesktopChoice = "desktop"
+
 // Candidates lists every claude.exe baton may use, in the order it prefers
-// them: a configured path alone; otherwise the Claude Code CLI wherever it
-// is installed, then the Claude desktop app's own copy (when allowed).
+// them: a configured path alone (or the desktop app's copy alone for
+// DesktopChoice); otherwise the Claude Code CLI wherever it is installed,
+// then the Claude desktop app's own copy (when allowed).
 func Candidates(configured string, allowDesktop bool) ([]Install, error) {
+	if strings.EqualFold(configured, DesktopChoice) {
+		if p := DesktopBundle(); p != "" {
+			return []Install{{Path: p, Source: "desktop"}}, nil
+		}
+		return nil, errors.New("claude_path is \"desktop\", but the Claude desktop app has not set up its Claude Code yet: " +
+			"open the app's Code tab once (or go back to finding it automatically with: baton config claude_path auto)")
+	}
 	if configured != "" {
 		if !filepath.IsAbs(configured) {
 			return nil, fmt.Errorf("claude_path must be a full path to claude.exe, not %s "+

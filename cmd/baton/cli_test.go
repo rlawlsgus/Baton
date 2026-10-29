@@ -553,3 +553,47 @@ func TestOldCLIPassedOverForTheDesktopCopy(t *testing.T) {
 		t.Fatalf("window without the desktop copy: %+v", info)
 	}
 }
+
+// The status line of a baton session shows the account and its usage and
+// records the usage; baton list then shows it.
+func TestStatusLineRecordsUsage(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "personal")
+	prof := filepath.Join(c.home, "profiles", "personal")
+	reset := time.Now().Add(2 * time.Hour).Unix()
+	payload := `{"model":{"id":"x"},"rate_limits":{"five_hour":{"used_percentage":34.4,"resets_at":` + strconv.FormatInt(reset, 10) +
+		`},"seven_day":{"used_percentage":12,"resets_at":` + strconv.FormatInt(reset+86400, 10) + `}}}`
+	status := func(env []string, stdin string) string {
+		cmd := exec.Command(batonExe, "statusline")
+		cmd.Env = append(os.Environ(), append([]string{"BATON_HOME=" + c.home}, env...)...)
+		cmd.Stdin = strings.NewReader(stdin)
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("statusline: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := status([]string{"CLAUDE_CONFIG_DIR=" + prof}, payload); got != "baton · personal · 5h 34% · week 12%" {
+		t.Fatalf("status line %q", got)
+	}
+	if got := status([]string{"CLAUDE_CONFIG_DIR=" + prof, "BATON_LANG=ko"}, `{}`); got != "baton · personal · 5시간 34% · 주간 12%" {
+		t.Fatalf("status line before this claude saw usage %q", got)
+	}
+	if got := status([]string{"CLAUDE_CONFIG_DIR=" + t.TempDir()}, "not json"); got != "baton" {
+		t.Fatalf("status line outside an account %q", got)
+	}
+	if out, _ := c.run(nil, "list"); !strings.Contains(out, "USAGE") || !strings.Contains(out, "5h 34%, week 12% (just now)") {
+		t.Fatalf("list:\n%s", out)
+	}
+	if out, code := c.run(nil, "config", "claude_path", "desktop"); code != 0 {
+		t.Fatalf("claude_path desktop: %d %s", code, out)
+	}
+	if out, _ := c.run(nil, "config", "claude_path"); strings.TrimSpace(out) != "desktop" {
+		t.Fatalf("claude_path = %q", out)
+	}
+	c.run(nil, "config", "claude_path", fakeClaude) // the removal signs out through claude
+	c.run(nil, "remove", "personal", "--yes")
+	if _, err := os.Stat(filepath.Join(c.home, "usage", "personal.json")); !os.IsNotExist(err) {
+		t.Fatalf("usage kept after remove: %v", err)
+	}
+}

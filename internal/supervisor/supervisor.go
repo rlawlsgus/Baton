@@ -542,6 +542,11 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	if bypassRequested(args) && claude.BypassAccepted(append(s.profileDirs(), share.UserHome(s.opt.Paths.ProfilesDir()))...) {
 		extra["skipDangerousModePermissionPrompt"] = true
 	}
+	// baton's status line shows the account and its usage, and records the
+	// usage for the baton window; a status line of the user's own stays.
+	if !claude.UserStatusLine(s.acct.ProfileDir, s.opt.Cwd) {
+		extra["statusLine"] = claude.StatusLine(s.opt.BatonExe)
+	}
 	if err := claude.WriteRunSettings(run.SettingsPath(s.runDir), s.opt.BatonExe, s.runDir, extra); err != nil {
 		return err
 	}

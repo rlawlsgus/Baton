@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.2.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.3.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -48,6 +48,9 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   desktop app, so there is nothing else to install. It has a window in English and Korean.
 - 📥 **Bring in conversations you already have.** Pick a session from the desktop app's
   Code tab, a terminal or VS Code and continue it under baton.
+- 📊 **See each account's limits.** The Accounts tab shows how much of the 5-hour and
+  weekly limits each account has used and when they reset, and every session shows its
+  account and usage under the prompt (`baton · work · 5h 34% · week 12%`).
 - 🎛️ **You decide when it switches.** baton can ask before every switch, switch on its own,
   or switch only when you tell it to. You can also move a session to another account at
   any time.
@@ -155,7 +158,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.2.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.3.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -184,7 +187,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For release zips (x64 and arm64, with checksums; `dist\` then holds only those), run:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.2.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.3.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -240,7 +243,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton gui` | open the window (the same as opening `baton-app.exe`) |
 | `baton add <name> [--email <address>] [--priority N]` | create an account profile and sign in with Claude's own login (`--email` fills in the sign-in page) |
 | `baton login <name> [--email <address>]` | sign an account in again, for example when `baton list` shows `needs_login`; refuses while a session runs on it |
-| `baton list` | show accounts, their plan and status (`ok`, `limited until …`, `needs_login`, `blocked`) |
+| `baton list` | show accounts, their plan, status (`ok`, `limited until …`, `needs_login`, `blocked`) and last known usage |
 | `baton enable` / `disable <name>` | include or skip an account (`enable` also clears a `blocked` mark) |
 | `baton remove <name> [--force]` | log out and delete the profile (refuses if conversations started there) |
 | `baton run [--account <name>] [-- <claude args>]` | start a supervised session |
@@ -265,7 +268,7 @@ Claude Code reads every word that follows as one of their values.
 | `exhausted_retry_minutes` | how long to wait when the limit message has no reset time |
 | `continue_prompt` | the prompt the next account receives |
 | `share_user_config` | share your normal Claude Code setup with the profiles (default `true`) |
-| `claude_path` | full path to `claude.exe`; `auto` goes back to detecting it |
+| `claude_path` | full path to `claude.exe`; `desktop` always uses the Claude desktop app's; `auto` goes back to detecting it |
 | `allow_desktop_bundle` | allow the Claude Code that comes with the desktop app |
 
 <details>
@@ -351,6 +354,16 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   `baton run` switches accounts; a session started from the window is a `baton run` in its
   own console. A session that is running in the desktop app's Code tab or in an IDE
   extension does not switch. Bring it in instead (see above).
+- **Sessions open in a Claude Code window, not in the desktop app.** baton runs Claude Code
+  itself so it can move the session between accounts; the Claude desktop app has one
+  sign-in of its own, which baton does not touch. *Settings → Advanced → Claude Code to
+  use* only picks which `claude.exe` runs (the installed CLI or the desktop app's copy).
+- **Usage comes from the sessions.** Claude Code reports an account's 5-hour and weekly usage
+  (for a Claude subscription) to the status line of a session; baton's status line records
+  it. An account shows its usage once a baton session has run on it, as of that moment.
+  baton never asks Anthropic for it itself. If you set a status line of your own
+  (`statusLine` in your settings), baton leaves it as it is and records no usage for those
+  sessions.
 - **Use a Windows console.** Run baton from Windows Terminal, PowerShell or cmd. From a
   terminal that is not a Windows console, such as mintty without ConPTY, baton opens Claude
   Code in a new console window.
@@ -401,6 +414,7 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - a sign-in failure, which does switch
 - `/clear`, and resuming by id across accounts
 - bringing in a conversation that is open elsewhere, as a copy
+- baton's status line in a session, and a status line of your own left alone
 - config sharing and Ctrl+C at the question
 - `baton stop`, also during the question and while a switch waits
 

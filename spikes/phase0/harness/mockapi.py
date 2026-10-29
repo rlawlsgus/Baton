@@ -28,7 +28,8 @@ Modes:
   auth401       HTTP 401 authentication_error (an invalid/expired key)
   billing       HTTP 400 "credit balance is too low" (claude reports billing_error)
 
-Optional per-account keys: "headers" (extra/override response headers),
+Optional per-account keys: "headers" (extra/override response headers; echo replies
+send them too, e.g. allowed anthropic-ratelimit-unified-* usage headers),
 "reset_in" (seconds until the unified reset, default 3600), "seconds", "count",
 "text" (fixed reply text for echo/slow).
 
@@ -313,10 +314,11 @@ class Handler(BaseHTTPRequestHandler):
         delay = float(sc.get("seconds", 20)) if mode == "slow" else 0.0
         entry.update(status=200, reply="text", text=text[:200])
         self.state.log(entry)
-        self._reply(model, stream, text=text, total_delay=delay)
+        self._reply(model, stream, text=text, total_delay=delay, headers=sc.get("headers"))
 
     def _reply(self, model: str, stream: bool, text: str | None = None,
-               tool_use: tuple[str, dict] | None = None, total_delay: float = 0.0) -> None:
+               tool_use: tuple[str, dict] | None = None, total_delay: float = 0.0,
+               headers: dict | None = None) -> None:
         msg_id = f"msg_mock_{int(_now()*1000)}"
         usage = {"input_tokens": 12, "output_tokens": 1,
                  "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
@@ -328,10 +330,10 @@ class Handler(BaseHTTPRequestHandler):
                                   "model": model, "content": content,
                                   "stop_reason": "end_turn" if text is not None else "tool_use",
                                   "stop_sequence": None,
-                                  "usage": {**usage, "output_tokens": 20}})
+                                  "usage": {**usage, "output_tokens": 20}}, headers)
             return
         try:
-            self._sse_start()
+            self._sse_start(headers)
             self._event("message_start", {"type": "message_start", "message": {
                 "id": msg_id, "type": "message", "role": "assistant", "model": model,
                 "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}})

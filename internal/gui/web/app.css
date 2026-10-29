@@ -196,3 +196,12 @@ details > summary { cursor: pointer; font-weight: 600; }
 .list .pad { padding: 10px 12px; margin: 0; }
 .list .item .title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .list .item .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.usage { margin-top: 6px; }
+.usage-row { display: grid; grid-template-columns: 6.5em minmax(60px, 200px) 3.2em auto; align-items: center; gap: 8px; font-size: 12.5px; }
+.usage-label { color: var(--muted); }
+.usage-num { text-align: right; font-variant-numeric: tabular-nums; }
+.usage-reset { color: var(--muted); white-space: nowrap; }
+.meter { position: relative; height: 6px; border-radius: 4px; background: var(--off-soft); overflow: hidden; }
+.meter .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--ok); }
+.meter .fill.warn { background: var(--warn); }
+.meter .fill.bad { background: var(--bad); }

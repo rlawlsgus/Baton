@@ -22,7 +22,8 @@ const DefaultContinuePrompt = "The previous session stopped at a usage limit and
 	"Continue the task you were working on; do not repeat work that is already complete."
 
 type Config struct {
-	// ClaudePath pins claude.exe; empty means auto-detect.
+	// ClaudePath pins claude.exe; empty means auto-detect, "desktop" the
+	// Claude desktop app's own copy.
 	ClaudePath string `json:"claude_path,omitempty"`
 	// AllowDesktopBundle lets auto-detect fall back to the Claude Code bundled
 	// with the Claude desktop app (its path changes with every app update, so
