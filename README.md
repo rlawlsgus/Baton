@@ -184,7 +184,7 @@ go build -trimpath -o bin/baton.exe ./cmd/baton
 go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.exe ./cmd/baton
 ```
 
-For release zips (x64 and arm64, with checksums; `dist\` then holds only those), run:
+For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.3.0

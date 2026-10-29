@@ -166,7 +166,7 @@ go build -trimpath -o bin/baton.exe ./cmd/baton
 go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.exe ./cmd/baton
 ```
 
-릴리스 zip(x64와 arm64, 체크섬 포함)은 다음 명령으로 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
+릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.3.0

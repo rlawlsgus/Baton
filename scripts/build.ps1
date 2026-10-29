@@ -1,6 +1,7 @@
 # Builds release zips of baton for Windows x64 and arm64 into dist\.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 [-Version 0.3.0]
-# Everything in dist\ is replaced; keep nothing else there.
+# Everything in dist\ is replaced; keep nothing else there. Write the release
+# notes first, in docs\releases\v<version>.md.
 param([string]$Version = "0.3.0-dev")
 
 $ErrorActionPreference = "Stop"
@@ -8,8 +9,9 @@ $root = Split-Path -Parent $PSScriptRoot
 $saved = @{ GOOS = $env:GOOS; GOARCH = $env:GOARCH; CGO_ENABLED = $env:CGO_ENABLED }
 Push-Location $root
 try {
-    # dist\ holds only what this script builds, so everything in it can be
-    # uploaded as the release (development builds go to bin\).
+    # dist\ holds only what this script builds: the zips and checksums.txt
+    # to upload as the release, and RELEASE_NOTES.md, the text for its page
+    # (development builds go to bin\).
     $dist = Join-Path $root "dist"
     if (Test-Path $dist) { Remove-Item -Recurse -Force (Join-Path $dist "*") }
     New-Item -ItemType Directory -Force $dist | Out-Null
@@ -42,6 +44,19 @@ try {
         $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
         "$hash  $(Split-Path -Leaf $zip)" | Out-File -Append -Encoding ascii $sums
         Write-Host "built $zip"
+    }
+
+    # The text for the release page: docs\releases\v<version>.md with the
+    # checksums appended. Every release has one (a -dev build need not).
+    $notes = Join-Path $root "docs\releases\v$Version.md"
+    if (Test-Path $notes) {
+        $text = (Get-Content -Raw -Encoding UTF8 $notes).TrimEnd() + "`n`n## SHA-256`n`n" + '```' + "`n" +
+            ((Get-Content $sums) -join "`n") + "`n" + '```' + "`n"
+        [System.IO.File]::WriteAllText((Join-Path $dist "RELEASE_NOTES.md"), $text.Replace("`r`n", "`n"), (New-Object System.Text.UTF8Encoding $false))
+        Write-Host "wrote $(Join-Path $dist 'RELEASE_NOTES.md')"
+    }
+    elseif ($Version -notmatch '-') {
+        Write-Warning "no release notes for v$Version; write docs\releases\v$Version.md and build again"
     }
 }
 finally {
