@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"time"
 
@@ -36,6 +37,11 @@ func NewID(now time.Time) string {
 	_, _ = rand.Read(b[:])
 	return now.UTC().Format("20060102-150405") + "-" + hex.EncodeToString(b[:])
 }
+
+var idRx = regexp.MustCompile(`^\d{8}-\d{6}-[0-9a-f]{6}$`)
+
+// ValidID reports whether id has NewID's form (so it is safe in a path).
+func ValidID(id string) bool { return idRx.MatchString(id) }
 
 // NewSessionID returns a random RFC 4122 v4 UUID for --session-id.
 func NewSessionID() string {
@@ -147,11 +153,24 @@ type Journal struct {
 	SwitchMode        string    `json:"switch_mode,omitempty"`
 	ChildPID          int       `json:"child_pid,omitempty"`
 	RemoteControl     bool      `json:"remote_control,omitempty"` // claude runs with --remote-control
-	SessionID         string    `json:"session_id,omitempty"`
-	TranscriptPath    string    `json:"transcript_path,omitempty"`
-	Cwd               string    `json:"cwd"`
-	Started           time.Time `json:"started"`
-	Updated           time.Time `json:"updated"`
+	// ConsoleWindow is the session's console window (a window handle), which
+	// the baton window and a click on a notification bring to the front.
+	ConsoleWindow  uint64    `json:"console_window,omitempty"`
+	SessionID      string    `json:"session_id,omitempty"`
+	TranscriptPath string    `json:"transcript_path,omitempty"`
+	Cwd            string    `json:"cwd"`
+	Started        time.Time `json:"started"`
+	Updated        time.Time `json:"updated"`
+
+	// For reopening a session that was cut off (restore.go): the Claude Code
+	// options it keeps across relaunches, whether it had work going (a
+	// response, or the continue prompt a switch owes), how it ended, and
+	// whether it was reopened since or the user chose not to.
+	Args       []string `json:"args,omitempty"`
+	Owed       bool     `json:"owed,omitempty"`
+	EndedBy    string   `json:"ended_by,omitempty"`
+	RestoredBy string   `json:"restored_by,omitempty"`
+	Dismissed  bool     `json:"dismissed,omitempty"`
 }
 
 func SaveJournal(dir string, j Journal) error {
@@ -163,6 +182,20 @@ func LoadJournal(dir string) (Journal, error) {
 	var j Journal
 	err := fsx.ReadJSON(JournalPath(dir), &j)
 	return j, err
+}
+
+// All reads every run's journal.
+func All(runsDir string) []Journal {
+	dirs, _ := os.ReadDir(runsDir)
+	var out []Journal
+	for _, d := range dirs {
+		if d.IsDir() {
+			if j, err := LoadJournal(filepath.Join(runsDir, d.Name())); err == nil {
+				out = append(out, j)
+			}
+		}
+	}
+	return out
 }
 
 // Active lists runs whose supervisor is still alive. alive(pid, created)

@@ -52,6 +52,11 @@ type Options struct {
 	// user asking (no usable account, every account limited, a failed start):
 	// its window must stay open so the reason can be read.
 	Attention *bool
+	// Restore reopens a session that was cut off (its run's journal): its
+	// conversation, its options and, if it was working, the task. Prefer is
+	// the account to start on if it can be used now.
+	Restore *run.Journal
+	Prefer  string
 }
 
 type reason string
@@ -105,6 +110,20 @@ type Supervisor struct {
 	marks      map[string]ledger.AccountState // marks the shared ledger could not record
 	lastState  *ledger.State                  // the ledger as last read, for when it cannot be read
 	blocked    []string                       // accounts marked blocked during this run
+	rule       *config.FolderRule             // the folder rule this session keeps to (nil: none)
+
+	// While the user is away (attention.go).
+	window     uintptr       // the session's console window
+	watch      claudeWatch   // what Claude Code is doing
+	awake      winproc.Awake // keeps the PC from sleeping while there is work
+	cfgAt      time.Time     // when the settings were last read for these
+	noteKo     bool          // notifications in Korean
+	registered bool          // baton was registered for notifications in this run
+	clickable  bool          // a click on a notification brings this window forward
+	waited     bool          // the next launch comes after waiting for a limit to reset
+	confirmed  bool          // the user said yes to this switch in the session window
+	endNoted   bool          // a notification already said why the session ended
+	owedSwitch bool          // the switch under way owes the next account the task
 }
 
 // Run supervises until the user quits claude (returning claude's exit code)
@@ -152,9 +171,14 @@ func Run(opt Options) (int, error) {
 	if err := s.prepareRun(); err != nil {
 		return 1, err
 	}
+	defer s.awake.Close()
 	defer s.finish()
 	defer s.recoverPanic()
 	code, err := s.loop()
+	if !s.userEnded && !s.endNoted && (s.abandoned || code != 0 || err != nil) {
+		s.notify(noteProblem, s.say("The session ended unexpectedly. See why in the session window.",
+			"세션이 예기치 않게 끝났습니다. 세션 창에서 이유를 확인하세요."))
+	}
 	if opt.Attention != nil && code == 0 && err == nil && s.abandoned {
 		*opt.Attention = true
 	}
@@ -211,12 +235,22 @@ func (s *Supervisor) prepareRun() error {
 		Cwd:               s.opt.Cwd,
 		Started:           now,
 		RemoteControl:     claude.HasFlag(s.opt.ClaudeArgs.Persistent, "--remote-control", "--rc"),
+		Args:              s.opt.ClaudeArgs.Persistent,
 	}
+	s.window = winui.ConsoleWindow()
+	s.journal.ConsoleWindow = uint64(s.window)
+	s.awake.Reason = "baton: Claude Code is working in " + filepath.Base(s.opt.Cwd)
+	s.noteKo = notesInKorean(s.opt.Config)
+	s.rule = s.opt.Config.RuleFor(s.opt.Cwd)
 	s.logf("run %s cwd=%q claude=%q", s.runID, s.opt.Cwd, s.opt.ClaudeExe)
 	return nil
 }
 
 func (s *Supervisor) finish() {
+	if s.journal.EndedBy == "" && winui.ShuttingDown() {
+		// Windows is restarting or signing out: the session can be reopened.
+		s.journal.EndedBy = run.EndedShutdown
+	}
 	s.journal.State = run.StateDone
 	s.saveJournal()
 }
@@ -226,12 +260,14 @@ func (s *Supervisor) saveJournal() {
 	s.journal.SwitchMode = s.opt.Config.SwitchMode // this run's own: it only ever gets stricter
 	s.journal.SessionID = s.session
 	s.journal.TranscriptPath = s.transcr
+	s.journal.Owed = s.owed()
 	if s.child != nil {
 		s.journal.ChildPID = s.child.PID
 	}
 	if err := run.SaveJournal(s.runDir, s.journal); err != nil {
 		s.logf("journal: %v", err)
 	}
+	s.updateAwake()
 }
 
 func (s *Supervisor) notice(format string, a ...any) {
@@ -254,7 +290,7 @@ func (s *Supervisor) loop() (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	withPrompt := false
+	withPrompt := s.opt.Restore != nil && s.opt.Restore.Owed
 	for {
 		if err := s.launch(args, withPrompt); err != nil {
 			s.printResumeHint()
@@ -265,6 +301,7 @@ func (s *Supervisor) loop() (int, error) {
 		}
 		p := s.pend
 		s.pend = nil
+		s.owedSwitch = s.owed() || p.reason == reasonLimit || p.reason == reasonAuth
 		if s.stopChild(p) {
 			// claude ended by itself while baton waited for it to go idle:
 			// the user quit, which wins over the pending switch.
@@ -298,6 +335,9 @@ func (s *Supervisor) loop() (int, error) {
 // warnBeforeStart reports account problems while the console still belongs
 // to baton. (Hook blocking is checked before every launch, in launch.)
 func (s *Supervisor) warnBeforeStart() {
+	if s.rule != nil {
+		s.notice("folder rule: sessions in %s use only %s", s.rule.Folder, strings.Join(s.rule.Accounts, ", "))
+	}
 	if m := s.acct.AuthMethod; m != "" && m != "claude.ai" {
 		s.notice("warning: account %q signs in with %q, not a Claude subscription", s.acct.ID, m)
 	}
@@ -335,6 +375,9 @@ func (s *Supervisor) childExited() int {
 // variadic options greedily, so regrouping could swallow the prompt), with
 // baton's generated --session-id in front.
 func (s *Supervisor) firstArgs() ([]string, error) {
+	if r := s.opt.Restore; r != nil {
+		return s.restoreArgs(r)
+	}
 	a := s.opt.ClaudeArgs
 	args := append([]string{}, a.Original...)
 	if a.Resumes {
@@ -564,6 +607,7 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	}
 	s.child = child
 	s.claudePID, s.started, s.userQuit = 0, false, false
+	s.watch, s.waited, s.confirmed, s.owedSwitch = claudeWatch{}, false, false, false
 	s.declined, s.broke, s.pend = false, false, nil
 	s.contOwed = withPrompt
 	s.journal.State = run.StateRunning
@@ -614,6 +658,9 @@ func (s *Supervisor) supervise() bool {
 			if s.pend != nil {
 				return false
 			}
+			if time.Since(s.watch.lastLook) >= time.Second {
+				s.lookAtClaude()
+			}
 		}
 	}
 }
@@ -635,7 +682,7 @@ func (s *Supervisor) takeSwitch() *run.SwitchRequest {
 func (s *Supervisor) manualTargetUsable(target string) bool {
 	s.reloadRegistry()
 	if target == "" {
-		best, _, _ := sched.Pick(s.reg, s.loadState(), time.Now(), s.acct.ID)
+		best, _, _ := sched.Pick(s.choosable(), s.loadState(), time.Now(), s.acct.ID)
 		if best == nil {
 			s.logf("switch request ignored: no other usable account")
 		}
@@ -643,17 +690,32 @@ func (s *Supervisor) manualTargetUsable(target string) bool {
 	}
 	if a := s.reg.Get(target); a == nil || target == s.acct.ID || !s.usable(a) {
 		// (Retrying the current account is only offered while waiting; see waitUntil.)
-		s.logf("switch request ignored: %q is unknown, current, disabled, signed out or blocked", target)
+		s.logf("switch request ignored: %q is unknown, current, disabled, signed out, blocked or not allowed in this folder", target)
 		return false
 	}
 	return true
 }
 
-// usable: enabled, signed in and not blocked (a limited account still counts:
-// the user may know better).
+// usable: enabled, signed in, not blocked and allowed by the folder rule (a
+// limited account still counts: the user may know better).
 func (s *Supervisor) usable(a *accounts.Account) bool {
 	st := s.loadState().StatusOf(a.ID).Status
-	return a.Enabled && a.LoggedIn && st != ledger.StatusBlocked && st != ledger.StatusNeedsLogin
+	return a.Enabled && a.LoggedIn && st != ledger.StatusBlocked && st != ledger.StatusNeedsLogin && s.rule.Allows(a.ID)
+}
+
+// choosable is what baton picks the next account from: every account, or
+// only the ones the folder rule allows.
+func (s *Supervisor) choosable() accounts.Registry {
+	if s.rule == nil {
+		return s.reg
+	}
+	out := accounts.Registry{Schema: s.reg.Schema}
+	for _, a := range s.reg.Accounts {
+		if s.rule.Allows(a.ID) {
+			out.Accounts = append(out.Accounts, a)
+		}
+	}
+	return out
 }
 
 func (s *Supervisor) handleEvents() {
@@ -768,6 +830,8 @@ func (s *Supervisor) onStopFailure(p run.Payload) {
 	case classify.Blocked:
 		// Never move to another account here; the user must look at it.
 		s.markAccount(ledger.StatusBlocked, time.Time{}, p.LastAssistantMessage)
+		s.notify(noteProblem, s.say("%s has an account problem (on hold, billing or sign-in), so baton did not switch. See the session window.",
+			"%s 계정에 문제(정지, 결제, 로그인)가 있어 전환하지 않았습니다. 세션 창을 확인하세요.", s.acct.ID))
 	}
 	s.saveJournal()
 }
@@ -935,6 +999,10 @@ func (s *Supervisor) initialAccount() (*accounts.Account, bool) {
 			s.notice("no account named %q (see: baton list)", s.opt.Account)
 			return nil, false
 		}
+		if !s.rule.Allows(a.ID) {
+			s.notice("this folder's rule allows only %s, not %q (change it with: baton rules)", strings.Join(s.rule.Accounts, ", "), a.ID)
+			return nil, false
+		}
 		st := s.loadState().StatusOf(a.ID)
 		switch {
 		case st.Status == ledger.StatusNeedsLogin:
@@ -952,6 +1020,11 @@ func (s *Supervisor) initialAccount() (*accounts.Account, bool) {
 	for _, a := range s.reg.Accounts {
 		if a.Enabled && st.StatusOf(a.ID).Status == ledger.StatusBlocked {
 			s.notice("skipping %q: marked blocked (%s); once resolved, run: baton enable %s", a.ID, orUnknown(st.StatusOf(a.ID).Detail), a.ID)
+		}
+	}
+	if p := s.reg.Get(s.opt.Prefer); p != nil && s.usable(p) {
+		if ok, _ := sched.Eligible(*p, st.StatusOf(p.ID), time.Now()); ok {
+			return p, true
 		}
 	}
 	a, _, ok := s.pickWithWait("", "")
@@ -985,6 +1058,7 @@ func (s *Supervisor) chooseNext(p *pending) (*accounts.Account, bool) {
 					s.opt.Config.MaxSwitchesPerHour, s.opt.Config.CooldownSeconds, clock(at))
 				s.journal.State = run.StateWaiting
 				s.saveJournal()
+				s.notify(noteLimited, s.say("Switching too often; the session continues at %s.", "전환이 너무 잦아 %s에 이어 갑니다.", clock(at)))
 				res := s.waitUntil(at)
 				if !res.ok {
 					return nil, false
@@ -1001,6 +1075,8 @@ func (s *Supervisor) chooseNext(p *pending) (*accounts.Account, bool) {
 			}
 			s.journal.State = run.StateAsking
 			s.saveJournal()
+			s.notify(noteAsking, s.why(p, s.acct.ID)+" "+s.say("Answer in the session window to continue on %s.",
+				"%s 계정에서 이어 갈지 세션 창에서 답하세요.", next.ID))
 			q := fmt.Sprintf(tr("%s. Continue this session on %q? [Y/n] "), describe(p, s.acct.ID), next.ID)
 			yes, stop := s.confirm(q)
 			if stop {
@@ -1017,6 +1093,7 @@ func (s *Supervisor) chooseNext(p *pending) (*accounts.Account, bool) {
 				s.notice("staying on %q", s.acct.ID)
 				return &s.acct, true
 			}
+			s.confirmed = true
 		}
 		return next, true
 	}
@@ -1029,14 +1106,14 @@ func (s *Supervisor) pickFor(p *pending) (acct *accounts.Account, named bool, ok
 		if a := s.reg.Get(p.target); a != nil && s.usable(a) {
 			return a, true, true
 		}
-		s.notice("cannot switch to %q (unknown, disabled, signed out or blocked)", p.target)
+		s.notice("cannot switch to %q (unknown, disabled, signed out, blocked or not allowed in this folder)", p.target)
 		p.target = ""
 		if p.reason == reasonManual {
 			return &s.acct, true, true
 		}
 	}
 	if p.reason == reasonManual {
-		best, _, _ := sched.Pick(s.reg, s.loadState(), time.Now(), s.acct.ID)
+		best, _, _ := sched.Pick(s.choosable(), s.loadState(), time.Now(), s.acct.ID)
 		if best == nil {
 			s.notice("no other account is available; staying on %q", s.acct.ID)
 			return &s.acct, true, true
@@ -1054,10 +1131,11 @@ func (s *Supervisor) pickWithWait(exclude, why string) (acct *accounts.Account, 
 		s.reloadRegistry()
 		st := s.loadState()
 		now := time.Now()
-		best, soonest, at := sched.Pick(s.reg, st, now, exclude)
+		choosable := s.choosable()
+		best, soonest, at := sched.Pick(choosable, st, now, exclude)
 		if best == nil && exclude != "" {
 			// The current account may be usable again, or the one that frees first.
-			if cur := s.reg.Get(exclude); cur != nil {
+			if cur := choosable.Get(exclude); cur != nil {
 				if yes, at2 := sched.Eligible(*cur, st.StatusOf(cur.ID), now); yes {
 					best = cur
 				} else if !at2.IsZero() && (soonest == nil || at2.Before(at)) {
@@ -1073,16 +1151,31 @@ func (s *Supervisor) pickWithWait(exclude, why string) (acct *accounts.Account, 
 			why = ""
 		}
 		if soonest == nil {
+			s.endNoted = true
+			if s.rule != nil {
+				s.notice("no usable account among the ones this folder's rule allows (%s): each is disabled, signed out or blocked", strings.Join(s.rule.Accounts, ", "))
+				s.notify(noteProblem, s.say("None of the accounts this folder's rule allows (%s) can be used, so the session stopped.",
+					"이 폴더의 규칙이 허용하는 계정(%s)을 쓸 수 없어 세션을 멈췄습니다.", strings.Join(s.rule.Accounts, ", ")))
+				return nil, false, false
+			}
 			s.notice("no usable account: every account is disabled, signed out or blocked (see: baton list)")
+			s.notify(noteProblem, s.say("No account can be used, so the session stopped. Check the accounts in baton.",
+				"쓸 수 있는 계정이 없어 세션을 멈췄습니다. baton에서 계정을 확인하세요."))
 			return nil, false, false
 		}
 		if s.opt.Config.OnExhausted == config.ExhaustedStop {
 			s.notice("every account is limited; %q frees up first, at %s", soonest.ID, clock(at))
+			s.endNoted = true
+			s.notify(noteLimited, s.say("Every account is limited, so the session stopped. %s frees up first, at %s.",
+				"모든 계정이 한도에 걸려 세션을 멈췄습니다. %s 계정이 %s에 가장 먼저 풀립니다.", soonest.ID, clock(at)))
 			return nil, false, false
 		}
 		s.notice("every account is limited; waiting for %q at %s (Ctrl+C to stop, or `baton switch <name>`)", soonest.ID, clock(at))
 		s.journal.State = run.StateWaiting
 		s.saveJournal()
+		s.waited = true
+		s.notify(noteLimited, s.say("Every account is limited. The session continues on %s at %s.",
+			"모든 계정이 한도에 걸렸습니다. %s 계정이 풀리는 %s에 이어 갑니다.", soonest.ID, clock(at)))
 		res := s.waitUntil(at.Add(30 * time.Second))
 		if !res.ok {
 			return nil, false, false
@@ -1091,7 +1184,7 @@ func (s *Supervisor) pickWithWait(exclude, why string) (acct *accounts.Account, 
 			if a := s.reg.Get(res.target); a != nil && s.usable(a) {
 				return a, true, true
 			}
-			s.notice("cannot switch to %q (unknown, disabled, signed out or blocked); still waiting", res.target)
+			s.notice("cannot switch to %q (unknown, disabled, signed out, blocked or not allowed in this folder); still waiting", res.target)
 		}
 	}
 }
@@ -1127,6 +1220,11 @@ func (s *Supervisor) prepareSwitch(p *pending, next *accounts.Account) bool {
 			return nil
 		})
 		s.notice("%s -> continuing on %q", describe(p, from), next.ID)
+		if p.reason != reasonManual && !s.confirmed {
+			s.notify(noteSwitched, s.why(p, from)+" "+s.say("Continuing on %s.", "%s 계정에서 이어 갑니다.", next.ID))
+		}
+	} else if s.waited {
+		s.notify(noteSwitched, s.say("%s is free again; the session continues.", "%s 계정의 한도가 풀려 세션을 이어 갑니다.", next.ID))
 	}
 	s.acct = *next
 	return true
@@ -1300,8 +1398,16 @@ func (s *Supervisor) reloadConfig() {
 		cfg.SwitchMode, cfg.RiskAcknowledged = cur, s.opt.Config.RiskAcknowledged
 	}
 	s.opt.Config = cfg
+	if next := cfg.RuleFor(s.opt.Cwd); !sameRule(next, s.rule) && config.Stricter(next, s.rule) {
+		s.logf("folder rule now %+v", next)
+		s.rule = next
+	}
 	s.guard.Cooldown = time.Duration(cfg.CooldownSeconds) * time.Second
 	s.guard.MaxPerHour = cfg.MaxSwitchesPerHour
+}
+
+func sameRule(a, b *config.FolderRule) bool {
+	return a == nil && b == nil || a != nil && b != nil && slices.Equal(a.Accounts, b.Accounts)
 }
 
 // holderDirs are the config folders whose session registries can show a

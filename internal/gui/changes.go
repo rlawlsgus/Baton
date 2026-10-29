@@ -97,7 +97,7 @@ func (s *Server) forgetChanges(running map[string]bool) {
 // apiChanges lists a running session's changed files, read now.
 func (s *Server) apiChanges(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("run_id")
-	if !runIDRx.MatchString(id) {
+	if !run.ValidID(id) {
 		fail(w, http.StatusBadRequest, "bad_run", "unknown session", "")
 		return
 	}

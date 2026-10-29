@@ -69,6 +69,10 @@ type Options struct {
 	// returning the installed baton-app.exe for Relaunch.
 	CheckUpdate func(ctx context.Context) (update.Release, error)
 	Update      func(ctx context.Context, rel update.Release) (string, error)
+	// Focus brings a session's console window (a window handle) to the
+	// front; TestNotify shows a sample notification in lang.
+	Focus      func(window uintptr) error
+	TestNotify func(lang string) error
 }
 
 type ClaudeInfo struct {

@@ -30,6 +30,12 @@ Scenarios:
              status line is left alone
   remotectl  a session started with Remote Control (--rc) keeps working where Remote Control is
              not available (API-key accounts), and keeps the flag after a switch
+  rules      a folder rule keeps the sessions under a folder on the accounts it names
+  restore    a session cut off mid-response (as by a power cut) reopens with `baton run --restore`
+             and goes on with its task
+
+Windows notifications go to a file instead of the screen (BATON_NOTIFY_FILE): auto, confirm,
+exhausted and billing check the ones they would show.
 """
 from __future__ import annotations
 
@@ -69,6 +75,7 @@ class World:
         self.home = os.path.join(self.run.root, "baton-home")
         os.makedirs(self.home, exist_ok=True)
         self.scen = os.path.join(self.run.root, "scenario.json")
+        self.notes_file = os.path.join(self.run.logs, "notifications.jsonl")
         write_scenario(self.scen, {KEY_A: {"mode": "echo"}, KEY_B: {"mode": "echo"}})
         self.mock_log = os.path.join(self.run.logs, "mock.jsonl")
         self.srv = MockServer(self.mock_log, self.scen)
@@ -116,7 +123,18 @@ class World:
         self.write_json("config.json", cfg)
 
     def env(self) -> dict:
-        return self.run.env(None, {"BATON_HOME": self.home})
+        return self.run.env(None, {"BATON_HOME": self.home, "BATON_NOTIFY_FILE": self.notes_file})
+
+    def notes(self, run_dir: str) -> list[dict]:
+        """The notifications a run would have shown."""
+        return [n for n in read_jsonl(self.notes_file) if n.get("group") == os.path.basename(run_dir)]
+
+    def run_log(self, run_dir: str) -> str:
+        try:
+            with open(os.path.join(run_dir, "baton.log"), encoding="utf-8", errors="replace") as f:
+                return f.read()
+        except OSError:
+            return ""
 
     def state(self) -> dict:
         try:
@@ -301,6 +319,13 @@ def scenario_auto(w: World, res: list) -> dict:
     trusted = w.b.read_claude_json().get("projects", {}).get(fwd(w.run.proj), {}).get("hasTrustDialogAccepted")
     check(trusted is True, "auto: baton seeded folder trust into acct-b before relaunching", res)
     check(journal["state"] == "done", "auto: run journal ends in state done", res)
+    notes = w.notes(run_dir)
+    check([n["tag"] for n in notes] == ["switched"] and "acct-a" in notes[0]["body"] and "acct-b" in notes[0]["body"],
+          f"auto: one notification says the session went on from acct-a on acct-b ({notes})", res)
+    check(bool(journal.get("console_window")), "auto: the run records its console window", res)
+    log = w.run_log(run_dir)
+    check("keep awake: true" in log and log.rfind("keep awake: false") > log.find("keep awake: true"),
+          "auto: the PC is kept awake while the session switches, and let go after", res)
     return {"switch_seconds_from_limit_prompt_to_B_request": switch_secs, "session": sid}
 
 
@@ -352,6 +377,9 @@ def scenario_confirm(w: World, res: list) -> dict:
     finally:
         pc.close()
         w.config(switch_mode="auto")
+    notes = w.notes(w.newest_run_dir())
+    check([n["tag"] for n in notes] == ["asking"] and "acct-b" in notes[0]["body"],
+          f"confirm: a notification asks for an answer in the session window, and none follows the answer ({notes})", res)
     return {}
 
 
@@ -377,6 +405,9 @@ def scenario_exhausted(w: World, res: list) -> dict:
     st = w.state().get("accounts", {})
     check(st.get("acct-a", {}).get("status") == "exhausted" and st.get("acct-b", {}).get("status") == "exhausted",
           "exhausted: both accounts marked exhausted", res)
+    notes = w.notes(w.newest_run_dir())
+    check([n["tag"] for n in notes] == ["switched", "limited"],
+          f"exhausted: notifications say it switched, then that every account is limited, and nothing more ({notes})", res)
     return {}
 
 
@@ -466,6 +497,9 @@ def scenario_billing(w: World, res: list) -> dict:
         check(quit_claude(pc) == 0, "billing: baton exits 0", res)
     finally:
         pc.close()
+    notes = w.notes(w.newest_run_dir())
+    check([n["tag"] for n in notes] == ["problem"] and "acct-a" in notes[0]["body"],
+          f"billing: a notification says acct-a has a problem ({notes})", res)
     return {}
 
 
@@ -1047,12 +1081,124 @@ def scenario_remotectl(w: World, res: list) -> dict:
     return {}
 
 
+def scenario_rules(w: World, res: list) -> dict:
+    """A rule for the folder that holds the project allows only acct-b: the
+    session starts there although acct-a comes first, `baton switch acct-a`
+    is refused, a limit does not move it to acct-a (every allowed account is
+    limited, so it stops), and `--account acct-a` is refused."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    parent = os.path.dirname(w.run.proj)  # a rule covers the folders under it
+    w.config(switch_mode="auto", on_exhausted="stop", folder_rules=[{"folder": parent, "accounts": ["acct-b"]}])
+    mark = len(w.mock_rows())
+    try:
+        cp = w.baton_cmd("rules")
+        check(parent in cp.stdout and "acct-b" in cp.stdout, f"rules: `baton rules` lists the rule ({cp.stdout.strip()})", res)
+        pc = w.start("rules")
+        try:
+            submit_when_ready(w, pc, 1, "ru one")
+            check(w.wait_mock(lambda r: main_turn(r, KEY_B, "ru one"), 60) is not None,
+                  "rules: the session starts on acct-b, the only account the rule allows", res)
+            time.sleep(1.5)
+            cp = w.baton_cmd("switch", "acct-a")
+            check(cp.returncode != 0 and "rule" in cp.stderr, f"rules: `baton switch acct-a` is refused ({cp.stderr.strip()})", res)
+            w.accounts_flip("echo", "limit")
+            mark_text = pc.mark()
+            submit(w, pc, "ru two hits the limit")
+            check(baton_noticed(w, pc, r"every account is limited", 90, since=mark_text),
+                  "rules: at the limit baton does not look past the rule's accounts", res)
+            code = pc.wait_exit(30)
+            check(code == 0, f"rules: baton stops cleanly ({code})", res)
+        finally:
+            pc.close()
+        run_dir = w.newest_run_dir()
+        check("folder rule" in w.run_log(run_dir), "rules: the session says which rule it keeps to", res)
+        check([n["tag"] for n in w.notes(run_dir)] == ["limited"], f"rules: no notification of a switch ({w.notes(run_dir)})", res)
+        pc = w.start("rules-account", ["--account", "acct-a"])
+        try:
+            check(baton_noticed(w, pc, r"rule allows only", 30), "rules: `--account acct-a` is refused in that folder", res)
+            code = pc.wait_exit(30)
+            check(code not in (0, None), f"rules: ... and baton exits with an error ({code})", res)
+        finally:
+            pc.close()
+        check(not any(acct(r, KEY_A) for r in w.mock_rows()[mark:]) and no_switch_logged(w),
+              "rules: acct-a was never used and nothing switched", res)
+    finally:
+        w.config(folder_rules=[])
+    return {}
+
+
+def scenario_restore(w: World, res: list) -> dict:
+    """baton and Claude Code are killed in the middle of a response (as by a
+    power cut). `baton status` lists the run as cut off and working;
+    `baton run --restore <run>` reopens the same conversation on its account
+    and goes on with the task without any typing. Once reopened, the run is no
+    longer offered."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto", on_exhausted="stop")
+    pc = w.start("restore")
+    try:
+        submit_when_ready(w, pc, 1, "re one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "re one"), 60) is not None, "restore: A answers", res)
+        time.sleep(1.5)
+        write_scenario(w.scen, {KEY_A: {"mode": "slow", "seconds": 40}, KEY_B: {"mode": "echo"}})
+        submit(w, pc, "re two runs long")
+        run_dir = w.newest_run_dir()
+        journal = os.path.join(run_dir, "run.json")
+        deadline, owed = time.time() + 20, False
+        while time.time() < deadline and not owed:
+            time.sleep(0.5)
+            try:
+                owed = bool(json.load(open(journal, encoding="utf-8")).get("owed"))
+            except (OSError, ValueError):
+                pass
+        check(owed, "restore: the run records that it has work going", res)
+        kill = subprocess.run(["taskkill", "/F", "/T", "/PID", str(pc.pid)], capture_output=True)
+        said = (kill.stdout or b"").decode("mbcs", "replace") + (kill.stderr or b"").decode("mbcs", "replace")
+        check(kill.returncode == 0, f"restore: baton and Claude Code are killed ({said.strip()})", res)
+        time.sleep(1.0)
+    finally:
+        pc.close()
+    old = json.load(open(journal, encoding="utf-8"))
+    run_id = os.path.basename(run_dir)
+    check(old["state"] != "done", f"restore: the killed run never said it was done ({old['state']})", res)
+    st = w.baton_cmd("status")
+    check(run_id in st.stdout and "was working" in st.stdout, f"restore: baton status lists it as cut off while working ({st.stdout.strip()[-300:]})", res)
+
+    w.accounts_flip("echo", "echo")
+    mark = len(w.mock_rows())
+    pc = w.start("restore-again", ["--restore", run_id])
+    try:
+        first = w.wait_mock(lambda r: main_turn(r, KEY_A, "restarted while you were working"), 90, since=mark)
+        check(first is not None, "restore: reopened on acct-a, it goes on with the task by itself", res)
+        check(first is not None and first["n_messages"] >= 4,
+              f"restore: ... with the whole conversation (n_messages={first and first['n_messages']})", res)
+        time.sleep(4.0)
+        submit(w, pc, "re three")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "re three"), 60, since=mark) is not None, "restore: the reopened session is usable", res)
+        time.sleep(1.0)
+        check(quit_claude(pc) == 0, "restore: baton exits 0", res)
+    finally:
+        pc.close()
+    new_dir = w.newest_run_dir()
+    new = json.load(open(os.path.join(new_dir, "run.json"), encoding="utf-8"))
+    check(new_dir != run_dir and new.get("session_id") == old.get("session_id"),
+          f"restore: a new run with the same conversation ({new.get('session_id')} / {old.get('session_id')})", res)
+    check(json.load(open(journal, encoding="utf-8")).get("restored_by") == os.path.basename(new_dir),
+          "restore: the old run says which run reopened it", res)
+    st = w.baton_cmd("status")
+    check(run_id not in st.stdout, "restore: once reopened it is no longer offered", res)
+    return {}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--baton", default=os.path.join(REPO, "bin", "baton.exe"))
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
-                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl")
+                                      "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
+                                      "rules,restore")
     a = ap.parse_args()
     w = World(a.root, a.baton)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

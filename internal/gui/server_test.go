@@ -686,8 +686,9 @@ func TestUninstallRefusedWhileASessionRuns(t *testing.T) {
 	}
 }
 
-// A session whose window was closed never wrote "done", yet it ended: it
-// shows up under Recent sessions.
+// A session whose supervisor went away without writing "done" (a crash, a
+// kill) ended: it is offered for reopening, and after that it shows up under
+// Recent sessions.
 func TestRecentSessionsIncludeClosedWindows(t *testing.T) {
 	r := newRig(t)
 	r.login()
@@ -707,7 +708,18 @@ func TestRecentSessionsIncludeClosedWindows(t *testing.T) {
 	_, body := r.do("GET", "/api/state", "", nil)
 	var st stateView
 	_ = json.Unmarshal([]byte(body), &st)
-	if len(st.Runs) != 0 || len(st.Recent) != 1 || st.Recent[0].SessionID != sid || st.Recent[0].Where != "a" {
+	// It never said it was done: offered for reopening first...
+	if len(st.Runs) != 0 || len(st.Recent) != 0 || len(st.Unfinished) != 1 {
+		t.Fatalf("runs %+v recent %+v unfinished %+v", st.Runs, st.Recent, st.Unfinished)
+	}
+	// ...and once dismissed, it is a recent session like any other.
+	if code, _ := r.do("POST", "/api/sessions/dismiss", `{"run_ids":["20261028-101500-abc123"]}`, nil); code != 200 {
+		t.Fatal("dismiss")
+	}
+	_, body = r.do("GET", "/api/state", "", nil)
+	st = stateView{}
+	_ = json.Unmarshal([]byte(body), &st)
+	if len(st.Runs) != 0 || len(st.Recent) != 1 || st.Recent[0].SessionID != sid || st.Recent[0].Where != "a" || len(st.Unfinished) != 0 {
 		t.Fatalf("runs %+v recent %+v", st.Runs, st.Recent)
 	}
 }
@@ -1052,5 +1064,171 @@ func TestUpdateCheckAndInstall(t *testing.T) {
 	mu.Unlock()
 	if code, _ := r.do("POST", "/api/open", `{"what":"release"}`, nil); code != 200 || <-opened != page {
 		t.Fatalf("release page: %d", code)
+	}
+}
+
+// A running session's window can be brought forward; an ended one's cannot.
+// The test notification is shown in the window's language, and the
+// notification and sleep settings show and change.
+func TestFocusNotifyAndTheirSettings(t *testing.T) {
+	r := newRig(t)
+	var focused []uintptr
+	var notified []string
+	r.srv.opt.Focus = func(w uintptr) error { focused = append(focused, w); return nil }
+	r.srv.opt.TestNotify = func(lang string) error { notified = append(notified, lang); return nil }
+	r.login()
+	pid := os.Getpid()
+	live, gone := "20261029-101500-abc123", "20261029-101500-def456"
+	for id, j := range map[string]run.Journal{
+		live: {SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid), ConsoleWindow: 0x1234},
+		gone: {SupervisorPID: 999999, SupervisorCreated: time.Now().Add(-time.Hour), ConsoleWindow: 0x5678},
+	} {
+		j.RunID, j.State, j.Account, j.Cwd = id, run.StateRunning, "a", t.TempDir()
+		_ = os.MkdirAll(r.paths.Run(id), 0o700)
+		_ = run.SaveJournal(r.paths.Run(id), j)
+	}
+	_, body := r.do("GET", "/api/state", "", nil)
+	var st stateView
+	_ = json.Unmarshal([]byte(body), &st)
+	if len(st.Runs) != 1 || !st.Runs[0].Window {
+		t.Fatalf("runs %+v", st.Runs)
+	}
+	if code, body := r.do("POST", "/api/sessions/focus", `{"run_id":"`+live+`"}`, nil); code != 200 || !slices.Equal(focused, []uintptr{0x1234}) {
+		t.Fatalf("focus: %d %s %v", code, body, focused)
+	}
+	for _, id := range []string{gone, "20261029-101500-000000", `..\x`} {
+		if code, _ := r.do("POST", "/api/sessions/focus", `{"run_id":"`+id+`"}`, nil); code == 200 {
+			t.Fatalf("focused %s", id)
+		}
+	}
+	if len(focused) != 1 {
+		t.Fatalf("focused %v", focused)
+	}
+
+	if code, _ := r.do("POST", "/api/notify/test", `{}`, nil); code != 200 || !slices.Equal(notified, []string{"ko"}) {
+		t.Fatalf("test notification: %d %v", code, notified)
+	}
+	if st.Config.Notifications != "all" || !st.Config.KeepAwake {
+		t.Fatalf("defaults: %+v", st.Config)
+	}
+	for _, kv := range [][2]string{{"notifications", "important"}, {"keep_awake", "false"}, {"gui_language", "en"}} {
+		if code, _ := r.do("POST", "/api/config", `{"key":"`+kv[0]+`","value":"`+kv[1]+`"}`, nil); code != 200 {
+			t.Fatalf("%s: %d", kv[0], code)
+		}
+	}
+	_, body = r.do("GET", "/api/state", "", nil)
+	st = stateView{}
+	_ = json.Unmarshal([]byte(body), &st)
+	if st.Config.Notifications != "important" || st.Config.KeepAwake {
+		t.Fatalf("settings not shown: %+v", st.Config)
+	}
+	if r.do("POST", "/api/notify/test", `{}`, nil); !slices.Equal(notified, []string{"ko", "en"}) {
+		t.Fatalf("test notification language: %v", notified)
+	}
+}
+
+// Folder rules are set and removed from the window; the start dialog and a
+// start keep to them, and a running session shows the accounts it may use.
+func TestFolderRules(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	for _, id := range []string{"a", "b"} {
+		_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+			return reg.Add(accounts.Account{ID: id, ProfileDir: filepath.Join(r.paths.ProfilesDir(), id), Enabled: true, LoggedIn: true})
+		})
+	}
+	proj := t.TempDir()
+	b, _ := json.Marshal(map[string]any{"folder": proj, "accounts": []string{"a"}})
+	if code, body := r.do("POST", "/api/rules/set", string(b), nil); code != 200 {
+		t.Fatalf("set: %d %s", code, body)
+	}
+	for _, bad := range []map[string]any{{"folder": proj, "accounts": []string{}}, {"folder": proj, "accounts": []string{"nope"}},
+		{"folder": `relative`, "accounts": []string{"a"}}} {
+		b, _ := json.Marshal(bad)
+		if code, _ := r.do("POST", "/api/rules/set", string(b), nil); code == 200 {
+			t.Errorf("accepted %v", bad)
+		}
+	}
+	sub := filepath.Join(proj, "app")
+	_ = os.MkdirAll(sub, 0o700)
+	if _, body := r.do("GET", "/api/folder/info?path="+url.QueryEscape(sub), "", nil); !strings.Contains(body, `"allowed":["a"]`) {
+		t.Fatalf("folder info: %s", body)
+	}
+	b, _ = json.Marshal(map[string]any{"folder": sub, "account": "b"})
+	if code, body := r.do("POST", "/api/sessions/start", string(b), nil); code != http.StatusBadRequest || !strings.Contains(body, "rule_account") {
+		t.Fatalf("start on an account the rule does not allow: %d %s", code, body)
+	}
+	pid := os.Getpid()
+	id := "20261029-101500-abc123"
+	_ = os.MkdirAll(r.paths.Run(id), 0o700)
+	_ = run.SaveJournal(r.paths.Run(id), run.Journal{RunID: id, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", Cwd: sub})
+	_, body := r.do("GET", "/api/state", "", nil)
+	var st stateView
+	_ = json.Unmarshal([]byte(body), &st)
+	if len(st.Rules) != 1 || st.Rules[0].Folder != proj || len(st.Runs) != 1 || !slices.Equal(st.Runs[0].Allowed, []string{"a"}) {
+		t.Fatalf("rules %+v runs %+v", st.Rules, st.Runs)
+	}
+	b, _ = json.Marshal(map[string]any{"folder": proj})
+	if code, _ := r.do("POST", "/api/rules/remove", string(b), nil); code != 200 {
+		t.Fatal("remove")
+	}
+	if code, _ := r.do("POST", "/api/rules/remove", string(b), nil); code != http.StatusNotFound {
+		t.Fatal("removed twice")
+	}
+}
+
+// A session that was cut off is offered for reopening (and not under Recent
+// sessions too); reopening runs `baton run --restore` in its folder, and a
+// dismissed one is no longer offered.
+func TestCutOffSessions(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	proj := t.TempDir()
+	tr := filepath.Join(r.paths.ProfilesDir(), "a", "projects", "C--proj", "11111111-2222-4333-8444-555555555555.jsonl")
+	_ = os.MkdirAll(filepath.Dir(tr), 0o700)
+	_ = os.WriteFile(tr, []byte(`{"type":"user","message":{"content":"fix the build"},"cwd":"C:\proj"}`+"\n"), 0o600)
+	ids := []string{"20261029-090000-aaaaaa", "20261029-091000-bbbbbb"}
+	for i, id := range ids {
+		_ = os.MkdirAll(r.paths.Run(id), 0o700)
+		j := run.Journal{RunID: id, SupervisorPID: 999999, SupervisorCreated: time.Now().Add(-time.Hour), Account: "a", Cwd: proj,
+			SessionID: "11111111-2222-4333-8444-55555555555" + strconv.Itoa(i), TranscriptPath: tr, Started: time.Now().Add(-time.Hour), Owed: i == 0}
+		if i == 0 {
+			j.State = run.StateRunning // its supervisor died
+		} else {
+			j.State, j.EndedBy = run.StateDone, run.EndedShutdown
+		}
+		_ = run.SaveJournal(r.paths.Run(id), j)
+	}
+	state := func() stateView {
+		_, body := r.do("GET", "/api/state", "", nil)
+		var st stateView
+		_ = json.Unmarshal([]byte(body), &st)
+		return st
+	}
+	st := state()
+	if len(st.Unfinished) != 2 || !st.Unfinished[1].Working || !st.Unfinished[0].Shutdown {
+		t.Fatalf("unfinished %+v", st.Unfinished)
+	}
+	for _, rv := range st.Recent {
+		if strings.HasPrefix(rv.SessionID, "11111111-2222-4333-8444-55555555555") {
+			t.Fatalf("also under recent sessions: %+v", rv)
+		}
+	}
+	n := len(r.spawn.console)
+	if code, body := r.do("POST", "/api/sessions/restore", `{"run_ids":["`+ids[0]+`"]}`, nil); code != 202 {
+		t.Fatalf("restore: %d %s", code, body)
+	}
+	if got := r.spawn.console[n]; !slices.Equal(got, []string{"run", "--restore", ids[0]}) {
+		t.Fatalf("restore ran %q", got)
+	}
+	if code, _ := r.do("POST", "/api/sessions/restore", `{"run_ids":["20261029-000000-cccccc"]}`, nil); code != http.StatusNotFound {
+		t.Fatal("restored a run that was not cut off")
+	}
+	if code, _ := r.do("POST", "/api/sessions/dismiss", `{"run_ids":["`+ids[1]+`"]}`, nil); code != 200 {
+		t.Fatal("dismiss")
+	}
+	if st := state(); len(st.Unfinished) != 1 || st.Unfinished[0].RunID != ids[0] {
+		t.Fatalf("after dismiss: %+v", st.Unfinished)
 	}
 }

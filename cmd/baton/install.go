@@ -12,6 +12,7 @@ import (
 	"baton/internal/claude"
 	"baton/internal/envx"
 	"baton/internal/fsx"
+	"baton/internal/notify"
 	"baton/internal/run"
 	"baton/internal/share"
 	"baton/internal/winui"
@@ -109,6 +110,7 @@ func cmdUninstall(args []string) error {
 			"baton: %s 폴더는 이름이 baton이 아니라 지우지 않았습니다. 직접 지우세요\n"), e.paths.Root)
 	}
 	winui.RemoveInstallEntries()
+	notify.Unregister()
 	if self, err := os.Executable(); err == nil && winui.Installed(self) {
 		// The install folder holds this very program: a copy outside it
 		// deletes the folder once this process has ended.

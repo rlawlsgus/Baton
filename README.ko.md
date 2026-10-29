@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.5.2-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.6.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -52,10 +52,17 @@
 - 👀 **세션마다 무엇을 하는지 한눈에.** 세션 탭에서 Claude가 작업 중인지, 입력을 기다리는지, 세션 창에서
   확인이 필요한지 보여 줍니다. 모델, 컨텍스트 사용률, 폴더에서 바뀐 파일도 보여 주고, 데스크톱 앱의
   변경사항 패널처럼 목록으로도 볼 수 있습니다.
+- 🔔 **자리를 비워도 알 수 있게.** 세션이 계정을 바꿨을 때, 모든 계정이 한도에 걸렸을 때, 세션 창에서 답이
+  필요할 때, 오래 걸린 응답이 끝났을 때 Windows 알림으로 알려 줍니다. 알림을 누르면 세션 탭의 *창 보기*처럼
+  그 세션 창이 앞으로 나옵니다. Claude가 작업하는 동안에는 PC가 저절로 절전 모드로 들어가지 않습니다.
+- ♻️ **다시 시작한 뒤에도 그대로.** Windows가 다시 시작되거나 세션이 끊기면, 세션 탭에서 그 세션을 그대로 다시
+  열 수 있습니다. 작업 중이던 세션은 하던 일을 계속합니다.
 - 📱 **리모트 컨트롤.** 세션을 시작할 때 켜면 휴대폰의 Claude 앱이나 claude.ai/code에서 세션을 보고 이어서
   쓸 수 있습니다. 계정이 바뀌어도 알아서 다시 켜집니다.
 - 🎛️ **전환 방식은 내가 정합니다.** 전환할 때마다 묻거나, 알아서 전환하거나, 직접 지시할 때만 전환하게
   할 수 있습니다. 실행 중인 세션을 언제든 다른 계정으로 옮길 수도 있습니다.
+- 🧭 **폴더마다 쓸 계정 정하기.** 폴더 규칙을 두면 그 폴더(와 그 안의 폴더)의 세션은 고른 계정에서만 시작하고
+  전환합니다. 회사 저장소를 회사 계정에만 둘 수 있습니다.
 - ⌨️ **명령줄도 함께.** `baton.exe`로 터미널과 스크립트에서 같은 기능을 쓸 수 있습니다.
 - ⬆️ **업데이트는 클릭 한 번.** 새 버전이 나오면 알려 주고, GitHub에서 받아 체크섬을 확인한 뒤 설치합니다.
 
@@ -153,7 +160,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.5.2_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.6.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -190,7 +197,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.0
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -248,13 +255,15 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton enable` / `disable <이름>` | 계정을 쓰거나 건너뛰기 (`enable`은 `blocked` 표시도 지움) |
 | `baton remove <이름>` | 로그아웃하고 프로필 삭제. 그 계정의 대화는 먼저 평소 Claude Code 폴더로 옮김 |
 | `baton run [--account <이름>] [-- <claude 인수>]` | baton이 지켜보는 세션 시작 |
+| `baton run --restore <run>` | 끊긴 세션을 다시 열기 (`baton status`에 목록이 나옴) |
 | `baton sessions [--max N]` | 데스크톱 앱 것을 포함해 모든 폴더의 대화 보기 |
 | `baton resume <id> [--account <이름>] [--copy]` | 그중 하나를 그 폴더에서 이어 가기 (`--copy`는 원래 대화를 그대로 둠) |
 | `baton switch [<이름>] [--run <id>]` | 다른 터미널에서, 실행 중인 세션을 현재 응답이 끝난 뒤 다른 계정으로 옮기기 |
 | `baton stop [--run <id>]` | 실행 중인 세션을 안전하게 끝내기. 나중에 이어 갈 수 있음 |
-| `baton status` | 계정, 실행 중인 세션, 최근 전환 보기 |
+| `baton status` | 계정, 실행 중인 세션, 끊긴 세션, 최근 전환 보기 |
 | `baton sync` | 평소 Claude Code 설정을 모든 계정 프로필과 공유 (아래 참고) |
 | `baton config [<키> [<값>]]` | 설정 보기와 바꾸기 (아래 참고) |
+| `baton rules [set <폴더> <계정>[,<계정>...] \| remove <폴더>]` | 폴더 규칙 보기, 추가, 지우기 (알아 둘 점 참고) |
 | `baton doctor` | claude.exe, 콘솔, 모든 로그인 점검 |
 | `baton update [--check]` | GitHub에서 최신 baton을 받아 설치 (`--check`는 새 버전이 있는지만 확인) |
 | `baton uninstall [--yes]` | baton의 대화를 평소 Claude Code 폴더로 옮기고, 모든 계정을 로그아웃한 뒤 baton 데이터와 시작 메뉴 항목 삭제 |
@@ -273,6 +282,8 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `claude_path` | `claude.exe`의 전체 경로. `desktop`이면 항상 Claude 데스크톱 앱의 것을 쓰고, `auto`로 하면 다시 자동으로 찾음 |
 | `allow_desktop_bundle` | 데스크톱 앱에 들어 있는 Claude Code 사용 허용 |
 | `remote_control` | 창의 새 세션 시작에서 *리모트 컨트롤 켜기*를 기본으로 체크 |
+| `notifications` | 세션이 보내는 Windows 알림: `all`(기본값), `important`(응답이 끝났을 때는 빼고), `off` |
+| `keep_awake` | 세션이 작업하거나 한도가 풀리기를 기다리는 동안 PC가 저절로 잠들지 않게 함 (기본값 `true`) |
 | `check_updates` | 창이 몇 시간마다 GitHub에서 새 baton이 있는지 확인 (기본값 `true`) |
 
 <details>
@@ -356,6 +367,28 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   계정이 바뀌면 다음 계정에서 다시 켜집니다. 휴대폰에 로그인해 둔 계정을 계정 순서 맨 위에 두면, 그
   계정의 한도가 찰 때까지 세션이 그 계정에 머뭅니다. 리모트 컨트롤은 Claude 구독이 필요하고, 조직
   설정으로 꺼져 있을 수 있습니다.
+- **알림은 세션이 보냅니다.** 세션마다 그 세션의 `baton run`이 Windows 알림을 보내므로 baton 창을 닫아도
+  알림이 옵니다. 계정을 바꿨을 때, 모든 계정이 한도에 걸렸을 때, baton이나 Claude Code가 세션 창에서 답을
+  기다릴 때, 세션이 예기치 않게 끝났을 때, 30초 넘게 걸린 응답이 끝났을 때 알립니다. 응답이 끝났을 때와
+  Claude Code가 답을 기다릴 때는 그 세션 창이 맨 앞에 있으면 알리지 않습니다. 알림을 위해 baton은
+  `HKEY_CURRENT_USER\Software\Classes`에 이름과 아이콘, 그리고 알림을 누르면 열리는 `baton-session:` 링크를
+  등록하고, 제거할 때 지웁니다. Windows의 알림 설정과 방해 금지가 그대로 적용되며, *설정 → 알림 보내 보기*로
+  알림이 보이는지 확인할 수 있습니다.
+- **PC가 잠들지 않게 하는 동안.** 세션에서 Claude Code가 작업하거나, baton이 세션을 옮기거나 한도가 풀리기를
+  기다리는 동안에는 Windows에 유휴 절전을 하지 말라고 요청합니다(`keep_awake`). 화면은 꺼질 수 있고, 직접
+  절전하거나 노트북 덮개를 닫으면 잠듭니다. 세션이 내 답만 기다리는 동안에는 평소처럼 잠듭니다.
+- **Windows Terminal에서 창 보기.** *창 보기*와 알림 클릭은 세션이 들어 있는 터미널 창을 앞으로 가져옵니다.
+  그 창이 다른 탭을 보여 주고 있을 수 있습니다.
+- **폴더 규칙은 세션을 정한 계정에만 둡니다.** 규칙(*설정 → 폴더별 계정*, 또는
+  `baton rules set C:\work\company-repo work`)은 그 폴더와 그 안의 모든 폴더에 적용되며, 가장 가까운 폴더의
+  규칙을 따릅니다. 그 폴더의 세션은 규칙의 계정에서만 시작하고 전환하며, 창에서도 그 계정만 고를 수 있습니다.
+  계정이 하나뿐이면 세션은 옮겨 가지 않고, 그 계정이 한도에 걸리면 `on_exhausted` 설정대로 기다리거나 멈춥니다.
+  실행 중인 세션에는 더 엄격해지는 변경만 적용되고, 나머지는 다음 세션부터 적용됩니다.
+- **끊긴 세션은 다시 열 수 있습니다.** Windows가 종료되거나 다시 시작되거나 로그아웃되면서 끊긴 세션, 그리고
+  끝내지 않았는데 멈춘 세션(오류, 정전)은 7일 동안 다시 열 수 있습니다. 다시 열면 원래 폴더에서, 원래 계정을 쓸
+  수 있으면 그 계정에서, 같은 Claude Code 옵션과 권한 모드로 시작합니다. 작업 중이던 세션은 하던 일을 계속합니다.
+  *지우기*를 누르면 목록에서 빠지고, ‘최근 세션’에는 남습니다. 명령줄에서는 `baton status`로 확인하고
+  `baton run --restore <run>`으로 엽니다.
 - **바뀐 파일은 git으로 봅니다.** 변경사항 줄은 git(Git for Windows)이 설치되어 있고 폴더가 git 저장소일 때
   나옵니다. 마지막 커밋 이후 커밋하지 않은 변경을 새 파일까지 포함해 보여 줍니다.
 - **세션은 데스크톱 앱이 아니라 Claude Code 창에서 열립니다.** baton은 세션을 계정 사이에서 옮기기 위해
@@ -387,7 +420,7 @@ baton uninstall
 보존합니다. 그래서 `claude --resume`으로 다시 열 수 있습니다. 옮기지 못한 대화가 있으면 거기서 멈추고
 아무것도 지우지 않습니다. 그다음 Claude Code로 모든 계정을 로그아웃하고 baton 데이터 폴더
 (`%LOCALAPPDATA%\baton`, 계정마다의 프로필)를 지웁니다. 시작 메뉴 항목, Windows 설치된 앱 목록의 항목,
-설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내세요. Claude 계정 자체와 평소 쓰던 Claude Code 설정,
+알림 등록, 설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내세요. Claude 계정 자체와 평소 쓰던 Claude Code 설정,
 Claude 데스크톱 앱의 세션은 건드리지 않습니다.
 
 프로필이 남아 있을 때는 폴더 링크를 따라가는 도구로 `%LOCALAPPDATA%\baton`을 직접 지우지 마세요.

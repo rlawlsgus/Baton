@@ -16,6 +16,10 @@ const (
 
 	ExhaustedWait = "wait" // wait for the soonest reset, then continue
 	ExhaustedStop = "stop" // stop and print how to resume
+
+	NotifyAll       = "all"       // every notification, including a finished response
+	NotifyImportant = "important" // all but a finished response
+	NotifyOff       = "off"
 )
 
 const DefaultContinuePrompt = "The previous session stopped at a usage limit and is now continuing on another account. " +
@@ -50,6 +54,12 @@ type Config struct {
 	// ShareUserConfig links/copies the user's normal ~/.claude setup (skills,
 	// agents, commands, settings, CLAUDE.md) into every profile. Default on.
 	ShareUserConfig *bool `json:"share_user_config,omitempty"`
+	// Notifications: which Windows notifications a session sends (NotifyAll,
+	// NotifyImportant, NotifyOff); empty means all.
+	Notifications string `json:"notifications,omitempty"`
+	// KeepAwake: while a session works, or waits for a limit to reset, the PC
+	// does not go to sleep by itself. nil means default (on).
+	KeepAwake *bool `json:"keep_awake,omitempty"`
 	// RemoteControl: sessions started from the window turn on Claude Code's
 	// Remote Control unless the user unticks it (the window's default).
 	RemoteControl bool `json:"remote_control,omitempty"`
@@ -57,6 +67,8 @@ type Config struct {
 	RiskAcknowledged int `json:"risk_acknowledged,omitempty"`
 	// GUILanguage is the GUI's language: "" (follow Windows), "ko" or "en".
 	GUILanguage string `json:"gui_language,omitempty"`
+	// FolderRules keep the sessions in some folders on some accounts.
+	FolderRules []FolderRule `json:"folder_rules,omitempty"`
 }
 
 // DisclosureVersion changes whenever the risk notice changes materially, so
@@ -70,6 +82,16 @@ func (c Config) DesktopBundleAllowed() bool {
 }
 
 func (c Config) UpdateChecks() bool { return c.CheckUpdates == nil || *c.CheckUpdates }
+
+func (c Config) KeepAwakeOn() bool { return c.KeepAwake == nil || *c.KeepAwake }
+
+// NotifyLevel is NotifyAll, NotifyImportant or NotifyOff.
+func (c Config) NotifyLevel() string {
+	if c.Notifications == "" {
+		return NotifyAll
+	}
+	return c.Notifications
+}
 
 func Defaults() Config {
 	return Config{
@@ -122,7 +144,12 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("config: gui_language must be ko or en (got %q)", c.GUILanguage)
 	}
-	return nil
+	switch c.Notifications {
+	case "", NotifyAll, NotifyImportant, NotifyOff:
+	default:
+		return fmt.Errorf("config: notifications must be all, important or off (got %q)", c.Notifications)
+	}
+	return validateRules(c.FolderRules)
 }
 
 func Save(path string, c Config) error {

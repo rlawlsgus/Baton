@@ -40,6 +40,24 @@ const T = {
     rc_on: '리모트 컨트롤', details_more: '자세히', details_less: '접기', d_path: '폴더', d_started: '시작', d_changes: '변경', ctx_short: '컨텍스트', rc_where: '휴대폰의 Claude 앱이나 claude.ai/code에서 {a} 계정으로 로그인하면 이 세션이 보입니다. 계정이 바뀌면 바뀐 계정에서 보입니다.',
     start_rc: '리모트 컨트롤 켜기', start_rc_hint: '휴대폰의 Claude 앱이나 claude.ai/code에서 이 세션을 보고 이어서 쓸 수 있습니다. 세션이 실행 중인 계정으로 로그인해야 보이고, 계정이 바뀌면 그 계정에서 다시 켜집니다.',
     set_rc: '새 세션에서 리모트 컨트롤 켜기를 기본으로',
+    show_window: '창 보기', show_window_tip: '이 세션의 Claude Code 창을 앞으로 가져옵니다',
+    cut_title: '끊긴 세션 {n}개', cut_title1: '끊긴 세션 1개',
+    cut_body: 'PC가 다시 시작되었거나 세션이 예기치 않게 멈췄습니다. 다시 열면 같은 대화를 같은 설정으로 이어 가고, 작업 중이던 세션은 하던 일을 계속합니다.',
+    cut_restart: 'PC 다시 시작', cut_stopped: '예기치 않게 멈춤', cut_working: '작업 중이었음',
+    restore_btn: '다시 열기', restore_all: '모두 다시 열기', dismiss_btn: '지우기', dismiss_all: '모두 지우기',
+    restore_started: '세션을 다시 여는 중입니다. 별도의 창에서 열립니다.', err_not_cut_off: '이 세션은 이미 다시 열렸거나 목록에서 지워졌습니다.',
+    set_rules: '폴더별 계정', set_rules_hint: '규칙이 있는 폴더(와 그 안의 폴더)의 세션은 고른 계정에서만 시작하고 전환합니다. 계정을 하나만 고르면 그 세션은 다른 계정으로 옮기지 않습니다. 회사 저장소를 회사 계정에만 두고 싶을 때처럼 쓰세요.',
+    rules_none: '규칙이 없습니다. 모든 폴더의 세션이 모든 계정을 씁니다.', rule_add: '규칙 추가', rule_edit: '바꾸기', rule_remove: '지우기',
+    rule_title: '폴더별 계정 규칙', rule_folder: '폴더', rule_accounts: '이 폴더에서 쓸 계정', rule_save: '저장', rule_missing: '없는 계정: {a}',
+    rule_saved: '규칙을 저장했습니다.', rule_removed: '규칙을 지웠습니다.', rule_note: '이미 실행 중인 세션에는 더 엄격해지는 변경만 적용되고, 나머지는 다음 세션부터 적용됩니다.',
+    err_rule_empty: '계정을 하나 이상 고르세요.', err_rule_account: '이 폴더의 규칙이 허용하지 않는 계정입니다.', start_rule: '이 폴더는 규칙에 따라 {a} 계정만 씁니다.',
+    err_no_window: '세션 창을 찾지 못했습니다. 이미 닫혔을 수 있습니다.', err_focus: '세션 창을 앞으로 가져오지 못했습니다. 작업 표시줄에서 여세요.',
+    set_notify: 'Windows 알림', set_notify_hint: '세션 창을 보고 있지 않을 때 Windows 알림으로 알려 줍니다. 알림을 누르면 그 세션 창이 앞으로 나옵니다.',
+    notify_all: '모두: 계정 전환과 한도, Claude가 답을 기다릴 때, 30초 넘게 걸린 응답이 끝났을 때',
+    notify_important: '중요한 것만: 응답이 끝났을 때는 빼고', notify_off: '끄기', notify_test: '알림 보내 보기',
+    notify_sent: '알림을 보냈습니다. 보이지 않으면 Windows 설정 → 시스템 → 알림에서 baton과 방해 금지를 확인하세요.',
+    set_awake: '세션이 작업하는 동안 PC가 절전 모드로 들어가지 않게 하기',
+    set_awake_hint: 'Claude가 작업하거나 세션이 한도가 풀리기를 기다리는 동안에만 그렇습니다. 화면은 꺼질 수 있고, 직접 절전하거나 노트북 덮개를 닫으면 잠듭니다.',
     trust_q: '이 폴더를 신뢰하나요?', trust_body: 'Claude Code가 이 폴더의 파일을 읽고 고치고 명령을 실행할 수 있게 됩니다. 믿을 수 있는 폴더일 때만 체크하세요.',
     trust_ok: '이 폴더를 신뢰합니다', trust_needed: '신뢰하는 폴더에서만 시작할 수 있습니다. 체크한 뒤 다시 누르세요.',
     folder_bad: '있는 폴더를 고르세요 (내 PC의 폴더, 예: C:\\Users\\…).', folder_long: '경로가 너무 깁니다. 더 짧은 경로의 폴더를 고르세요.',
@@ -243,6 +261,24 @@ const T = {
     rc_on: 'Remote Control', details_more: 'Details', details_less: 'Less', d_path: 'Folder', d_started: 'Started', d_changes: 'Changes', ctx_short: 'Context', rc_where: 'Sign in to the Claude app on your phone or to claude.ai/code with the account {a} to see this session. After a switch it shows on the new account.',
     start_rc: 'Turn on Remote Control', start_rc_hint: 'See and continue this session from the Claude app on your phone or claude.ai/code. It shows for the account the session runs on, and comes back on for the next account after a switch.',
     set_rc: 'Turn on Remote Control for new sessions by default',
+    show_window: 'Show window', show_window_tip: "Bring this session's Claude Code window to the front",
+    cut_title: '{n} sessions were cut off', cut_title1: '1 session was cut off',
+    cut_body: 'The PC restarted, or a session stopped unexpectedly. Reopening one goes on with the same conversation and options, and a session that was working carries on with its task.',
+    cut_restart: 'PC restarted', cut_stopped: 'Stopped unexpectedly', cut_working: 'Was working',
+    restore_btn: 'Reopen', restore_all: 'Reopen all', dismiss_btn: 'Dismiss', dismiss_all: 'Dismiss all',
+    restore_started: 'Reopening; each session opens in its own window.', err_not_cut_off: 'That session was reopened or dismissed already.',
+    set_rules: 'Accounts per folder', set_rules_hint: 'Sessions in a folder with a rule (and in the folders in it) start and switch only on the accounts you choose. With one account, such a session never moves to another. Use it, say, to keep a company repository on the company account.',
+    rules_none: 'No rules: sessions in every folder use every account.', rule_add: 'Add a rule', rule_edit: 'Change', rule_remove: 'Remove',
+    rule_title: 'Accounts for a folder', rule_folder: 'Folder', rule_accounts: 'Accounts to use in this folder', rule_save: 'Save', rule_missing: 'No such account: {a}',
+    rule_saved: 'Rule saved.', rule_removed: 'Rule removed.', rule_note: 'A session that is already running only takes on a stricter rule; anything else applies from the next session.',
+    err_rule_empty: 'Choose at least one account.', err_rule_account: "This folder's rule does not allow that account.", start_rule: 'By its rule, this folder uses only {a}.',
+    err_no_window: "The session's window could not be found; it may be closed.", err_focus: "The session's window could not be brought forward; open it from the taskbar.",
+    set_notify: 'Windows notifications', set_notify_hint: "baton tells you with a Windows notification when you are not looking at the session window. Clicking one brings up that session's window.",
+    notify_all: 'All: account switches and limits, when Claude waits for an answer, and when a response that took over 30 seconds is done',
+    notify_important: 'Important only: all but finished responses', notify_off: 'Off', notify_test: 'Send a test notification',
+    notify_sent: 'Sent. If nothing showed up, check baton and Do not disturb in Windows Settings → System → Notifications.',
+    set_awake: 'Keep the PC from sleeping while a session works',
+    set_awake_hint: "Only while Claude works or a session waits for a limit to reset. The screen can still turn off, and Sleep or closing a laptop's lid still puts it to sleep.",
     trust_q: 'Do you trust this folder?', trust_body: 'Claude Code will be able to read and change files in it and run commands. Tick only for a folder you trust.',
     trust_ok: 'I trust this folder', trust_needed: 'Sessions start only in a trusted folder. Tick the box and press Start again.',
     folder_bad: 'Choose an existing folder on this PC (e.g. C:\\Users\\…).', folder_long: 'That path is too long. Choose a folder with a shorter path.',
@@ -555,7 +591,7 @@ function render() {
     return;
   }
   S.mainDirty = false;
-  main.replaceChildren(...({ sessions: viewSessions, accounts: viewAccounts, settings: viewSettings, help: viewHelp }[S.tab])(st));
+  main.replaceChildren(...({ sessions: viewSessions, accounts: viewAccounts, settings: viewSettings, help: viewHelp }[S.tab])(st).filter(Boolean));
 }
 
 // A redraw put off while typing happens once the field loses focus, but not
@@ -676,7 +712,34 @@ function viewSessions(st) {
     st.switches.length ? h('div', {}, st.switches.map((sw) => h('div', { class: 'row' },
       h('div', { class: 'grow' }, h('div', { text: `${sw.from} → ${sw.to}` }), h('div', { class: 'sub', text: `${clock(sw.at)} · ${t('reason_' + sw.reason)}` })))))
       : h('p', { class: 'muted', text: t('recent_none') }));
-  return [sessions, recentSessions, recent];
+  return [cutCard(st, canStart), sessions, recentSessions, recent];
+}
+
+// cutCard offers the sessions that were cut off (a restart, a crash) for
+// reopening as they were.
+function cutCard(st, canStart) {
+  const cut = st.unfinished || [];
+  if (!cut.length) return null;
+  const act = async (path, ids, done) => {
+    try { await api(path, { run_ids: ids }); if (done) toast(done); S.lastJSON = ''; await refresh(); }
+    catch (e) { if (e.code === 'needs_mode') { openNotice(); return; } showError(e); }
+  };
+  const ids = cut.map((c) => c.run_id);
+  return h('div', { class: 'card warn-card' },
+    h('div', { class: 'card-head' },
+      h('div', {}, h('h2', { text: cut.length === 1 ? t('cut_title1') : t('cut_title', { n: cut.length }) }), h('p', { class: 'muted small', text: t('cut_body') })),
+      h('div', { class: 'actions' },
+        cut.length > 1 ? h('button', { class: 'btn ghost', text: t('dismiss_all'), onclick: () => act('sessions/dismiss', ids) }) : null,
+        cut.length > 1 ? h('button', { class: 'btn primary', text: t('restore_all'), disabled: !canStart || !st.claude.found, onclick: () => act('sessions/restore', ids, t('restore_started')) }) : null)),
+    h('div', {}, cut.map((c) => h('div', { class: 'row' },
+      h('div', { class: 'grow' },
+        h('div', { class: 'title' }, h('span', { text: convTitle(c) }), h('span', { class: 'pill ' + (c.shutdown ? 'info' : 'warn'), text: c.shutdown ? t('cut_restart') : t('cut_stopped') }),
+          c.working ? h('span', { class: 'pill off', text: t('cut_working') }) : null),
+        h('div', { class: 'sub', title: c.cwd, text: `${baseName(c.cwd)} · ${c.account ? t('run_on', { a: c.account }) : ''} · ${ago(c.ended)}` })),
+      h('div', { class: 'actions' },
+        h('button', { class: 'btn ghost', text: t('dismiss_btn'), onclick: () => act('sessions/dismiss', [c.run_id]) }),
+        h('button', { class: cut.length > 1 ? 'btn' : 'btn primary', text: t('restore_btn'), disabled: !canStart || !st.claude.found,
+          onclick: () => act('sessions/restore', [c.run_id], t('restore_started')) }))))));
 }
 
 function runState(r) {
@@ -685,7 +748,7 @@ function runState(r) {
 }
 
 function runRow(st, r) {
-  const others = usableAccounts(st).filter((a) => a.id !== r.account);
+  const others = usableAccounts(st).filter((a) => a.id !== r.account && (!r.allowed || r.allowed.includes(a.id)));
   const waiting = r.state === 'waiting';
   // "Next account" needs one that is free now; while a switch is already
   // pending only a named account can change its target.
@@ -734,7 +797,10 @@ function runRow(st, r) {
       asking ? h('div', { class: 'hint', text: t('asking_hint') + ' ' + t('asking_stop_hint') }) : null,
       waiting ? h('div', { class: 'hint', text: r.account ? t('waiting_hint') : t('waiting_first') }) : null,
       open ? runDetails(r) : null),
-    h('div', { class: 'actions' }, canSwitch ? sel : null,
+    h('div', { class: 'actions' },
+      r.window ? h('button', { class: 'btn', title: t('show_window_tip'), text: t('show_window'),
+        onclick: () => api('sessions/focus', { run_id: r.run_id }).catch(showError) }) : null,
+      canSwitch ? sel : null,
       // While the session window asks, baton reads only that window.
       asking || r.state === 'ending' ? null : h('button', { class: 'btn ghost danger', text: t('stop_btn'), onclick: () => confirmStop(r) }),
       toggle));
@@ -864,6 +930,7 @@ function openStart(pre) {
     form.trusted = !!info.trusted;
     form.problem = info.ok ? '' : info.problem;
     form.checked = true;
+    drawAccounts(info.ok ? info.allowed : null);
     if ((info.path || '') !== trustFor) { form.trust = false; trustFor = info.path || ''; } // a tick is for one folder
     if (!info.ok) { trustBox.replaceChildren(h('div', { class: 'small err', text: info.problem === 'long_folder' ? t('folder_long') : t('folder_bad') })); return; }
     if (info.trusted) { trustBox.replaceChildren(); return; }
@@ -934,9 +1001,18 @@ function openStart(pre) {
   redrawModes();
 
   const usable = usableAccounts(st);
-  const account = h('select', { onchange: (e) => { form.account = e.target.value; } },
-    h('option', { value: '', text: t('account_auto') }),
-    usable.map((a) => h('option', { value: a.id, text: a.id + (a.email ? ` (${a.email})` : '') + (a.status === 'limited' ? ' — ' + t('st_limited', { t: clock(a.retry_at) }) : '') })));
+  const account = h('select', { onchange: (e) => { form.account = e.target.value; } });
+  const ruleNote = h('div', { class: 'small muted' });
+  // A folder rule leaves only its accounts to choose from.
+  function drawAccounts(allowed) {
+    const list = allowed ? usable.filter((a) => allowed.includes(a.id)) : usable;
+    if (form.account && !list.some((a) => a.id === form.account)) form.account = '';
+    account.replaceChildren(h('option', { value: '', text: t('account_auto') }),
+      ...list.map((a) => h('option', { value: a.id, selected: a.id === form.account,
+        text: a.id + (a.email ? ` (${a.email})` : '') + (a.status === 'limited' ? ' — ' + t('st_limited', { t: clock(a.retry_at) }) : '') })));
+    ruleNote.textContent = allowed ? t('start_rule', { a: allowed.join(', ') }) : '';
+  }
+  drawAccounts(null);
 
   const start = h('button', { class: 'btn primary', text: t('start_go'), onclick: async () => {
     err.textContent = '';
@@ -977,7 +1053,7 @@ function openStart(pre) {
       st.recent_folders.length ? h('div', { class: 'chips' }, st.recent_folders.map((f) => h('button', { type: 'button', title: f, text: baseName(f),
         onclick: () => { form.folder = f; folderInput.value = f; checkFolder(); loadConvs(); } }))) : null),
     trustBox,
-    h('label', { class: 'field' }, h('span', { text: t('start_account') }), account),
+    h('label', { class: 'field' }, h('span', { text: t('start_account') }), account, ruleNote),
     h('div', { class: 'field' }, h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: form.rc, onchange: (e) => { form.rc = e.target.checked; } }),
       h('span', {}, h('b', { text: t('start_rc') }), h('div', { class: 'small muted', text: t('start_rc_hint') })))),
     h('div', { class: 'field' }, h('span', { class: 'muted small', text: t('start_conv') }), modes, convBox, copyBox),
@@ -1417,6 +1493,13 @@ function viewSettings(st) {
   const exhausted = ['wait', 'stop'].map((v) => h('label', { class: 'choice' + (c.on_exhausted === v ? ' selected' : '') },
     h('input', { type: 'radio', name: 'exhausted', checked: c.on_exhausted === v, onchange: () => setConfig('on_exhausted', v) }),
     h('span', { text: t('ex_' + v) })));
+  const notifyChoices = ['all', 'important', 'off'].map((v) => h('label', { class: 'choice' + (c.notifications === v ? ' selected' : '') },
+    h('input', { type: 'radio', name: 'notify', checked: c.notifications === v, onchange: () => setConfig('notifications', v) }),
+    h('span', { text: t('notify_' + v) })));
+  const testNotify = h('button', { class: 'btn', text: t('notify_test'), onclick: async () => {
+    testNotify.disabled = true;
+    try { await api('notify/test', {}); toast(t('notify_sent')); } catch (e) { showError(e); } finally { testNotify.disabled = false; }
+  } });
   const num = (key, label) => {
     const input = h('input', { type: 'number', min: '1', value: String(c[key]) });
     return h('label', { class: 'field' }, h('span', { text: label }),
@@ -1451,10 +1534,58 @@ function viewSettings(st) {
     c.claude_path && c.claude_path !== 'desktop' ? h('div', { class: 'actions start' }, h('span', { class: 'small mono', text: c.claude_path }),
       h('button', { class: 'btn', text: t('set_claude_auto'), onclick: () => setConfig('claude_path', 'auto') })) : null,
     h('p', { class: 'small muted', text: t('claude_custom_cli') })));
+  const rules = h('div', { class: 'card' },
+    h('div', { class: 'card-head' }, h('div', {}, h('h3', { text: t('set_rules') }), h('p', { class: 'small muted', text: t('set_rules_hint') })),
+      h('button', { class: 'btn', text: t('rule_add'), disabled: !st.accounts.length, onclick: () => openRule(st) })),
+    st.rules.length ? h('div', {}, st.rules.map((r) => h('div', { class: 'row' },
+      h('div', { class: 'grow' }, h('div', { class: 'title mono', text: r.folder }),
+        h('div', { class: 'facts' }, r.accounts.map((a) => h('span', { class: 'pill ' + ((r.missing || []).includes(a) ? 'bad' : 'info'), text: a })),
+          r.missing && r.missing.length ? h('span', { class: 'small err-inline', text: t('rule_missing', { a: r.missing.join(', ') }) }) : null)),
+      h('div', { class: 'actions' }, h('button', { class: 'btn', text: t('rule_edit'), onclick: () => openRule(st, r) }),
+        h('button', { class: 'btn ghost danger', text: t('rule_remove'), onclick: async () => {
+          try { await api('rules/remove', { folder: r.folder }); toast(t('rule_removed')); S.lastJSON = ''; await refresh(); } catch (e) { showError(e); }
+        } })))))
+      : h('p', { class: 'muted', text: t('rules_none') }));
   return [h('div', { class: 'card' }, h('h2', { text: t('settings_title') }),
     h('h3', { text: t('set_mode'), class: 'mt12' }), h('p', { class: 'small muted', text: t('set_mode_hint') }), modes,
     h('h3', { text: t('set_exhausted'), class: 'mt16' }), exhausted,
-    h('div', { class: 'mt16' }, advanced))];
+    h('h3', { text: t('set_notify'), class: 'mt16' }), h('p', { class: 'small muted', text: t('set_notify_hint') }), notifyChoices,
+    h('div', { class: 'actions start mt6' }, testNotify),
+    h('label', { class: 'check mt14' }, h('input', { type: 'checkbox', checked: c.keep_awake, onchange: (e) => setConfig('keep_awake', e.target.checked) }),
+      h('span', { text: t('set_awake') })),
+    h('p', { class: 'small muted', text: t('set_awake_hint') }),
+    h('div', { class: 'mt16' }, advanced)), rules];
+}
+
+// openRule adds a folder rule, or changes one.
+function openRule(st, rule) {
+  const form = { folder: rule ? rule.folder : '', accounts: new Set(rule ? rule.accounts : []) };
+  const err = h('div', { class: 'err' });
+  const folderInput = h('input', { type: 'text', value: form.folder, placeholder: 'C:\\…', disabled: !!rule, oninput: (e) => { form.folder = e.target.value; } });
+  const boxes = st.accounts.map((a) => h('label', { class: 'check' },
+    h('input', { type: 'checkbox', checked: form.accounts.has(a.id), onchange: (e) => { if (e.target.checked) form.accounts.add(a.id); else form.accounts.delete(a.id); } }),
+    h('span', { text: a.id + (a.email ? ` (${a.email})` : '') })));
+  const save = h('button', { class: 'btn primary', text: t('rule_save'), onclick: async () => {
+    err.textContent = '';
+    if (!cleanPath(form.folder)) { err.textContent = t('choose_folder_first'); return; }
+    if (!form.accounts.size) { err.textContent = t('err_rule_empty'); return; }
+    save.disabled = true;
+    try {
+      const keep = st.accounts.map((a) => a.id).filter((id) => form.accounts.has(id));
+      await api('rules/set', { folder: cleanPath(form.folder), accounts: keep });
+      closeDialog(); toast(t('rule_saved')); S.lastJSON = ''; await refresh();
+    } catch (e) { err.textContent = e.code === 'bad_folder' ? t('folder_bad') : errText(e); } finally { save.disabled = false; }
+  } });
+  openDialog(h('h2', { text: t('rule_title') }),
+    h('label', { class: 'field' }, h('span', { text: t('rule_folder') }),
+      h('div', { class: 'inline' }, folderInput, rule ? null : h('button', { class: 'btn', text: t('browse'), onclick: async (e) => {
+        e.preventDefault();
+        try { const r = await api('folder/pick', {}); if (!r.cancelled) { form.folder = r.path; folderInput.value = r.path; } } catch (x) { showError(x); }
+      } }))),
+    h('div', { class: 'field' }, h('span', { text: t('rule_accounts') }), ...boxes),
+    h('p', { class: 'small muted', text: t('rule_note') }),
+    err,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), save));
 }
 
 // ---- help --------------------------------------------------------------------------------

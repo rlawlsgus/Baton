@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.5.2-dev"
+var version = "0.6.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -43,6 +43,9 @@ Usage:
   baton sync                         share your normal Claude setup (skills, settings,
                                      CLAUDE.md...) with every account profile
   baton config [<key> [<value>]]     show or change settings
+  baton rules [set <folder> <accounts> | remove <folder>]
+                                     keep the sessions in a folder on some accounts
+                                     (accounts: a comma-separated list)
   baton doctor                       check claude.exe, the console and every login
   baton update [--check]             install the newest baton from GitHub
   baton version
@@ -68,6 +71,14 @@ func main() {
 		// baton-app.exe: the window only. It has no console, so its output and
 		// any crash go to a log file.
 		logPath := openGUILog()
+		if len(os.Args) > 1 && os.Args[1] == "focus" {
+			// A click on a notification. Whatever goes wrong, a link must not
+			// put up a message box: it is only logged.
+			if err := cmdFocus(os.Args[2:]); err != nil {
+				guiLog("focus: %v", err)
+			}
+			os.Exit(0)
+		}
 		if msg := unzipFirst(); msg != "" {
 			winui.MessageBox("baton", msg)
 			os.Exit(1)
@@ -164,6 +175,8 @@ func main() {
 		err = cmdSync(args)
 	case "config":
 		err = cmdConfig(args)
+	case "rules":
+		err = cmdRules(args)
 	case "doctor":
 		err = cmdDoctor(args)
 	case "gui":
@@ -179,6 +192,8 @@ func main() {
 	case "statusline":
 		cmdStatusLine() // called by claude.exe for the line under its prompt
 		os.Exit(0)
+	case "focus":
+		err = cmdFocus(args) // what a click on a notification runs (in baton-app.exe)
 	case "version", "--version", "-v":
 		fmt.Println("baton", version)
 	case "help", "-h", "--help":

@@ -186,6 +186,7 @@ dialog::backdrop { background: rgba(20, 18, 15, .45); }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 .mt6 { margin-top: 6px; }
+.card.warn-card { border-color: var(--warn); }
 .mt12 { margin-top: 12px; }
 .mt14 { margin-top: 14px; }
 .mt16 { margin-top: 16px; }

@@ -25,13 +25,16 @@ import (
 // management (which calls `claude auth ...`) is exercised without a real
 // account or a browser.
 
-var batonExe, fakeClaude string
+var batonExe, fakeClaude, notesFile string
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "baton-cli-test")
 	if err != nil {
 		panic(err)
 	}
+	// Notifications from the sessions these tests run go to a file, not the
+	// screen, and nothing is registered with Windows for them.
+	notesFile = filepath.Join(dir, "notifications.jsonl")
 	gobin := filepath.Join(runtime.GOROOT(), "bin", "go")
 	batonExe = filepath.Join(dir, "baton.exe")
 	fakeClaude = filepath.Join(dir, "claude.exe")
@@ -63,7 +66,7 @@ func newCLI(t *testing.T) *cli {
 func (c *cli) run(extraEnv []string, args ...string) (string, int) {
 	c.t.Helper()
 	cmd := exec.Command(batonExe, args...)
-	env := []string{"BATON_HOME=" + c.home}
+	env := []string{"BATON_HOME=" + c.home, "BATON_NOTIFY_FILE=" + notesFile}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(strings.ToUpper(kv), "BATON_") {
 			env = append(env, kv)
@@ -159,7 +162,8 @@ func TestRefusedInsideSession(t *testing.T) {
 	c.run(nil, "add", "a")
 	inside := []string{"BATON_RUN=r1"}
 	for _, args := range [][]string{{"switch", "a"}, {"config", "switch_mode", "auto"}, {"add", "b"},
-		{"remove", "a"}, {"login", "a"}, {"sync"}, {"run"}, {"stop"}, {"uninstall", "--yes"}, {"gui", "--browser"}} {
+		{"remove", "a"}, {"login", "a"}, {"sync"}, {"run"}, {"stop"}, {"uninstall", "--yes"}, {"gui", "--browser"},
+		{"rules", "set", c.home, "a"}, {"rules", "remove", c.home}} {
 		if out, code := c.run(inside, args...); code == 0 || !strings.Contains(out, "inside a baton session") {
 			t.Errorf("%v from inside a session: code %d\n%s", args, code, out)
 		}
@@ -617,7 +621,9 @@ func TestStatusLineRecordsRunStatus(t *testing.T) {
 func TestRemoveAndUninstallKeepConversations(t *testing.T) {
 	c := newCLI(t)
 	home := t.TempDir()
-	env := []string{"CLAUDE_CONFIG_DIR=" + home}
+	// The uninstall removes the Start menu entry and an installed baton:
+	// those of a temporary user profile, never the real one's.
+	env := []string{"CLAUDE_CONFIG_DIR=" + home, "LOCALAPPDATA=" + t.TempDir(), "APPDATA=" + t.TempDir()}
 	c.run(env, "add", "a")
 	c.run(env, "add", "b")
 	write := func(account, sid string) string {
@@ -695,5 +701,35 @@ func TestUpdateCheck(t *testing.T) {
 	}
 	if out, code := c.run(append(env, "BATON_RUN=x"), "update"); code == 0 || !strings.Contains(out, "inside a baton session") {
 		t.Fatalf("inside a session: %d\n%s", code, out)
+	}
+}
+
+// baton rules sets, lists and removes folder rules, and refuses unknown
+// accounts and folders that do not exist.
+func TestRules(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "add", "a")
+	c.run(nil, "add", "b")
+	proj := t.TempDir()
+	if out, code := c.run(nil, "rules"); code != 0 || !strings.Contains(out, "No folder rules") {
+		t.Fatalf("empty list: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "rules", "set", proj, "a,b"); code != 0 || !strings.Contains(out, "use only a, b") {
+		t.Fatalf("set: %d\n%s", code, out)
+	}
+	if out, code := c.run(nil, "rules"); code != 0 || !strings.Contains(out, proj+"  a, b") {
+		t.Fatalf("list: %d\n%s", code, out)
+	}
+	for _, bad := range [][]string{{"rules", "set", proj, "nope"}, {"rules", "set", filepath.Join(proj, "missing"), "a"},
+		{"rules", "remove", filepath.Join(proj, "other")}, {"rules", "set", proj}} {
+		if out, code := c.run(nil, bad...); code == 0 {
+			t.Errorf("%v accepted:\n%s", bad, out)
+		}
+	}
+	if out, code := c.run(nil, "rules", "remove", proj); code != 0 || !strings.Contains(out, "Removed the rule") {
+		t.Fatalf("remove: %d\n%s", code, out)
+	}
+	if out, _ := c.run(nil, "rules"); !strings.Contains(out, "No folder rules") {
+		t.Fatalf("still listed:\n%s", out)
 	}
 }

@@ -57,6 +57,15 @@ type runView struct {
 	Context       *float64     `json:"context,omitempty"`
 	RemoteControl bool         `json:"remote_control"`
 	Changes       *changesView `json:"changes,omitempty"` // git changes in the session's folder
+	Window        bool         `json:"window"`            // its console window is known, so it can be brought forward
+	Allowed       []string     `json:"allowed,omitempty"` // its folder rule's accounts (none: any account)
+}
+
+// ruleView is a folder rule; Missing are its accounts that do not exist.
+type ruleView struct {
+	Folder   string   `json:"folder"`
+	Accounts []string `json:"accounts"`
+	Missing  []string `json:"missing,omitempty"`
 }
 
 type switchView struct {
@@ -87,9 +96,24 @@ type configView struct {
 	AllowDesktopBundle    bool   `json:"allow_desktop_bundle"`
 	ClaudePath            string `json:"claude_path"`
 	RemoteControl         bool   `json:"remote_control"`
+	Notifications         string `json:"notifications"`
+	KeepAwake             bool   `json:"keep_awake"`
 	CheckUpdates          bool   `json:"check_updates"`
 	GUILanguage           string `json:"gui_language"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
+}
+
+// unfinishedView is a session that was cut off (Windows restarted, or it
+// stopped unexpectedly) and can be reopened as it was.
+type unfinishedView struct {
+	RunID       string    `json:"run_id"`
+	Cwd         string    `json:"cwd"`
+	Account     string    `json:"account"`
+	Title       string    `json:"title"`
+	FirstPrompt string    `json:"first_prompt"`
+	Ended       time.Time `json:"ended"`
+	Working     bool      `json:"working"`  // it had work going, which goes on when it is reopened
+	Shutdown    bool      `json:"shutdown"` // Windows shut down or restarted under it
 }
 
 // recentView is an ended session that can be continued.
@@ -104,30 +128,32 @@ type recentView struct {
 }
 
 type stateView struct {
-	Version       string        `json:"version"`
-	Lang          string        `json:"lang"`
-	Home          string        `json:"home"`
-	Claude        ClaudeInfo    `json:"claude"`
-	ClaudePending bool          `json:"claude_pending"`
-	Config        configView    `json:"config"`
-	Accounts      []accountView `json:"accounts"`
-	Runs          []runView     `json:"runs"`
-	Switches      []switchView  `json:"switches"`
-	Jobs          []jobView     `json:"jobs"`
-	RecentFolders []string      `json:"recent_folders"`
-	Recent        []recentView  `json:"recent_sessions"`
-	Elevated      bool          `json:"elevated"` // running as administrator
-	Installed     bool          `json:"installed"`
-	CanInstall    bool          `json:"can_install"`
-	Checking      bool          `json:"checking"`
-	Problems      []string      `json:"problems,omitempty"`
-	Update        *updateView   `json:"update,omitempty"`
+	Version       string           `json:"version"`
+	Lang          string           `json:"lang"`
+	Home          string           `json:"home"`
+	Claude        ClaudeInfo       `json:"claude"`
+	ClaudePending bool             `json:"claude_pending"`
+	Config        configView       `json:"config"`
+	Accounts      []accountView    `json:"accounts"`
+	Runs          []runView        `json:"runs"`
+	Switches      []switchView     `json:"switches"`
+	Jobs          []jobView        `json:"jobs"`
+	RecentFolders []string         `json:"recent_folders"`
+	Recent        []recentView     `json:"recent_sessions"`
+	Unfinished    []unfinishedView `json:"unfinished"`
+	Elevated      bool             `json:"elevated"` // running as administrator
+	Installed     bool             `json:"installed"`
+	CanInstall    bool             `json:"can_install"`
+	Checking      bool             `json:"checking"`
+	Rules         []ruleView       `json:"rules"`
+	Problems      []string         `json:"problems,omitempty"`
+	Update        *updateView      `json:"update,omitempty"`
 }
 
 func (s *Server) state() stateView {
 	p := s.opt.Paths
 	v := stateView{Version: s.opt.Version, Home: p.Root, Accounts: []accountView{}, Runs: []runView{},
-		Switches: []switchView{}, Jobs: []jobView{}, RecentFolders: []string{}, Recent: []recentView{},
+		Switches: []switchView{}, Jobs: []jobView{}, RecentFolders: []string{}, Recent: []recentView{}, Rules: []ruleView{}, Unfinished: []unfinishedView{},
 		Elevated: windows.GetCurrentProcessToken().IsElevated()}
 
 	cfg, err := config.Load(p.Config())
@@ -138,7 +164,8 @@ func (s *Server) state() stateView {
 		SwitchMode: cfg.SwitchMode, OnExhausted: cfg.OnExhausted, CooldownSeconds: cfg.CooldownSeconds,
 		MaxSwitchesPerHour: cfg.MaxSwitchesPerHour, ExhaustedRetryMinutes: cfg.ExhaustedRetryMinutes,
 		ContinuePrompt: cfg.ContinuePrompt, ShareUserConfig: cfg.ShareEnabled(), AllowDesktopBundle: cfg.DesktopBundleAllowed(),
-		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
+		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, Notifications: cfg.NotifyLevel(), KeepAwake: cfg.KeepAwakeOn(),
+		CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 	}
 	v.Lang = cfg.GUILanguage
@@ -198,6 +225,15 @@ func (s *Server) state() stateView {
 		}
 		v.Accounts = append(v.Accounts, av)
 	}
+	for _, r := range cfg.FolderRules {
+		rv := ruleView{Folder: r.Folder, Accounts: r.Accounts}
+		for _, a := range r.Accounts {
+			if reg.Get(a) == nil {
+				rv.Missing = append(rv.Missing, a)
+			}
+		}
+		v.Rules = append(v.Rules, rv)
+	}
 
 	// The window polls often: journals are read once per poll (and parsed
 	// again only when they change), and each supervisor is checked once.
@@ -207,7 +243,7 @@ func (s *Server) state() stateView {
 		if j.State != run.StateDone && supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {
 			alive[j.RunID] = true
 			rv := runView{RunID: j.RunID, Account: j.Account, SwitchMode: j.SwitchMode, State: j.State,
-				SessionID: j.SessionID, Cwd: j.Cwd, Started: j.Started, RemoteControl: j.RemoteControl}
+				SessionID: j.SessionID, Cwd: j.Cwd, Started: j.Started, RemoteControl: j.RemoteControl, Window: j.ConsoleWindow != 0}
 			if a := reg.Get(j.Account); a != nil && j.ChildPID > 0 {
 				if ls, ok := claude.SessionFor(a.ProfileDir, j.ChildPID); ok && ls.Alive() {
 					rv.Claude, rv.WaitingFor = ls.Status, ls.WaitingFor
@@ -215,6 +251,9 @@ func (s *Server) state() stateView {
 			}
 			if st, ok := run.LoadStatus(p.Run(j.RunID)); ok {
 				rv.Model, rv.Context = st.Model, st.Context
+			}
+			if r := cfg.RuleFor(j.Cwd); r != nil {
+				rv.Allowed = r.Accounts
 			}
 			rv.Changes = s.changesOf(j.RunID, j.Cwd)
 			v.Runs = append(v.Runs, rv)
@@ -227,7 +266,16 @@ func (s *Server) state() stateView {
 		v.Switches = append(v.Switches, switchView{At: sw.At, From: sw.From, To: sw.To, Reason: sw.Reason})
 	}
 	v.RecentFolders = recentFolders(journals, 8)
-	v.Recent = s.recentSessions(journals, alive, v.Runs, 6)
+	cut := s.unfinished(journals)
+	for _, j := range cut {
+		uv := unfinishedView{RunID: j.RunID, Cwd: j.Cwd, Account: j.Account, Ended: j.Updated, Working: j.Owed, Shutdown: j.EndedBy == run.EndedShutdown}
+		if fi, err := os.Stat(j.TranscriptPath); err == nil {
+			t := claude.Describe(j.TranscriptPath, fi)
+			uv.Title, uv.FirstPrompt = t.Title, t.FirstPrompt
+		}
+		v.Unfinished = append(v.Unfinished, uv)
+	}
+	v.Recent = s.recentSessions(journals, alive, v.Runs, cut, 6)
 	v.Claude, v.ClaudePending = s.claudeInfo()
 	v.Update = s.updateInfo(cfg)
 	if s.opt.Installed != nil {
@@ -252,6 +300,11 @@ func (s *Server) claudeInfo() (ClaudeInfo, bool) {
 		}()
 	}
 	return s.claude, pending
+}
+
+// unfinished are the runs that were cut off and can be reopened.
+func (s *Server) unfinished(journals []run.Journal) []run.Journal {
+	return run.Unfinished(journals, func(j run.Journal) bool { return supervisorAlive(j.SupervisorPID, j.SupervisorCreated) }, time.Now())
 }
 
 func supervisorAlive(pid int, created time.Time) bool {
@@ -322,10 +375,13 @@ func (c *readCache) journals(runsDir string) []run.Journal {
 // exists, newest first, without the ones running now. A run whose
 // supervisor is gone ended too (its window was closed), whatever its
 // journal last said.
-func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, running []runView, max int) []recentView {
+func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, running []runView, cut []run.Journal, max int) []recentView {
 	busy := map[string]bool{}
 	for _, r := range running {
 		busy[r.SessionID] = true
+	}
+	for _, j := range cut {
+		busy[j.SessionID] = true // offered for reopening instead
 	}
 	// Newest conversation first, by when its transcript was last written: a
 	// run that ended without saving its journal (power loss) has an old

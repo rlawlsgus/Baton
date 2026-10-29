@@ -1,8 +1,8 @@
 # Builds release zips of baton for Windows x64 and arm64 into dist\.
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 [-Version 0.5.2]
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 [-Version 0.6.0]
 # Everything in dist\ is replaced; keep nothing else there. Write the release
 # notes first, in docs\releases\v<version>.md.
-param([string]$Version = "0.5.2-dev")
+param([string]$Version = "0.6.0-dev")
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot

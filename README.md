@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.5.2-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.6.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -55,11 +55,20 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   waiting for you or needs an answer in the session window, plus the model, how full the
   context is and the files changed in the folder (with a list of them, like the desktop app's
   changes panel).
+- 🔔 **Know when a session needs you.** A Windows notification says when a session switched
+  accounts, every account is limited, it needs your answer in its window or a long response is
+  done; clicking it brings up that session's window, as *Show window* in the Sessions tab does.
+  While Claude works, the PC does not go to sleep by itself.
+- ♻️ **Pick up after a restart.** When Windows restarts or a session is cut off, the Sessions
+  tab offers to reopen it as it was; a session that was working carries on with its task.
 - 📱 **Remote Control.** Turn it on when you start a session to see and continue it from the
   Claude app on your phone or from claude.ai/code. It comes back on by itself after a switch.
 - 🎛️ **You decide when it switches.** baton can ask before every switch, switch on its own,
   or switch only when you tell it to. You can also move a session to another account at
   any time.
+- 🧭 **Keep a folder on its account.** A folder rule keeps the sessions in a folder (and the
+  folders under it) on the accounts you choose, so a company repository can stay on the
+  company account.
 - ⌨️ **Command line included.** `baton.exe` has the same features for terminals and
   scripts.
 - ⬆️ **Updates in one click.** baton tells you when a new release is out and installs it
@@ -174,7 +183,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.5.2_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.6.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -213,7 +222,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.5.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -273,13 +282,15 @@ Claude Code reads every word that follows as one of their values.
 | `baton enable` / `disable <name>` | include or skip an account (`enable` also clears a `blocked` mark) |
 | `baton remove <name>` | log out and delete the profile; its conversations are moved to your own Claude Code first |
 | `baton run [--account <name>] [-- <claude args>]` | start a supervised session |
+| `baton run --restore <run>` | reopen a session that was cut off (`baton status` lists them) |
 | `baton sessions [--max N]` | list your conversations in every folder, the desktop app's included |
 | `baton resume <id> [--account <name>] [--copy]` | continue one of them in its folder (`--copy` leaves the original as it is) |
 | `baton switch [<name>] [--run <id>]` | from another terminal, move a running session to another account once its current turn ends |
 | `baton stop [--run <id>]` | end a running session the careful way; you can continue it later |
-| `baton status` | show accounts, running sessions and recent switches |
+| `baton status` | show accounts, running sessions, sessions that were cut off and recent switches |
 | `baton sync` | share your normal Claude Code setup with every account profile (see below) |
 | `baton config [<key> [<value>]]` | show or change settings (below) |
+| `baton rules [set <folder> <account>[,<account>...] \| remove <folder>]` | show, add or remove folder rules (see Things to know) |
 | `baton doctor` | check claude.exe, the console and every sign-in |
 | `baton update [--check]` | install the newest baton from GitHub (`--check` only says whether one is out) |
 | `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data and its Start menu entry |
@@ -298,6 +309,8 @@ Claude Code reads every word that follows as one of their values.
 | `claude_path` | full path to `claude.exe`; `desktop` always uses the Claude desktop app's; `auto` goes back to detecting it |
 | `allow_desktop_bundle` | allow the Claude Code that comes with the desktop app |
 | `remote_control` | tick *Turn on Remote Control* in the window's Start dialog by default |
+| `notifications` | Windows notifications from sessions: `all` (default), `important` (all but finished responses) or `off` |
+| `keep_awake` | keep the PC from sleeping by itself while a session works or waits for a limit to reset (default `true`) |
 | `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
 
 <details>
@@ -392,6 +405,33 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   account you are signed in with on your phone is a good one to put first in the order, so
   sessions stay on it until its limit. Remote Control needs a Claude subscription, and an
   organization can turn it off.
+- **Notifications come from the session.** Each session's `baton run` sends its own Windows
+  notifications, so they come with the baton window closed too: when it switches accounts,
+  when every account is limited, when baton or Claude Code waits for your answer in the
+  session window, when it ends unexpectedly, and when a response that took over 30 seconds is
+  done. That last kind, and Claude Code waiting for an answer, stay quiet while that session's
+  window is in front. For them baton registers its name, its icon and a `baton-session:` link
+  (what a click opens) under `HKEY_CURRENT_USER\Software\Classes`; the uninstaller removes
+  them. Windows' own notification settings and Do not disturb apply; *Settings → Send a test
+  notification* shows whether notifications get through.
+- **Keeping the PC awake.** While Claude Code works in a session, or baton moves it or waits for
+  a limit to reset, baton asks Windows not to sleep when idle (`keep_awake`). The screen can
+  still turn off, and choosing Sleep or closing a laptop's lid still puts it to sleep. While a
+  session only waits for you, the PC sleeps as usual.
+- **Show window in Windows Terminal.** *Show window* and a click on a notification bring up the
+  terminal window that holds the session, which may be showing another tab.
+- **Folder rules keep sessions on some accounts.** A rule (*Settings → Accounts per folder*, or
+  `baton rules set C:\work\company-repo work`) applies to its folder and every folder under it;
+  the closest rule wins. Sessions there start and switch only among the rule's accounts, and the
+  window offers only those. With one account a session never moves: at that account's limit it
+  waits or stops, as `on_exhausted` says. A running session takes on a changed rule only if it is
+  stricter; anything else applies from the next session.
+- **Cut-off sessions can be reopened.** A session is offered again for 7 days when Windows shut
+  down, restarted or signed you out under it, or when it stopped without being ended (a crash,
+  a power cut). Reopening starts it in its folder, on the account it was on if that one can be
+  used, with the same Claude Code options and permission mode; one that was working is told to
+  go on with its task. *Dismiss* takes it off the list (it stays in Recent sessions). From the
+  command line: `baton status`, then `baton run --restore <run>`.
 - **Changed files come from git.** The changes line needs git (Git for Windows) and a folder in
   a git repository; it lists uncommitted work against the last commit, new files included.
 - **Sessions open in a Claude Code window, not in the desktop app.** baton runs Claude Code
@@ -428,7 +468,8 @@ The uninstaller first moves the conversations that started in baton into your ow
 Code (`%USERPROFILE%\.claude`), so `claude --resume` opens them again. If one cannot be moved,
 it stops and deletes nothing. Then it signs every account out through Claude Code and deletes
 baton's data folder (`%LOCALAPPDATA%\baton`, each account's profile). It also removes the
-Start menu entry, the entry in Windows' installed apps and the install folder. End running
+Start menu entry, the entry in Windows' installed apps, the notification registration and the
+install folder. End running
 sessions first. Your Claude accounts, your own Claude Code setup and the Claude desktop app's
 sessions are not touched.
 

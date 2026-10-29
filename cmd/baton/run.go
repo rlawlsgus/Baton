@@ -12,6 +12,7 @@ import (
 	"baton/internal/claude"
 	"baton/internal/config"
 	"baton/internal/envx"
+	"baton/internal/run"
 	"baton/internal/share"
 	"baton/internal/supervisor"
 	"baton/internal/winproc"
@@ -43,8 +44,9 @@ How should baton switch accounts?
 `
 
 func cmdRun(args []string) (int, error) {
-	fs := newFlags("run", "baton run [--account <name>] [-- <claude arguments>]")
+	fs := newFlags("run", "baton run [--account <name>] [--restore <run>] [-- <claude arguments>]")
 	account := fs.String("account", "", "account to start on (default: best available)")
+	restore := fs.String("restore", "", "reopen a session that was cut off (its run id, from baton status)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0, nil
@@ -68,6 +70,9 @@ func cmdRun(args []string) (int, error) {
 			return 2, errors.New("--account is a baton option; put it before --, e.g. baton run --account work -- \"fix the bug\"")
 		}
 	}
+	if *restore != "" && fs.NArg() > 0 {
+		return 2, errors.New("--restore reopens the session as it was; it takes no Claude Code arguments")
+	}
 	cargs, err := claude.SplitArgs(fs.Args())
 	if err != nil {
 		return 2, err
@@ -85,6 +90,21 @@ func cmdRun(args []string) (int, error) {
 	if err := ensureSwitchMode(e); err != nil {
 		return 1, err
 	}
+	var cut *run.Journal
+	if *restore != "" {
+		j, err := cutOffRun(e, *restore)
+		if err != nil {
+			return 1, err
+		}
+		// It goes on in its folder, with the options it had.
+		if err := os.Chdir(j.Cwd); err != nil {
+			return 1, err
+		}
+		if cargs, err = claude.SplitArgs(j.Args); err != nil {
+			return 1, err
+		}
+		cut = &j
+	}
 	inst, err := e.resolveClaude()
 	if err != nil {
 		return 1, err
@@ -97,7 +117,9 @@ func cmdRun(args []string) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	resolveResume(&cargs, e, cwd)
+	if cut == nil {
+		resolveResume(&cargs, e, cwd)
+	}
 	self, err := os.Executable()
 	if err != nil {
 		return 1, err
@@ -113,7 +135,37 @@ func cmdRun(args []string) (int, error) {
 		Out:        os.Stderr,
 		In:         stdin,
 		Attention:  &runNeedsAttention,
+		Restore:    cut,
+		Prefer:     preferred(cut),
 	})
+}
+
+// cutOffRun is the run --restore names, if it can be reopened.
+func cutOffRun(e *env, id string) (run.Journal, error) {
+	if !run.ValidID(id) {
+		return run.Journal{}, fmt.Errorf("%q is not a run id (see: baton status)", id)
+	}
+	j, err := run.LoadJournal(e.paths.Run(id))
+	if err != nil {
+		return run.Journal{}, fmt.Errorf("no run %s (see: baton status)", id)
+	}
+	if !j.CutOff(supervisorAlive(j.SupervisorPID, j.SupervisorCreated)) {
+		return run.Journal{}, fmt.Errorf("run %s was not cut off, or was reopened already; continue its conversation with: baton run -- --resume \"%s\"", id, j.TranscriptPath)
+	}
+	if j.TranscriptPath == "" || !isFile(j.TranscriptPath) {
+		return run.Journal{}, fmt.Errorf("run %s has no conversation to reopen", id)
+	}
+	if fi, err := os.Stat(j.Cwd); err != nil || !fi.IsDir() {
+		return run.Journal{}, fmt.Errorf("the folder of run %s is gone: %s", id, j.Cwd)
+	}
+	return j, nil
+}
+
+func preferred(j *run.Journal) string {
+	if j == nil {
+		return ""
+	}
+	return j.Account
 }
 
 // runNeedsAttention: the session ended without the user asking, so its

@@ -98,8 +98,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"sessions/start":   s.apiStart,
 		"sessions/switch":  s.apiSwitch,
 		"sessions/stop":    s.apiStop,
+		"sessions/focus":   s.apiFocus,
+		"sessions/restore": s.apiRestore,
+		"sessions/dismiss": s.apiDismiss,
+		"notify/test":      s.apiNotifyTest,
 		"folder/pick":      s.apiPickFolder,
 		"config":           s.apiConfig,
+		"rules/set":        s.apiRuleSet,
+		"rules/remove":     s.apiRuleRemove,
 		"claude/refresh":   s.apiClaudeRefresh,
 		"install":          s.apiInstall,
 		"uninstall":        s.apiUninstall,
@@ -342,7 +348,13 @@ func (s *Server) apiFolderInfo(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "problem": problem})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": folder, "trusted": s.trusted(folder)})
+	var allowed []string
+	if cfg, err := config.Load(s.opt.Paths.Config()); err == nil {
+		if r := cfg.RuleFor(folder); r != nil {
+			allowed = r.Accounts
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "path": folder, "trusted": s.trusted(folder), "allowed": allowed})
 }
 
 func (s *Server) trusted(folder string) bool {
@@ -384,14 +396,20 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reg, _ := accounts.Load(s.opt.Paths.Accounts())
+	cfg, _ := config.Load(s.opt.Paths.Config())
+	rule := cfg.RuleFor(folder)
 	args := []string{"run"}
 	if req.Account != "" {
 		if accounts.ValidateID(req.Account) != nil || reg.Get(req.Account) == nil {
 			fail(w, http.StatusBadRequest, "no_account", "no account with this name", "")
 			return
 		}
+		if !rule.Allows(req.Account) {
+			fail(w, http.StatusBadRequest, "rule_account", "this folder's rule does not allow that account", "")
+			return
+		}
 		args = append(args, "--account", req.Account)
-	} else if id := s.idleStart(reg, folder); id != "" {
+	} else if id := s.idleStart(onlyAllowed(reg, rule), folder); id != "" {
 		args = append(args, "--account", id)
 	}
 	var cargs []string // Claude Code's own options, after "--"
@@ -468,6 +486,77 @@ func (s *Server) idleStart(reg accounts.Registry, folder string) string {
 		}
 	}
 	return ""
+}
+
+// onlyAllowed is the registry without the accounts rule does not allow.
+func onlyAllowed(reg accounts.Registry, rule *config.FolderRule) accounts.Registry {
+	if rule == nil {
+		return reg
+	}
+	out := accounts.Registry{Schema: reg.Schema}
+	for _, a := range reg.Accounts {
+		if rule.Allows(a.ID) {
+			out.Accounts = append(out.Accounts, a)
+		}
+	}
+	return out
+}
+
+// apiRuleSet adds or replaces the rule for a folder.
+func (s *Server) apiRuleSet(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Folder   string   `json:"folder"`
+		Accounts []string `json:"accounts"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	folder, problem := checkFolder(req.Folder)
+	if problem != "" {
+		fail(w, http.StatusBadRequest, problem, "choose an existing local folder", "")
+		return
+	}
+	reg, _ := accounts.Load(s.opt.Paths.Accounts())
+	for _, a := range req.Accounts {
+		if reg.Get(a) == nil {
+			fail(w, http.StatusBadRequest, "no_account", "no account with this name", "")
+			return
+		}
+	}
+	if len(req.Accounts) == 0 {
+		fail(w, http.StatusBadRequest, "rule_empty", "choose at least one account", "")
+		return
+	}
+	if _, err := config.Update(s.opt.Paths.Config(), s.opt.Paths.ConfigLock(), func(c *config.Config) error {
+		return c.SetRule(folder, req.Accounts)
+	}); err != nil {
+		fail(w, http.StatusBadRequest, "bad_value", err.Error(), "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// apiRuleRemove drops the rule for a folder.
+func (s *Server) apiRuleRemove(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Folder string `json:"folder"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	removed := false
+	if _, err := config.Update(s.opt.Paths.Config(), s.opt.Paths.ConfigLock(), func(c *config.Config) error {
+		removed = c.RemoveRule(req.Folder)
+		return nil
+	}); err != nil {
+		fail(w, http.StatusInternalServerError, "config", err.Error(), "")
+		return
+	}
+	if !removed {
+		fail(w, http.StatusNotFound, "missing", "there is no rule for that folder", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 // allConfigDirs are every folder conversations live in.
@@ -604,14 +693,121 @@ func (s *Server) apiStop(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if !runIDRx.MatchString(req.RunID) {
+	if !run.ValidID(req.RunID) {
 		fail(w, http.StatusBadRequest, "bad_run", "unknown session", "")
 		return
 	}
 	s.hidden(w, []string{"stop", "--run", req.RunID})
 }
 
-var runIDRx = regexp.MustCompile(`^\d{8}-\d{6}-[0-9a-f]{6}$`)
+// apiFocus brings a running session's window to the front.
+func (s *Server) apiFocus(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		RunID string `json:"run_id"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !run.ValidID(req.RunID) {
+		fail(w, http.StatusBadRequest, "bad_run", "unknown session", "")
+		return
+	}
+	j, err := run.LoadJournal(s.opt.Paths.Run(req.RunID))
+	if err != nil || j.ConsoleWindow == 0 || !supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {
+		fail(w, http.StatusNotFound, "no_window", "the session's window is not open", "")
+		return
+	}
+	if s.opt.Focus == nil {
+		fail(w, http.StatusNotImplemented, "no_focus", "not available", "")
+		return
+	}
+	if err := s.opt.Focus(uintptr(j.ConsoleWindow)); err != nil {
+		fail(w, http.StatusConflict, "focus", err.Error(), "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// cutOff returns the cut-off runs the request names, of those on offer.
+func (s *Server) cutOff(w http.ResponseWriter, r *http.Request) ([]run.Journal, bool) {
+	var req struct {
+		RunIDs []string `json:"run_ids"`
+	}
+	if !readJSON(w, r, &req) {
+		return nil, false
+	}
+	offered := map[string]run.Journal{}
+	for _, j := range s.unfinished(s.cache.journals(s.opt.Paths.RunsDir())) {
+		offered[j.RunID] = j
+	}
+	var out []run.Journal
+	for _, id := range req.RunIDs {
+		j, ok := offered[id]
+		if !ok {
+			fail(w, http.StatusNotFound, "not_cut_off", "that session cannot be reopened", "")
+			return nil, false
+		}
+		out = append(out, j)
+	}
+	return out, true
+}
+
+// apiRestore reopens cut-off sessions, each in its own console window.
+func (s *Server) apiRestore(w http.ResponseWriter, r *http.Request) {
+	if cfg, err := config.Load(s.opt.Paths.Config()); err == nil &&
+		(cfg.SwitchMode == "" || cfg.SwitchMode != config.ModeOff && cfg.RiskAcknowledged < config.DisclosureVersion) {
+		fail(w, http.StatusConflict, "needs_mode", "choose how baton switches accounts first", "")
+		return
+	}
+	cut, ok := s.cutOff(w, r)
+	if !ok {
+		return
+	}
+	for _, j := range cut {
+		if err := s.console("run", j.Cwd, j.Cwd, []string{"run", "--restore", j.RunID}); err != nil {
+			fail(w, http.StatusInternalServerError, "spawn", err.Error(), "")
+			return
+		}
+	}
+	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+}
+
+// apiDismiss stops offering cut-off sessions (they stay in Recent sessions).
+func (s *Server) apiDismiss(w http.ResponseWriter, r *http.Request) {
+	cut, ok := s.cutOff(w, r)
+	if !ok {
+		return
+	}
+	for _, j := range cut {
+		dir := s.opt.Paths.Run(j.RunID)
+		if cur, err := run.LoadJournal(dir); err == nil {
+			cur.Dismissed = true
+			if err := run.SaveJournal(dir, cur); err != nil {
+				fail(w, http.StatusInternalServerError, "dismiss", err.Error(), "")
+				return
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// apiNotifyTest shows a sample notification, so the user sees whether
+// Windows lets baton's through.
+func (s *Server) apiNotifyTest(w http.ResponseWriter, r *http.Request) {
+	if s.opt.TestNotify == nil {
+		fail(w, http.StatusNotImplemented, "no_notify", "not available", "")
+		return
+	}
+	lang := s.opt.Lang
+	if c, err := config.Load(s.opt.Paths.Config()); err == nil && c.GUILanguage != "" {
+		lang = c.GUILanguage
+	}
+	if err := s.opt.TestNotify(lang); err != nil {
+		fail(w, http.StatusInternalServerError, "notify", err.Error(), "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
 
 func (s *Server) apiSwitch(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -621,7 +817,7 @@ func (s *Server) apiSwitch(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
-	if !runIDRx.MatchString(req.RunID) {
+	if !run.ValidID(req.RunID) {
 		fail(w, http.StatusBadRequest, "bad_run", "unknown session", "")
 		return
 	}
@@ -785,7 +981,7 @@ func (s *Server) apiOpen(w http.ResponseWriter, r *http.Request) {
 	case "data":
 		target = s.opt.Paths.Root
 	case "run", "folder":
-		if !runIDRx.MatchString(req.RunID) {
+		if !run.ValidID(req.RunID) {
 			fail(w, http.StatusBadRequest, "bad_run", "unknown session", "")
 			return
 		}

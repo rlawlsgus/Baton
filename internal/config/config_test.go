@@ -56,7 +56,7 @@ func TestSetterAndGet(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	for key, bad := range map[string]string{"on_exhausted": "later", "cooldown_seconds": "0", "share_user_config": "maybe",
-		"gui_language": "fr", "claude_path": `C:\nope\claude.exe`, "nope": "x"} {
+		"gui_language": "fr", "claude_path": `C:\nope\claude.exe`, "notifications": "some", "keep_awake": "yes please", "nope": "x"} {
 		if _, err := Setter(c, key, bad, false); err == nil {
 			t.Errorf("%s=%q accepted", key, bad)
 		}
@@ -68,6 +68,17 @@ func TestSetterAndGet(t *testing.T) {
 	}
 	if v, _ := Defaults().Get("allow_desktop_bundle"); v != "true" {
 		t.Fatalf("bundle default: %s", v)
+	}
+	// Notifications and staying awake are on until turned off.
+	if v, _ := Defaults().Get("notifications"); v != NotifyAll || !Defaults().KeepAwakeOn() {
+		t.Fatalf("defaults: notifications %s, keep awake %v", v, Defaults().KeepAwakeOn())
+	}
+	set, _ = Setter(c, "notifications", " Important ", false)
+	set(&c)
+	set, _ = Setter(c, "keep_awake", "false", false)
+	set(&c)
+	if c.NotifyLevel() != NotifyImportant || c.KeepAwakeOn() || c.Validate() != nil {
+		t.Fatalf("notifications %q, keep awake %v", c.Notifications, c.KeepAwakeOn())
 	}
 	for _, k := range Keys {
 		if _, ok := c.Get(k); !ok {

@@ -23,6 +23,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/envx"
 	"baton/internal/gui"
+	"baton/internal/notify"
 	"baton/internal/update"
 	"baton/internal/webview2"
 	"baton/internal/winui"
@@ -144,6 +145,24 @@ func cmdGUI(args []string) error {
 			quit()
 			return nil
 		},
+		Focus: winui.FocusWindow,
+		TestNotify: func(lang string) error {
+			// Registered here too, so the test works before any session ran.
+			app := ""
+			if self, err := os.Executable(); err == nil {
+				if p := filepath.Join(filepath.Dir(self), appExeName); isFile(p) {
+					app = p
+				}
+			}
+			if err := notify.Prepare(e.paths.Root, app); err != nil {
+				return err
+			}
+			body := "This is how baton's notifications look. Clicking one brings up that session's window."
+			if lang == "ko" {
+				body = "baton 알림은 이렇게 보입니다. 알림을 누르면 그 세션 창이 앞으로 나옵니다."
+			}
+			return notify.Show(notify.Note{Title: "baton", Body: body, Tag: "test", Group: "baton"})
+		},
 		Installed: func() (bool, bool) {
 			self, err := os.Executable()
 			if err != nil {
@@ -239,7 +258,7 @@ func cmdGUI(args []string) error {
 }
 
 const (
-	appUserModelID = "baton.gui"
+	appUserModelID = notify.AppID
 	appIconID      = 1 // resource id of the icon in rsrc_windows_*.syso
 )
 
@@ -432,4 +451,9 @@ func startApp() bool {
 		cmd.Env = append(cmd.Env, "BATON_RUN="+r) // the window refuses inside a session too
 	}
 	return cmd.Start() == nil
+}
+
+func isFile(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }

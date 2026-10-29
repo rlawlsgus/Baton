@@ -74,6 +74,11 @@ func cmdSwitch(args []string) error {
 	if chosen == nil {
 		return errors.New("no running baton session found")
 	}
+	rule := e.cfg.RuleFor(chosen.Cwd)
+	if target != "" && !rule.Allows(target) {
+		return fmt.Errorf(say("the rule for %s lets its sessions use only %s, so this one cannot move to %q (see: baton rules)",
+			"%s 폴더의 규칙은 %s 계정만 허용하므로 이 세션을 %q 계정으로 옮길 수 없습니다"), rule.Folder, strings.Join(rule.Accounts, ", "), target)
+	}
 	switch chosen.State {
 	case run.StateSwitching:
 		return errors.New(say("that session is switching accounts right now; try again in a few seconds",
@@ -94,7 +99,7 @@ func cmdSwitch(args []string) error {
 		if err != nil {
 			return fmt.Errorf("%s is unreadable (%v); fix or delete it", e.paths.State(), err)
 		}
-		if best, _, _ := sched.Pick(e.reg, st, time.Now(), chosen.Account); best == nil {
+		if best, _, _ := sched.Pick(allowedOnly(e.reg, rule), st, time.Now(), chosen.Account); best == nil {
 			return fmt.Errorf(say("no other account is available to switch %q to (see: baton list)",
 				"%q 세션을 옮길 수 있는 다른 계정이 없습니다"), chosen.Account)
 		}
@@ -178,6 +183,17 @@ func cmdStatus(args []string) error {
 	}
 	for _, j := range active {
 		fmt.Printf("run %s  account=%s  state=%s  session=%s\n  cwd: %s\n", j.RunID, j.Account, j.State, orDash(j.SessionID), j.Cwd)
+	}
+	alive := func(j run.Journal) bool { return supervisorAlive(j.SupervisorPID, j.SupervisorCreated) }
+	if cut := run.Unfinished(run.All(e.paths.RunsDir()), alive, time.Now()); len(cut) > 0 {
+		fmt.Println("\nCut off (Windows restarted, or the session stopped unexpectedly); reopen one with: baton run --restore <run>")
+		for _, j := range cut {
+			busy := ""
+			if j.Owed {
+				busy = "  (was working)"
+			}
+			fmt.Printf("run %s  account=%s  ended %s%s\n  cwd: %s\n", j.RunID, j.Account, j.Updated.Local().Format("Jan 2 15:04"), busy, j.Cwd)
+		}
 	}
 	if n := len(st.Switches); n > 0 {
 		fmt.Println("\nRecent switches:")
