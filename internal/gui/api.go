@@ -142,8 +142,9 @@ type nameReq struct {
 func (s *Server) apiAddOrLogin(kind string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
-			Name  string `json:"name"`
-			Email string `json:"email"`
+			Name    string `json:"name"`
+			Email   string `json:"email"`
+			Private bool   `json:"private"` // sign in in an InPrivate window
 		}
 		if !readJSON(w, r, &req) {
 			return
@@ -181,6 +182,9 @@ func (s *Server) apiAddOrLogin(kind string) http.HandlerFunc {
 		_ = os.MkdirAll(jobs, 0o700)
 		resultFile := filepath.Join(jobs, fmt.Sprintf("%s-%d.json", req.Name, time.Now().UnixNano()))
 		args := []string{kind, req.Name, "--result-file", resultFile}
+		if req.Private {
+			args = append(args, "--private")
+		}
 		if req.Email != "" {
 			args = append(args, "--email", req.Email)
 		}

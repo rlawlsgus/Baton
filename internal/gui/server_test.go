@@ -512,10 +512,10 @@ func TestSignInResultAndOneAtATime(t *testing.T) {
 	if code, _ := r.do("POST", "/api/accounts/add", `{"name":"work","email":"-x@y.z"}`, nil); code != http.StatusBadRequest {
 		t.Fatalf("bad email accepted: %d", code)
 	}
-	if code, _ := r.do("POST", "/api/accounts/add", `{"name":"work","email":"me@example.com"}`, nil); code != http.StatusAccepted {
+	if code, _ := r.do("POST", "/api/accounts/add", `{"name":"work","email":"me@example.com","private":true}`, nil); code != http.StatusAccepted {
 		t.Fatalf("add: %d", code)
 	}
-	if got := r.spawn.console[0]; !slices.Contains(got, "--email") || got[len(got)-1] != "me@example.com" {
+	if got := r.spawn.console[0]; !slices.Contains(got, "--private") || !slices.Contains(got, "--email") || got[len(got)-1] != "me@example.com" {
 		t.Fatalf("args %q", got)
 	}
 	// A second sign-in while the first window is open is refused.

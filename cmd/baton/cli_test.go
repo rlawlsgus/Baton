@@ -145,6 +145,25 @@ func TestAddNoLoginMarksNeedsLogin(t *testing.T) {
 	}
 }
 
+func TestPrivateSignInHandsThePageToBaton(t *testing.T) {
+	c := newCLI(t)
+	// Claude Code opens its sign-in page with BROWSER: with --private that is
+	// baton.exe, which opens only Claude sign-in pages (so nothing opens here).
+	refused := "not a Claude sign-in address"
+	browse := []string{"FAKE_BROWSER_URL=https://example.com/oauth/authorize", "BROWSER="}
+	out, code := c.run(browse, "add", "personal", "--private")
+	if code != 0 || !strings.Contains(out, refused) || !strings.Contains(out, "InPrivate window will open") {
+		t.Fatalf("add --private: code %d\n%s", code, out)
+	}
+	if out, code := c.run(browse, "login", "personal"); code != 0 || strings.Contains(out, refused) {
+		t.Fatalf("login without --private used baton as the browser: code %d\n%s", code, out)
+	}
+	// Run as a browser outside a sign-in, baton is just baton.
+	if out, code := c.run(nil, "https://claude.ai/oauth/authorize"); code == 0 || strings.Contains(out, refused) {
+		t.Fatalf("an address without the sign-in's variable: code %d\n%s", code, out)
+	}
+}
+
 func TestBlockedIsClearedByEnable(t *testing.T) {
 	c := newCLI(t)
 	c.run(nil, "add", "a")

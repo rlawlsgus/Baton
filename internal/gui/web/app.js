@@ -123,8 +123,8 @@ const T = {
     add_go: '로그인 창 열기',
     signin_title: '‘{a}’ 로그인 진행 중', signin_close_hint: '로그인 창(검은 창)을 닫으면 로그인이 취소됩니다. 계정은 ‘로그인 안 됨’으로 목록에 남고, ‘다시 로그인’으로 이어서 할 수 있습니다.',
     signin_steps_normal: ['검은 로그인 창과 함께 브라우저에 Claude 로그인 화면이 열립니다.', '로그인하고 2단계 인증을 마칩니다. 이 계정은 이번 한 번만 하면 됩니다.', '끝나면 이 화면에 결과가 나타납니다.'],
-    signin_steps_private: ['평소 브라우저에 열린 Claude 탭은 쓰지 말고 닫으세요 (다른 계정으로 연결됩니다).', '검은 로그인 창에 나온 https://claude… 주소를 마우스로 끌어 선택하고 Ctrl+C로 복사합니다.', '아래 [InPrivate 창에서 열기]를 누르면 그 주소가 InPrivate 창에서 열립니다.', '그 창에서 로그인과 2단계 인증을 마칩니다. 평소 브라우저의 로그인은 그대로입니다.'],
-    open_private: 'InPrivate 창에서 열기', private_opened: 'InPrivate 창을 열었습니다. 그 창에서 로그인하세요.',
+    signin_steps_private: ['Claude 로그인 화면이 InPrivate 창에서 열립니다. 평소 브라우저의 로그인은 그대로입니다.', '그 창에서 로그인과 2단계 인증을 마칩니다. 끝나면 이 화면에 결과가 나타납니다.', '평소 브라우저가 대신 열렸거나(그 탭은 쓰지 말고 닫으세요) InPrivate 창을 닫았다면: 검은 로그인 창의 https://claude… 주소를 마우스로 끌어 선택해 Ctrl+C로 복사하고 아래 버튼을 누르세요.'],
+    open_private: 'InPrivate 창에서 다시 열기', private_opened: 'InPrivate 창을 열었습니다. 그 창에서 로그인하세요.',
     private_no_url: '복사한 주소가 없습니다. 검은 창의 https://claude… 주소를 선택해 Ctrl+C로 복사한 뒤 다시 누르세요.',
     res_ok: '로그인 완료: {e}', res_ok_plan: '로그인 완료: {e} ({p})', res_still_off: '이 계정은 꺼 둔 상태라 아직 사용하지 않습니다. 쓰려면 목록 오른쪽의 ‘사용’ 스위치를 켜세요.',
     res_unfinished: '‘{a}’ 로그인 창이 결과 없이 닫혔습니다. 다시 시도하세요.',
@@ -340,8 +340,8 @@ const T = {
     add_go: 'Open sign-in window',
     signin_title: 'Signing in “{a}”', signin_close_hint: 'Closing the sign-in window (the black one) cancels the sign-in; the account stays in the list as Not signed in, and Sign in again continues it.',
     signin_steps_normal: ['The black sign-in window opens and your browser shows the Claude sign-in page.', 'Sign in and finish two-factor authentication. You do this once for this account.', 'The result appears here when it is done.'],
-    signin_steps_private: ['Do not use the Claude tab your normal browser opened; close it (it would connect another account).', 'In the black sign-in window, select the https://claude… address with the mouse and copy it with Ctrl+C.', 'Press [Open in InPrivate] below: the address opens in an InPrivate window.', 'Sign in and finish two-factor authentication there. Your normal browser stays signed in as before.'],
-    open_private: 'Open in InPrivate', private_opened: 'InPrivate window opened. Sign in there.',
+    signin_steps_private: ['The Claude sign-in page opens in an InPrivate window. Your normal browser stays signed in as before.', 'Sign in and finish two-factor authentication there. The result appears here when it is done.', 'If your normal browser opened instead (do not use that tab; close it), or you closed the InPrivate window: in the black sign-in window, select the https://claude… address with the mouse, copy it with Ctrl+C and press the button below.'],
+    open_private: 'Open in InPrivate again', private_opened: 'InPrivate window opened. Sign in there.',
     private_no_url: 'No address copied yet. Select the https://claude… address in the black window, press Ctrl+C, then press this again.',
     res_ok: 'Signed in: {e}', res_ok_plan: 'Signed in: {e} ({p})', res_still_off: 'This account is turned off, so it is not used yet. Turn on its “Use” switch at the right of the list to use it.',
     res_unfinished: 'The sign-in window for “{a}” closed without a result. Try again.',
@@ -1301,7 +1301,7 @@ function openAdd(prefill) {
     go.disabled = true;
     try {
       const login = prefill && prefill.login;
-      await api(login ? 'accounts/login' : 'accounts/add', { name: v, email: email.value.trim() });
+      await api(login ? 'accounts/login' : 'accounts/add', { name: v, email: email.value.trim(), private: priv.checked });
       S.ui.signinPrivate = priv.checked;
       closeDialog(); S.tab = 'accounts'; S.lastJSON = ''; refresh();
     } catch (e) { err.textContent = errText(e); }

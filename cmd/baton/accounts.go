@@ -20,10 +20,11 @@ import (
 	"baton/internal/run"
 	"baton/internal/share"
 	"baton/internal/usage"
+	"baton/internal/winui"
 )
 
 func cmdAdd(args []string) (err error) {
-	fs := newFlags("add", "baton add <name> [--email <address>] [--priority N] [--no-login]")
+	fs := newFlags("add", "baton add <name> [--email <address>] [--priority N] [--private] [--no-login]")
 	priority := fs.Int("priority", 0, "higher is preferred (default: below existing accounts)")
 	noLogin := fs.Bool("no-login", false, "create the profile without signing in")
 	so := signInFlags(fs)
@@ -90,7 +91,7 @@ func cmdAdd(args []string) (err error) {
 }
 
 func cmdLogin(args []string) (err error) {
-	fs := newFlags("login", "baton login <name> [--email <address>]")
+	fs := newFlags("login", "baton login <name> [--email <address>] [--private]")
 	so := signInFlags(fs)
 	pos, err := parseInterspersed(fs, args)
 	if err != nil {
@@ -121,13 +122,37 @@ func cmdLogin(args []string) (err error) {
 type signInOpts struct {
 	email      string // pre-filled on Claude's sign-in page
 	resultFile string // where the GUI reads the outcome (JSON)
+	private    bool   // open the sign-in page in an InPrivate window
 }
 
 func signInFlags(fs *flag.FlagSet) *signInOpts {
 	o := &signInOpts{}
 	fs.StringVar(&o.email, "email", "", "email address to pre-fill on Claude's sign-in page")
 	fs.StringVar(&o.resultFile, "result-file", "", "write the outcome as JSON to this file (used by the baton window)")
+	fs.BoolVar(&o.private, "private", false, "open the sign-in page in an InPrivate window (when your browser is signed in to another Claude account)")
 	return o
+}
+
+// signInPrivateEnv tells baton.exe, run by Claude Code's sign-in as its
+// browser, to open the sign-in page in an InPrivate window. Its value is the
+// folder for the window's throw-away browser profile.
+const signInPrivateEnv = "BATON_SIGNIN_PRIVATE"
+
+// openSignInPrivate is baton.exe as the browser of a --private sign-in: it
+// opens Claude's sign-in page, and nothing else, in an InPrivate window.
+func openSignInPrivate(arg, tmpRoot string) int {
+	u, ok := winui.SignInURL(arg)
+	if !ok {
+		fmt.Fprintln(os.Stderr, say("baton: that is not a Claude sign-in address, so it was not opened",
+			"baton: Claude 로그인 주소가 아니어서 열지 않았습니다"))
+		return 1
+	}
+	if err := winui.OpenPrivate(u, tmpRoot); err != nil {
+		fmt.Fprintf(os.Stderr, say("baton: could not open an InPrivate window (%v); paste the address shown here into a private window\n",
+			"baton: InPrivate 창을 열지 못했습니다 (%v). 여기 나온 주소를 InPrivate(시크릿) 창에 붙여 넣으세요\n"), err)
+		return 1
+	}
+	return 0
 }
 
 // writeIfMissing gives the baton window an outcome when the command ended
@@ -213,9 +238,22 @@ func signIn(e *env, exe, name string, o signInOpts) (err error) {
 		// a duplicate can never be enabled, so an enabled one is the original.
 		email = a.Email
 	}
-	fmt.Fprintf(os.Stderr, say("Signing in %q with Claude's own login (a browser window will open)...\n",
-		"Claude 공식 로그인으로 %q 계정에 로그인합니다 (브라우저 창이 열립니다)...\n"), name)
-	pe, _ := envx.ForProfile(a.ProfileDir, nil)
+	var extra map[string]string
+	if o.private {
+		// Claude Code opens its sign-in page with the BROWSER command: baton
+		// itself, which opens it in an InPrivate window.
+		self, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		extra = map[string]string{"BROWSER": winui.ShellWord(self), signInPrivateEnv: filepath.Join(e.paths.Root, "tmp")}
+		fmt.Fprintf(os.Stderr, say("Signing in %q with Claude's own login (an InPrivate window will open)...\n",
+			"Claude 공식 로그인으로 %q 계정에 로그인합니다 (InPrivate 창이 열립니다)...\n"), name)
+	} else {
+		fmt.Fprintf(os.Stderr, say("Signing in %q with Claude's own login (a browser window will open)...\n",
+			"Claude 공식 로그인으로 %q 계정에 로그인합니다 (브라우저 창이 열립니다)...\n"), name)
+	}
+	pe, _ := envx.ForProfile(a.ProfileDir, extra)
 	cwd, _ := os.Getwd()
 	loginArgs := []string{"auth", "login"}
 	if email != "" {
@@ -272,7 +310,7 @@ func signIn(e *env, exe, name string, o signInOpts) (err error) {
 	if dup != nil {
 		res.Code, res.DuplicateOf = "duplicate", dup.ID
 		return windowErr(fmt.Errorf("%q signed in as %s, the same Claude account as %q, so it is disabled. "+
-			"Sign out of claude.ai in your browser (or use a private window), then run `baton login %s` again",
+			"Sign out of claude.ai in your browser, or sign in in an InPrivate window: baton login %s --private",
 			name, orDash(a.Email), dup.ID, name))
 	}
 	if x := e.reg.Get(name); x != nil && !x.Enabled {

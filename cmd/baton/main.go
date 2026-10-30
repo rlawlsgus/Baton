@@ -19,13 +19,15 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.6.0-dev"
+var version = "0.6.1-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
 Usage:
-  baton add <name> [--priority N]    log in a new account (opens Claude's sign-in)
-  baton login <name>                 sign an account in again
+  baton add <name> [--priority N] [--private]
+                                     log in a new account (opens Claude's sign-in;
+                                     --private opens it in an InPrivate window)
+  baton login <name> [--private]     sign an account in again
   baton list                         show accounts and their status
   baton enable|disable <name>        include or skip an account (enable also clears "blocked")
   baton remove <name> [--force]      log out and delete an account's profile
@@ -89,6 +91,10 @@ func main() {
 			os.Exit(1)
 		}
 		os.Exit(0)
+	}
+	if dir := os.Getenv(signInPrivateEnv); dir != "" && len(os.Args) == 2 && strings.HasPrefix(os.Args[1], "https://") {
+		// Run by a --private sign-in as its browser, with the page to open.
+		os.Exit(openSignInPrivate(os.Args[1], dir))
 	}
 	if len(os.Args) < 2 {
 		if winui.OwnConsole() {

@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.6.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.6.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -92,8 +92,10 @@ For Claude desktop app users on Windows 10/11.
 3. **Read the notice** and choose how baton switches accounts. *Ask before switching* is
    recommended.
 4. **Add your accounts.** Each one signs in once in your browser. From the second account
-   on, your browser may still be signed in to the first one. If so, sign in in an InPrivate
-   window as the window explains; your normal browser sign-in stays as it is.
+   on, your browser may still be signed in to the first one, so keep *My browser is already
+   signed in to another Claude account* checked (it is, once an account is signed in): the
+   sign-in page then opens in an InPrivate window, and your normal browser sign-in stays as
+   it is.
 5. **Start a session.** Choose a project folder. Claude Code opens in its own window, and
    you work there as usual. You can close the baton window; sessions keep running.
 6. *Optional:* **Help → Install to the Start menu** adds baton to the Start menu, and a
@@ -183,7 +185,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.6.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.6.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -222,7 +224,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.1
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -233,7 +235,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0
 
 ```bash
 baton add personal        # opens Claude's sign-in for this account
-baton add work            # repeat for each account you own
+baton add work --private  # each further account, in an InPrivate window
 baton list
 baton run                 # start Claude Code under baton
 ```
@@ -276,8 +278,8 @@ Claude Code reads every word that follows as one of their values.
 | Command | What it does |
 |---|---|
 | `baton gui` | open the window (the same as opening `baton-app.exe`) |
-| `baton add <name> [--email <address>] [--priority N]` | create an account profile and sign in with Claude's own login (`--email` fills in the sign-in page) |
-| `baton login <name> [--email <address>]` | sign an account in again, for example when `baton list` shows `needs_login`; refuses while a session runs on it |
+| `baton add <name> [--email <address>] [--priority N] [--private]` | create an account profile and sign in with Claude's own login (`--email` fills in the sign-in page; `--private` opens it in an InPrivate window, for when your browser is signed in to another Claude account) |
+| `baton login <name> [--email <address>] [--private]` | sign an account in again, for example when `baton list` shows `needs_login`; refuses while a session runs on it |
 | `baton list` | show accounts, their plan, status (`ok`, `limited until …`, `needs_login`, `blocked`) and last known usage |
 | `baton enable` / `disable <name>` | include or skip an account (`enable` also clears a `blocked` mark) |
 | `baton remove <name>` | log out and delete the profile; its conversations are moved to your own Claude Code first |

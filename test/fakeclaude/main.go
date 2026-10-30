@@ -6,14 +6,19 @@
 //	FAKE_EMAIL       email the next `auth login` signs in as (default: <profile name>@example.com)
 //	FAKE_LOGIN_FAIL  make `auth login` fail (exit 1) and leave any old login in place
 //	FAKE_OLD_CLI     answer --version as an old CLI when run from a .local folder
+//	FAKE_BROWSER_URL have `auth login` open this address with the BROWSER
+//	                 command, as Claude Code opens its sign-in page
 package main
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/windows"
 )
 
 func main() {
@@ -28,6 +33,15 @@ func main() {
 		}
 		fmt.Println("2.1.308 (Claude Code)")
 	case len(args) >= 2 && args[0] == "auth" && args[1] == "login":
+		if u, browser := os.Getenv("FAKE_BROWSER_URL"), os.Getenv("BROWSER"); u != "" && browser != "" {
+			// Claude Code splits BROWSER like a command line and adds the address;
+			// the sign-in goes on whatever the browser command does.
+			if words, err := windows.DecomposeCommandLine(browser); err == nil && len(words) > 0 {
+				cmd := exec.Command(words[0], append(words[1:], u)...)
+				cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
+				_ = cmd.Run()
+			}
+		}
 		if os.Getenv("FAKE_LOGIN_FAIL") != "" {
 			fmt.Fprintln(os.Stderr, "OAuth error: invalid code")
 			os.Exit(1)

@@ -57,6 +57,7 @@ var scrubExact = map[string]bool{
 	"CLAUDE_PROJECT_DIR":                        true,
 	"BATON_RUN":                                 true,
 	"BATON_NEW_CONSOLE":                         true, // must never reach `baton hook`
+	"BATON_SIGNIN_PRIVATE":                      true, // only a sign-in's own browser command
 }
 
 var scrubPrefixes = []string{

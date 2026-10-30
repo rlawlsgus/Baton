@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.6.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.6.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -81,8 +81,9 @@ Windows 10/11의 Claude 데스크톱 앱 사용자 기준입니다.
    있습니다. *추가 정보 → 실행*을 누르세요.
 3. **안내를 읽고** 계정 전환 방식을 고릅니다. *전환 전 확인*을 권장합니다.
 4. **계정을 추가합니다.** 계정마다 브라우저에서 한 번 로그인합니다. 두 번째 계정부터는 브라우저가 첫
-   계정으로 로그인되어 있을 수 있으니, 창의 안내대로 InPrivate 창에서 로그인하세요. 평소 브라우저의
-   로그인은 그대로 둡니다.
+   계정으로 로그인되어 있을 수 있으니 *브라우저가 이미 다른 Claude 계정으로 로그인되어 있어요*를 켜 두세요
+   (계정이 하나라도 로그인되어 있으면 켜져 있습니다). 로그인 화면이 InPrivate 창에서 열리고, 평소
+   브라우저의 로그인은 그대로입니다.
 5. **세션을 시작합니다.** 작업할 폴더를 고르면 Claude Code가 별도의 창에서 열리고, 작업은 그 창에서
    평소처럼 합니다. baton 창을 닫아도 세션은 계속됩니다.
 6. *선택:* **도움말 → 시작 메뉴에 설치**를 누르면 시작 메뉴에서 열 수 있고, 업데이트한 뒤에도 작업
@@ -160,7 +161,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.6.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.6.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -197,7 +198,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.1
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -208,7 +209,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0
 
 ```bash
 baton add personal        # 이 계정의 Claude 로그인 열기
-baton add work            # 내 계정마다 반복
+baton add work --private  # 두 번째 계정부터는 InPrivate 창에서
 baton list
 baton run                 # baton으로 Claude Code 시작
 ```
@@ -249,8 +250,8 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | 명령 | 하는 일 |
 |---|---|
 | `baton gui` | 창 열기 (`baton-app.exe`를 여는 것과 같음) |
-| `baton add <이름> [--email <주소>] [--priority N]` | 계정 프로필을 만들고 Claude 자체 로그인으로 로그인 (`--email`은 로그인 페이지에 미리 채움) |
-| `baton login <이름> [--email <주소>]` | 계정을 다시 로그인. 예를 들어 `baton list`가 `needs_login`을 보일 때. 그 계정에서 세션이 실행 중이면 거절 |
+| `baton add <이름> [--email <주소>] [--priority N] [--private]` | 계정 프로필을 만들고 Claude 자체 로그인으로 로그인 (`--email`은 로그인 페이지에 미리 채움, `--private`는 브라우저가 다른 Claude 계정으로 로그인되어 있을 때 InPrivate 창에서 로그인) |
+| `baton login <이름> [--email <주소>] [--private]` | 계정을 다시 로그인. 예를 들어 `baton list`가 `needs_login`을 보일 때. 그 계정에서 세션이 실행 중이면 거절 |
 | `baton list` | 계정과 요금제, 상태(`ok`, `limited until …`, `needs_login`, `blocked`), 마지막으로 확인한 사용량 보기 |
 | `baton enable` / `disable <이름>` | 계정을 쓰거나 건너뛰기 (`enable`은 `blocked` 표시도 지움) |
 | `baton remove <이름>` | 로그아웃하고 프로필 삭제. 그 계정의 대화는 먼저 평소 Claude Code 폴더로 옮김 |
