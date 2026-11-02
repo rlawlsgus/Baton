@@ -63,6 +63,9 @@ type Config struct {
 	// RemoteControl: sessions started from the window turn on Claude Code's
 	// Remote Control unless the user unticks it (the window's default).
 	RemoteControl bool `json:"remote_control,omitempty"`
+	// Office shows the office tab in the window: Claude's work, live, as
+	// people in an office. Just for fun; off by default.
+	Office bool `json:"office,omitempty"`
 	// RiskAcknowledged is the DisclosureVersion the user last accepted.
 	RiskAcknowledged int `json:"risk_acknowledged,omitempty"`
 	// GUILanguage is the GUI's language: "" (follow Windows), "ko" or "en".

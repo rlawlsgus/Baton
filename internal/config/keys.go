@@ -13,7 +13,7 @@ import (
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
 	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control", "notifications",
-	"keep_awake", "check_updates", "gui_language"}
+	"keep_awake", "office", "check_updates", "gui_language"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
 // first (see DisclosureVersion).
@@ -42,6 +42,8 @@ func (c Config) Get(key string) (string, bool) {
 		return c.NotifyLevel(), true
 	case "keep_awake":
 		return strconv.FormatBool(c.KeepAwakeOn()), true
+	case "office":
+		return strconv.FormatBool(c.Office), true
 	case "claude_path":
 		return c.ClaudePath, true
 	case "allow_desktop_bundle":
@@ -120,6 +122,12 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			return nil, err
 		}
 		return func(c *Config) { c.RemoteControl = b }, nil
+	case "office":
+		b, err := boolean()
+		if err != nil {
+			return nil, err
+		}
+		return func(c *Config) { c.Office = b }, nil
 	case "notifications":
 		v := strings.ToLower(strings.TrimSpace(value))
 		if v != NotifyAll && v != NotifyImportant && v != NotifyOff {

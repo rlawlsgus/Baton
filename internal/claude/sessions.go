@@ -24,7 +24,11 @@ type LiveSession struct {
 	WaitingFor string `json:"waitingFor"`
 	Entrypoint string `json:"entrypoint"` // what runs it: claude-desktop, cli, claude-vscode...
 	StartedAt  int64  `json:"startedAt"`
-	File       string `json:"-"`
+	// Name is the conversation's live title; StatusUpdatedAt is when its
+	// status last changed (Unix ms).
+	Name            string `json:"name"`
+	StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+	File            string `json:"-"`
 }
 
 // ReadSessions lists a profile's registry entries. A file that cannot be read

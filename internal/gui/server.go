@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"baton/internal/app"
+	"baton/internal/office"
 	"baton/internal/update"
 )
 
@@ -73,6 +74,9 @@ type Options struct {
 	// front; TestNotify shows a sample notification in lang.
 	Focus      func(window uintptr) error
 	TestNotify func(lang string) error
+	// OpenApp opens a page of this server in a window of its own (the
+	// office popped out onto another screen).
+	OpenApp func(url string) error
 }
 
 type ClaudeInfo struct {
@@ -113,6 +117,8 @@ type Server struct {
 	claudeBusy bool
 	changes    map[string]*changesEntry // git changes of running sessions, by run id
 	upd        updateState
+	office     *office.Tracker // made when the office is first looked at
+	closed     bool
 }
 
 // page is one load of the page in a window or browser tab. A reload, or a
@@ -169,6 +175,18 @@ func (s *Server) WindowURL() string {
 	s.codes[code] = time.Now().Add(codeTTL)
 	s.mu.Unlock()
 	return s.Origin() + "/?k=" + code
+}
+
+// Close stops what the server does in the background (the office), so
+// polls it holds open end and the server can shut down at once.
+func (s *Server) Close() {
+	s.mu.Lock()
+	s.closed = true
+	tr := s.office
+	s.mu.Unlock()
+	if tr != nil {
+		tr.Close()
+	}
 }
 
 // Idle is how long no page has talked to the server.
@@ -318,6 +336,8 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		"app.js":     "text/javascript; charset=utf-8",
 		"app.css":    "text/css; charset=utf-8",
 		"icon.svg":   "image/svg+xml",
+		"office.js":  "text/javascript; charset=utf-8",
+		"office.css": "text/css; charset=utf-8",
 	}
 	ct, ok := types[name]
 	if !ok {

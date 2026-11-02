@@ -56,7 +56,7 @@ func TestSetterAndGet(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	for key, bad := range map[string]string{"on_exhausted": "later", "cooldown_seconds": "0", "share_user_config": "maybe",
-		"gui_language": "fr", "claude_path": `C:\nope\claude.exe`, "notifications": "some", "keep_awake": "yes please", "nope": "x"} {
+		"gui_language": "fr", "claude_path": `C:\nope\claude.exe`, "notifications": "some", "keep_awake": "yes please", "office": "fun", "nope": "x"} {
 		if _, err := Setter(c, key, bad, false); err == nil {
 			t.Errorf("%s=%q accepted", key, bad)
 		}
@@ -84,5 +84,28 @@ func TestSetterAndGet(t *testing.T) {
 		if _, ok := c.Get(k); !ok {
 			t.Errorf("Get(%q) missing", k)
 		}
+	}
+}
+
+// The office is a toy: off until turned on, and saved like any setting.
+func TestOfficeSetting(t *testing.T) {
+	c := Defaults()
+	if v, ok := c.Get("office"); !ok || v != "false" || c.Office {
+		t.Fatalf("default: %q %v", v, c.Office)
+	}
+	set, err := Setter(c, "office", "true", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set(&c)
+	if v, _ := c.Get("office"); v != "true" || !c.Office || c.Validate() != nil {
+		t.Fatalf("on: %q", v)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	if _, err := Update(path, path+".lock", func(cfg *Config) error { cfg.Office = true; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Load(path); err != nil || !got.Office {
+		t.Fatalf("saved: %+v %v", got, err)
 	}
 }

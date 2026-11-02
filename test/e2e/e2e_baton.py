@@ -4,7 +4,7 @@ No real account is used. Each "account" is a baton profile whose settings.json
 points claude at the mock with a dummy key (apiKeyHelper), exactly like the
 Phase 0 spikes. baton runs inside a ConPTY so claude's TUI has a real console.
 
-    python -I test/e2e/e2e_baton.py <empty run dir> [--baton bin/baton.exe]
+    python -I test/e2e/e2e_baton.py <empty run dir> [--baton bin/baton.exe] [--baton-test bin/baton-test.exe]
 
 Scenarios:
   auto       A hits the limit -> baton switches to B by itself, same session continues
@@ -33,6 +33,9 @@ Scenarios:
   rules      a folder rule keeps the sessions under a folder on the accounts it names
   restore    a session cut off mid-response (as by a power cut) reopens with `baton run --restore`
              and goes on with its task
+  office     the window's office (GET /api/office, from the test build `bin/baton-test.exe`)
+             shows a scripted turn live: rooms per tool, a subagent coming and going, a failing
+             command, then the coffee break
 
 Windows notifications go to a file instead of the screen (BATON_NOTIFY_FILE): auto, confirm,
 exhausted and billing check the ones they would show.
@@ -41,18 +44,23 @@ from __future__ import annotations
 
 import argparse
 import glob
+import http.client
+import itertools
 import json
 import os
+import queue
 import re
 import subprocess
 import sys
+import threading
 import time
+import urllib.parse
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "spikes", "phase0", "harness"))
-from cc import Run, read_jsonl, fwd  # noqa: E402
+from cc import Run, read_jsonl, fwd, wait_until  # noqa: E402
 from conpty import PseudoConsole  # noqa: E402
-from mockapi import MockServer, read_log, write_scenario  # noqa: E402
+from mockapi import Handler, MockServer, _last_user_text, _redact, read_log, write_scenario  # noqa: E402
 
 KEY_A, KEY_B = "sk-mock-A", "sk-mock-B"
 CONTINUE_MARK = "previous session stopped at a usage limit"
@@ -69,9 +77,11 @@ def check(cond: bool, what: str, results: list) -> None:
 
 
 class World:
-    def __init__(self, root: str, baton: str):
+    def __init__(self, root: str, baton: str, baton_test: str | None = None):
         self.run = Run(root)
         self.baton = os.path.abspath(baton)
+        # The window's test build (`gui --no-window`), next to baton.exe unless given.
+        self.baton_test = os.path.abspath(baton_test or os.path.join(os.path.dirname(self.baton), "baton-test.exe"))
         self.home = os.path.join(self.run.root, "baton-home")
         os.makedirs(self.home, exist_ok=True)
         self.scen = os.path.join(self.run.root, "scenario.json")
@@ -79,6 +89,8 @@ class World:
         write_scenario(self.scen, {KEY_A: {"mode": "echo"}, KEY_B: {"mode": "echo"}})
         self.mock_log = os.path.join(self.run.logs, "mock.jsonl")
         self.srv = MockServer(self.mock_log, self.scen)
+        # Every other mode is the harness's own; "office" is scripted in this file.
+        self.srv.httpd.RequestHandlerClass = type("BoundOfficeHandler", (OfficeHandler,), {"state": self.srv.state})
         self.srv.start()
         prof = os.path.join(self.home, "profiles")
         # acct-a trusts the project; acct-b has never seen it, so baton must
@@ -184,12 +196,17 @@ class World:
     def events(self, run_dir: str) -> list[dict]:
         return read_jsonl(os.path.join(run_dir, "events.jsonl"))
 
-    def wait_session_starts(self, n: int, timeout: float) -> str | None:
-        """Wait until the newest run has n SessionStart events; return its dir."""
+    def run_dirs(self) -> set[str]:
+        return set(glob.glob(os.path.join(self.home, "runs", "*")))
+
+    def wait_session_starts(self, n: int, timeout: float, old: set[str] | None = None) -> str | None:
+        """Wait until the newest run has n SessionStart events; return its dir.
+        old: run dirs from before the session was started, never the answer
+        (baton makes the new run's dir a moment after it starts)."""
         deadline = time.time() + timeout
         while time.time() < deadline:
             d = self.newest_run_dir()
-            if d and sum(1 for e in self.events(d) if e.get("event") == "SessionStart") >= n:
+            if d and d not in (old or set()) and sum(1 for e in self.events(d) if e.get("event") == "SessionStart") >= n:
                 return d
             time.sleep(0.2)
         return None
@@ -1192,15 +1209,510 @@ def scenario_restore(w: World, res: list) -> dict:
     return {}
 
 
+# ---- the office: a scripted turn, watched through the window's office API -----------
+
+OFFICE_GO, OFFICE_SUB, OFFICE_DONE = "OFFICE-GO", "OFFICE-SUB", "OFFICE-DONE"
+_office_ids = itertools.count(1)
+
+
+def office_script(sc: dict, who: str, offered: list[str]) -> list[dict]:
+    """The replies of the mock's "office" mode, one per request: a tool call
+    (tool + input) or a text. "delay" holds a reply back, so a step lasts long
+    enough for the office to show it; "thinking" puts a thinking block first;
+    "wake" answers the subagent's task notification. sc["thinking"] (text) and
+    sc["ask"] (a question the test answers) add the optional steps."""
+    readme = os.path.join(sc["proj"], "README.md")
+    if who == "sub":
+        # Subagents of the desktop app hand their report back with a tool; the
+        # CLI's Explore agent has none, and its last text is the report.
+        last = ({"tool": "SubagentHandback", "input": {"message": OFFICE_SUB + "-DONE"}, "delay": 1.5}
+                if "SubagentHandback" in offered else {"text": OFFICE_SUB + "-DONE", "delay": 1.5})
+        return [{"tool": "Read", "input": {"file_path": readme}, "delay": 1.5}, last, {"text": OFFICE_SUB + "-DONE"}]
+    woken = [{"tool": "Bash", "input": {"command": "exit 3", "description": "Fail on purpose"}}]
+    if sc.get("ask"):
+        woken.insert(0, {"tool": "AskUserQuestion", "input": {"questions": [{
+            "question": "Which room should I go to next?", "header": "Next room", "multiSelect": False,
+            "options": [{"label": "Server room", "description": "Run the last command"},
+                        {"label": "Lounge", "description": "Take a break"}]}]}})
+    woken[0]["wake"] = True
+    return [
+        {"tool": "Read", "input": {"file_path": readme}, "thinking": sc.get("thinking")},
+        # ping, not sleep: Claude Code refuses a command that starts with `sleep 2`.
+        {"tool": "Bash", "input": {"command": "ping -n 3 127.0.0.1 > /dev/null; echo OFFICE-CMD",
+                                   "description": "Wait two seconds"}},
+        {"tool": "Grep", "input": {"pattern": "Phase", "path": sc["proj"]}},
+        {"tool": "Agent", "input": {"description": "office helper", "prompt": OFFICE_SUB + " read the readme",
+                                    "subagent_type": "Explore"}},
+        # Claude Code runs the subagent in the background: the Agent call is
+        # answered at once ("launched"), so Claude ends its turn until the
+        # subagent's task notification wakes it.
+        {"text": "Waiting for the helper."},
+        *woken,
+        {"text": OFFICE_DONE},
+    ]
+
+
+def _last_tool_result(body: dict) -> dict | None:
+    for m in reversed(body.get("messages") or []):
+        if m.get("role") != "user":
+            continue
+        found = [b for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+                 if isinstance(b, dict) and b.get("type") == "tool_result"]
+        return found[-1] if found else None
+    return None
+
+
+class OfficeHandler(Handler):
+    """The mock with one more mode, "office": Claude goes through office_script.
+    The mock keeps no state. Each tool call's id carries its step
+    (toolu_office_<main|sub>_<step>_<n>), so the tool_result that comes back
+    says which step is next, and a task notification naming the Agent call's
+    id gets the "wake" step; the main script starts on a prompt with OFFICE-GO.
+    A subagent's requests are told apart by their first message, the prompt
+    the Agent call gave it. Requests without tools (the title) get the echo."""
+
+    def _messages(self, account, body):
+        sc = self.state.scenario_for(account)
+        offered = [t.get("name") for t in (body.get("tools") or []) if isinstance(t, dict)]
+        if sc.get("mode") != "office" or not offered:
+            return super()._messages(account, body)
+        msgs = body.get("messages") or []
+        who = "sub" if msgs and OFFICE_SUB in json.dumps(msgs[0].get("content"), ensure_ascii=False) else "main"
+        script = office_script(sc, who, offered)
+        user_text, has_tr = _last_user_text(body)
+        result = _last_tool_result(body) or {}
+        m = re.match(r"toolu_office_(main|sub)_(\d+)_", result.get("tool_use_id") or "")
+        last_user = next((json.dumps(x.get("content"), ensure_ascii=False) for x in reversed(msgs) if x.get("role") == "user"), "")
+        if m:
+            step = int(m.group(2)) + 1
+        elif who == "main" and re.search(r"task-notification.*toolu_office_main_\d+_", last_user, re.S):
+            step = next(i for i, s in enumerate(script) if s.get("wake"))
+        elif who == "sub" or OFFICE_GO.lower() in user_text.lower():
+            step = 0
+        else:
+            return super()._messages(account, body)  # e.g. a prompt after the script
+        reply = script[step] if step < len(script) else {"text": "OFFICE-END"}
+        n, _ = self.state.next_n(account)
+        tool_id = f"toolu_office_{who}_{step}_{next(_office_ids)}"
+        self.state.log({
+            "ts": time.time(), "n": n, "method": "POST", "path": self.path, "account": _redact(account),
+            "mode": "office", "model": body.get("model"), "stream": bool(body.get("stream")), "main_loop": True,
+            "n_messages": len(msgs), "n_tools": len(offered), "has_tool_result": has_tr,
+            "user_text": " ".join(user_text.split())[:200], "status": 200, "office_step": f"{who}:{step}",
+            "result_of": result.get("tool_use_id"), "result_error": result.get("is_error"),
+            "reply": "tool_use" if "tool" in reply else "text", "tool": reply.get("tool"),
+            "text": reply.get("text"), "offered": offered,
+        })
+        blocks = []
+        if reply.get("thinking"):
+            blocks.append({"type": "thinking", "thinking": reply["thinking"], "signature": "mock-signature"})
+        if "tool" in reply:
+            blocks.append({"type": "tool_use", "id": tool_id, "name": reply["tool"], "input": reply["input"]})
+        else:
+            blocks.append({"type": "text", "text": reply["text"]})
+        self._blocks(body.get("model") or "claude-mock", bool(body.get("stream")), blocks,
+                     "tool_use" if "tool" in reply else "end_turn", float(reply.get("delay") or 0))
+
+    def _blocks(self, model: str, stream: bool, blocks: list[dict], stop: str, delay: float) -> None:
+        """One reply of several content blocks (the harness's _reply sends one)."""
+        msg_id = f"msg_office_{next(_office_ids)}"
+        usage = {"input_tokens": 12, "output_tokens": 1, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        if not stream:
+            time.sleep(delay)
+            self._send_json(200, {"id": msg_id, "type": "message", "role": "assistant", "model": model,
+                                  "content": blocks, "stop_reason": stop, "stop_sequence": None,
+                                  "usage": {**usage, "output_tokens": 20}})
+            return
+        try:
+            self._sse_start()
+            self._event("message_start", {"type": "message_start", "message": {
+                "id": msg_id, "type": "message", "role": "assistant", "model": model,
+                "content": [], "stop_reason": None, "stop_sequence": None, "usage": usage}})
+            time.sleep(delay)
+            for i, b in enumerate(blocks):
+                if b["type"] == "thinking":
+                    start = {"type": "thinking", "thinking": "", "signature": ""}
+                    deltas = [{"type": "thinking_delta", "thinking": b["thinking"]},
+                              {"type": "signature_delta", "signature": b["signature"]}]
+                elif b["type"] == "tool_use":
+                    start = {**b, "input": {}}
+                    deltas = [{"type": "input_json_delta", "partial_json": json.dumps(b["input"])}]
+                else:
+                    start = {"type": "text", "text": ""}
+                    deltas = [{"type": "text_delta", "text": b["text"]}]
+                self._event("content_block_start", {"type": "content_block_start", "index": i, "content_block": start})
+                for d in deltas:
+                    self._event("content_block_delta", {"type": "content_block_delta", "index": i, "delta": d})
+                self._event("content_block_stop", {"type": "content_block_stop", "index": i})
+            self._event("message_delta", {"type": "message_delta", "delta": {"stop_reason": stop, "stop_sequence": None},
+                                          "usage": {"output_tokens": 20}})
+            self._event("message_stop", {"type": "message_stop"})
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.state.log({"ts": time.time(), "event": "client_disconnected_mid_stream", "msg": msg_id})
+
+
+class BatonWindow:
+    """The baton window's server, from the test build: `gui --no-window` serves
+    the page and prints its address instead of opening a window. Calls go in
+    as the page makes them: the address's one-time code buys a session token,
+    and every API call carries it with a page id and a request number."""
+
+    def __init__(self, w: World):
+        if not os.path.isfile(w.baton_test):
+            raise Fail(f"no test build at {w.baton_test}: go build -tags batontest -o {w.baton_test} ./cmd/baton")
+        self.err = open(os.path.join(w.run.logs, "office-gui.log"), "wb")
+        self.proc = subprocess.Popen([w.baton_test, "gui", "--no-window"], env=w.env(), cwd=w.run.root,
+                                     stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=self.err)
+        lines: queue.Queue = queue.Queue()
+        threading.Thread(target=lambda: [lines.put(line) for line in self.proc.stdout], daemon=True).start()
+        self.page, self.seq, self.token = os.urandom(8).hex(), itertools.count(1), ""
+        try:
+            url = urllib.parse.urlsplit(lines.get(timeout=30).decode("utf-8", "replace").strip())
+            self.port, code = url.port, urllib.parse.parse_qs(url.query)["k"][0]
+        except (queue.Empty, KeyError, ValueError):
+            self.close()
+            raise Fail("office: the window's server printed no address (one GUI per BATON_HOME: is another running?)")
+        status, body = self.call("POST", "session", {"code": code})
+        if status != 200 or not body.get("token"):
+            self.close()
+            raise Fail(f"office: the one-time code was not taken ({status} {body})")
+        self.token = body["token"]
+
+    def call(self, method: str, path: str, body: dict | None = None, timeout: float = 20) -> tuple[int, dict]:
+        headers = {"X-Baton-Page": self.page, "X-Baton-Seq": str(next(self.seq))}
+        if self.token:
+            headers["X-Baton-Token"] = self.token
+        data = None
+        if body is not None:
+            data, headers["Content-Type"] = json.dumps(body).encode("utf-8"), "application/json"
+        # http.client sends Host: 127.0.0.1:<port>, the only host the server answers.
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=timeout)
+        try:
+            conn.request(method, "/api/" + path, body=data, headers=headers)
+            r = conn.getresponse()
+            raw = r.read()
+        finally:
+            conn.close()
+        try:
+            return r.status, (json.loads(raw) if raw else {})
+        except ValueError:
+            return r.status, {"raw": raw[:200].decode("utf-8", "replace")}
+
+    def close(self) -> None:
+        """Say bye as a closing page does; the server then ends by itself (3 s
+        later). Otherwise end it, and the hidden commands it started, by pid."""
+        if getattr(self, "token", "") and self.proc.poll() is None:
+            try:
+                self.call("POST", "bye", {}, timeout=5)
+            except OSError:
+                pass
+        try:
+            self.proc.wait(10)
+        except subprocess.TimeoutExpired:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(self.proc.pid)], capture_output=True)
+            self.proc.wait(5)
+        self.err.close()
+
+
+class OfficeWatch(threading.Thread):
+    """Long-polls GET /api/office for one session as the office page does, and
+    keeps every event it is sent (by seq) and the newest answer. It stops when
+    done(events) says the story is complete, at its deadline, or when the
+    server answers 404 office_off."""
+
+    def __init__(self, win: BatonWindow, session: str, log_path: str, done, timeout: float):
+        super().__init__(daemon=True, name="office-watch")
+        self.win, self.session, self.log_path, self.done = win, session, log_path, done
+        self.deadline = time.time() + timeout
+        self.lock = threading.Lock()
+        self.by_seq: dict[int, dict] = {}
+        self.last: dict | None = None
+        self.off: dict | None = None
+        self.answers, self.resets, self.errors, self.times = 0, 0, [], []
+
+    def events(self) -> list[dict]:
+        with self.lock:
+            return [self.by_seq[k] for k in sorted(self.by_seq)]
+
+    def run(self) -> None:
+        since = 0
+        with open(self.log_path, "a", encoding="utf-8") as log:
+            while time.time() < self.deadline:
+                q = urllib.parse.urlencode({"session": self.session, "since": since, "wait": 1})
+                try:
+                    status, body = self.win.call("GET", "office?" + q, timeout=30)
+                except OSError as e:
+                    status, body = 0, {"error": repr(e)}
+                view = body.get("view") or {}
+                log.write(json.dumps({"t": round(time.time(), 3), "since": since, "status": status,
+                                      "code": body.get("code"), "seq": body.get("seq"), "reset": body.get("reset"),
+                                      "events": body.get("events"), "view": {k: v for k, v in view.items() if k != "actors"},
+                                      "actors": view.get("actors"),
+                                      "floors": [(f.get("floor"), f.get("path")) for f in (body.get("building") or {}).get("floors") or []]},
+                                     ensure_ascii=False) + "\n")
+                log.flush()
+                if status == 404 and body.get("code") == "office_off":
+                    self.off = body
+                    return
+                if status != 200:
+                    self.errors.append(f"{status} {body}"[:200])
+                    time.sleep(0.5)
+                    continue
+                with self.lock:
+                    self.last = body
+                    self.answers += 1
+                    self.times.append(time.time())
+                    self.resets += bool(body.get("reset"))
+                    for e in body.get("events") or []:
+                        self.by_seq.setdefault(e.get("seq"), e)
+                since = max(since, int(body.get("seq") or 0))
+                if self.done(self.events()):
+                    return
+
+
+def office_story(events: list[dict], sc: dict) -> dict:
+    """Finds the scripted turn (office_script with sc) in the office's events:
+    the steps below in this order (others may come between), the subagent's
+    report or leaving after its Read, Claude's closing words after the
+    failure, the Agent call, the thinking and the wait for the user's answer."""
+    def ev(kind: str, actor: str | None = None, **want):
+        def pred(e: dict) -> bool:
+            if e.get("kind") != kind or any(e.get(k) != v for k, v in want.items()):
+                return False
+            return (actor is None or (actor == "main" and e.get("actor") == "main")
+                    or (actor == "agent" and e.get("actor") not in (None, "", "main", "me")))
+        return pred
+
+    steps = [
+        ("Claude reads in the library", ev("tool", "main", tool="Read", room="library")),
+        ("Claude runs a command in the server room", ev("tool", "main", tool="Bash", room="server")),
+        ("Claude searches in the library", ev("tool", "main", tool="Grep", room="library")),
+        ("an Explore subagent is hired at the elevator", ev("hire", type="Explore", room="elevator")),
+        ("the subagent reads in the library", ev("tool", "agent", tool="Read", room="library")),
+        ("Claude runs the failing command in the server room", ev("tool", "main", tool="Bash", room="server")),
+        ("the command fails", ev("fail", "main")),
+        ("Claude goes idle", ev("idle", "main")),
+    ]
+    if sc.get("ask"):
+        steps.insert(5, ("Claude comes to my desk to ask", ev("tool", "main", tool="AskUserQuestion", room="desk")))
+    out: dict = {"found": {}, "missing": None}
+    i = 0
+    for label, pred in steps:
+        while i < len(events) and not pred(events[i]):
+            i += 1
+        if i == len(events):
+            out["missing"] = label
+            break
+        out["found"][label] = (i, events[i])
+        i += 1
+    after = lambda label: out["found"][label][0] if label in out["found"] else len(events)  # noqa: E731
+    sub = out["found"].get("the subagent reads in the library")
+    out["report"] = next((e for e in events[after("the subagent reads in the library"):]
+                          if sub and e.get("kind") in ("report", "leave") and e.get("actor") == sub[1].get("actor")), None)
+    out["say"] = next((e for e in events[after("the command fails"):]
+                       if e.get("kind") == "say" and e.get("actor") == "main" and OFFICE_DONE in (e.get("detail") or "")), None)
+    out["agent_tool"] = next((e for e in events[after("Claude searches in the library"):]
+                              if e.get("kind") == "tool" and e.get("actor") == "main" and e.get("tool") == "Agent"), None)
+    out["think"] = next((e for e in events[:after("Claude reads in the library")] if e.get("kind") == "think"
+                         and e.get("actor") == "main" and sc.get("thinking") and sc["thinking"] in (e.get("detail") or "")), None)
+    # The registry's "waiting" is read about once a second, so the ask event
+    # may come just before or after the tool's own event.
+    out["ask"] = next((e for e in events[after("the subagent reads in the library"):after("the command fails")]
+                       if e.get("kind") == "ask" and e.get("actor") == "main"), None)
+    out["complete"] = (out["missing"] is None and out["report"] is not None and out["say"] is not None
+                       and (out["ask"] is not None or not sc.get("ask")))
+    return out
+
+
+def short_events(events: list[dict]) -> str:
+    def one(e: dict) -> str:
+        actor = e.get("actor") or "?"
+        return ":".join(str(x) for x in ("main" if actor == "main" else actor[:6], e.get("kind"), e.get("tool") or e.get("type"),
+                                         e.get("room")) if x)
+    return " ".join(one(e) for e in events)[-1500:]
+
+
+def tool_uses(path: str) -> list[dict]:
+    return [b for r in read_jsonl(path) if r.get("type") == "assistant"
+            for b in ((r.get("message") or {}).get("content") or []) if isinstance(b, dict) and b.get("type") == "tool_use"]
+
+
+def tool_results(path: str) -> dict[str, dict]:
+    return {b.get("tool_use_id"): b for r in read_jsonl(path) if r.get("type") == "user"
+            for b in ((r.get("message") or {}).get("content") or []) if isinstance(b, dict) and b.get("type") == "tool_result"}
+
+
+def office_checks(w: World, res: list, watch: OfficeWatch, sc: dict, sid: str, run_id: str) -> dict:
+    """The office API's side of scenario_office, from what the watch collected."""
+    # The most answers within one second: a long-poll answers on news (the
+    # office ticks every 250 ms) or after 15 s, never in a tight loop.
+    busiest = max((sum(1 for u in watch.times if t <= u < t + 1) for t in watch.times), default=0)
+    out = {"office_api": "checked", "office_answers": watch.answers, "office_resets": watch.resets,
+           "office_busiest_second": busiest, "office_errors": watch.errors[:5]}
+    check(watch.off is None, f"office: the window's server answers while office is on ({watch.off})", res)
+    evs = watch.events()
+    story = office_story(evs, sc)
+    view = (watch.last or {}).get("view") or {}
+    check(view.get("id") == sid and view.get("run_id") == run_id and view.get("source") == "baton"
+          and view.get("account") == "acct-a",
+          "office: the view is this baton session on acct-a "
+          f"(id={view.get('id')}, run_id={view.get('run_id')}, source={view.get('source')}, account={view.get('account')})", res)
+    floors = ((watch.last or {}).get("building") or {}).get("floors") or []
+    paths = [os.path.normcase(os.path.normpath(f.get("path") or "")) for f in floors]
+    check(os.path.normcase(os.path.normpath(w.run.proj)) in paths,
+          f"office: the project is a floor ({[(f.get('floor'), f.get('name')) for f in floors]})", res)
+    check(story["missing"] is None,
+          f"office: the turn's events come in order, in their rooms (missing: {story['missing']}; "
+          f"events: {short_events(evs)})", res)
+    fail_ev = story["found"]["the command fails"][1]
+    check("Exit code 3" in (fail_ev.get("detail") or ""), f"office: the failure says why ({fail_ev.get('detail')!r})", res)
+    found = {k: v[1].get("detail") for k, v in story["found"].items()}
+    # Details are short and name files by their base name (never contents, full commands or paths).
+    long = [e.get("detail") for e in evs if len(e.get("detail") or "") > 160
+            or os.path.normcase(w.run.root) in os.path.normcase(e.get("detail") or "")]
+    check(found["Claude reads in the library"] == "README.md" and found["Claude searches in the library"] == "Phase"
+          and found["Claude runs a command in the server room"] == "Wait two seconds" and not long,
+          f"office: tool details are short, with file base names only ({found}; too long or with paths: {long[:3]})", res)
+    check(story["report"] is not None, f"office: the subagent reports or leaves ({short_events(evs)})", res)
+    check(story["say"] is not None, "office: Claude's closing words are said after the failure", res)
+    check(story["agent_tool"] is not None and story["agent_tool"].get("room") == "seat",
+          f"office: Claude phones the subagent from its seat ({story['agent_tool']})", res)
+    if sc.get("thinking"):
+        check(story["think"] is not None, f"office: Claude's thought shows before it reads ({short_events(evs[:8])})", res)
+    if sc.get("ask"):
+        check(story["ask"] is not None, "office: Claude waits for the user's answer (an ask event)", res)
+    out["office_events"] = len(evs)
+    check(busiest <= 10, f"office: the long-poll waits for news ({busiest} answers in the busiest second, "
+                         f"{watch.answers} in all, {watch.resets} resets)", res)
+    return out
+
+
+def scenario_office(w: World, res: list) -> dict:
+    """The office (`office` on in Settings) shows Claude's work live. The mock
+    walks Claude through a thought, Read, a two-second Bash, Grep, an Explore
+    subagent (which reads too; Claude waits for it), a question the test
+    answers, a Bash that fails (exit 3) and a closing text. The window's server
+    (the test build) is long-polled for the session's office events, which
+    must tell that story in order and in the right rooms, as a baton session
+    on acct-a. The transcript is checked first, so a failure says whether
+    Claude Code or baton went wrong."""
+    t0 = time.time()
+    sc = {"mode": "office", "proj": w.run.proj, "thinking": "Looking around the office", "ask": True}
+    script = office_script(sc, "main", [])
+    accounts_json = os.path.join(w.home, "accounts.json")
+    # The window checks every account's sign-in when it starts, and rewrites accounts.json.
+    with keep_file(w.a.settings_json), keep_file(accounts_json):
+        with open(w.a.settings_json, encoding="utf-8") as f:
+            s = json.load(f)
+        s["skipDangerousModePermissionPrompt"] = True  # bypass mode: no permission dialogs
+        with open(w.a.settings_json, "w", encoding="utf-8") as f:
+            json.dump(s, f)
+        w.reset_state()
+        write_scenario(w.scen, {KEY_A: sc, KEY_B: {"mode": "echo"}})
+        w.config(switch_mode="auto", on_exhausted="stop", office=True)
+        win, watch, pc = BatonWindow(w), None, None
+        try:
+            status, st = win.call("GET", "state")
+            check(status == 200 and (st.get("config") or {}).get("office") is True,
+                  f"office: the window's state has the office on ({status})", res)
+            deadline = time.time() + 90
+            while st.get("checking") and time.time() < deadline:  # let its sign-in check finish first
+                time.sleep(0.5)
+                st = win.call("GET", "state")[1]
+            old_runs = w.run_dirs()
+            pc = w.start("office", ["--account", "acct-a", "--", "--dangerously-skip-permissions"])
+            run_dir = w.wait_session_starts(1, 60, old=old_runs)
+            if not run_dir:
+                raise Fail("office: no SessionStart")
+            run_id = os.path.basename(run_dir)
+            sid = [e for e in w.events(run_dir) if e.get("event") == "SessionStart"][-1]["payload"]["session_id"]
+            watch = OfficeWatch(win, sid, os.path.join(w.run.logs, "office-poll.jsonl"),
+                                lambda evs: office_story(evs, sc)["complete"], 240)
+            watch.start()
+            time.sleep(3.0)  # TUI is ready ~2-3 s after SessionStart
+            t_go = time.time()
+            submit(w, pc, OFFICE_GO + " tour the office")
+            ask = next((i for i, s in enumerate(script) if s.get("tool") == "AskUserQuestion"), None)
+            if ask is not None:
+                check(w.wait_mock(lambda r: r.get("office_step") == f"main:{ask}", 90) is not None,
+                      "office: Claude asks a question once the subagent is done", res)
+                waiting = wait_until(lambda: next((e.get("waitingFor") or "?" for e in w.a.sessions()
+                                                   if e.get("sessionId") == sid and e.get("status") == "waiting"), None), 20)
+                check(bool(waiting), f"office: claude says it waits for the user ({waiting!r})", res)
+                time.sleep(2.5)  # the office reads that about once a second
+                mark = len(w.mock_rows())
+                for _ in range(3):
+                    pc.send("\r")  # the first answer is highlighted
+                    if w.wait_mock(lambda r: r.get("office_step") == f"main:{ask + 1}", 8, since=mark):
+                        break
+            done = w.wait_mock(lambda r: r.get("office_step") == f"main:{len(script) - 1}", 120)
+            check(done is not None, "office: Claude goes through the whole script to " + OFFICE_DONE, res)
+            turn_secs = round(time.time() - t_go, 1)
+            turns, deadline = sum(1 for s in script if "text" in s), time.time() + 30
+            while time.time() < deadline and sum(1 for e in w.events(run_dir) if e.get("event") == "Stop") < turns:
+                time.sleep(0.3)
+            t_done = time.time()
+            watch.join(30)  # the office may lag the transcript by a moment
+            watch.deadline = 0
+            watch.join(35)
+            office_lag = round(time.time() - t_done, 1)
+
+            # What Claude Code did, from its own transcript.
+            journal = json.load(open(os.path.join(run_dir, "run.json"), encoding="utf-8"))
+            calls = tool_uses(journal["transcript_path"])
+            names = [c.get("name") for c in calls]
+            check(names == [s["tool"] for s in script if "tool" in s],
+                  f"office: claude made the scripted tool calls in order ({names})", res)
+            results = tool_results(journal["transcript_path"])
+            last = results.get(calls[-1].get("id")) or {}
+            check(last.get("is_error") is True and "Exit code 3" in json.dumps(last.get("content")),
+                  f"office: claude reports the last Bash as failed ({str(last.get('content'))[:80]!r})", res)
+            check(all(results.get(c.get("id"), {}).get("is_error") is not True for c in calls[:-1]),
+                  "office: claude reports the other tool calls as done", res)
+            if ask is not None:
+                said = json.dumps(results.get(calls[names.index("AskUserQuestion")].get("id"), {}).get("content"))
+                check("Server room" in said, f"office: the question was answered with the first choice ({said[:100]})", res)
+            thinking = [b for r in read_jsonl(journal["transcript_path"]) if r.get("type") == "assistant"
+                        for b in (r.get("message") or {}).get("content") or [] if b.get("type") == "thinking"]
+            check(any(b.get("thinking") == sc["thinking"] for b in thinking),
+                  f"office: claude keeps the mock's thinking block ({len(thinking)} blocks)", res)
+            subs = glob.glob(os.path.join(w.home, "profiles", "*", "projects", "*", sid, "subagents", "agent-*.jsonl"))
+            sub_names = [c.get("name") for c in tool_uses(subs[0])] if len(subs) == 1 else []
+            check(len(subs) == 1 and sub_names[:1] == ["Read"],
+                  f"office: claude ran one subagent, and it read ({len(subs)} files, {sub_names})", res)
+            with open(subs[0][:-len(".jsonl")] + ".meta.json", encoding="utf-8") as f:
+                meta = json.load(f)
+            check(meta.get("agentType") == "Explore" and meta.get("toolUseId") == calls[names.index("Agent")].get("id"),
+                  f"office: the subagent is the Agent call's Explore agent ({meta.get('agentType')})", res)
+            check(meta.get("finished") is True, "office: claude marks the subagent finished in its meta file", res)
+
+            # What the office made of it.
+            office = office_checks(w, res, watch, sc, sid, run_id)
+            office["office_lag_after_turn_seconds"] = office_lag
+            time.sleep(1.0)
+            check(quit_claude(pc) == 0, "office: baton exits 0", res)
+        finally:
+            if watch is not None:
+                watch.deadline = 0
+                watch.join(35)
+            if pc is not None:
+                pc.close()
+            win.close()
+            w.config(office=False)
+    return {"session": sid, "run_id": run_id, "turn_seconds": turn_secs, "scenario_seconds": round(time.time() - t0, 1),
+            "tool_calls": names, "subagent_tool_calls": sub_names, "gui": w.baton_test, **office}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
     ap.add_argument("--baton", default=os.path.join(REPO, "bin", "baton.exe"))
+    ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "rules,restore")
+                                      "rules,restore,office")
     a = ap.parse_args()
-    w = World(a.root, a.baton)
+    w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}
     ok_all = True
     for name in a.only.split(","):

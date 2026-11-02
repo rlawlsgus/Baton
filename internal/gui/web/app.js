@@ -4,7 +4,7 @@
 
 const T = {
   ko: {
-    tab_sessions: '세션', tab_accounts: '계정', tab_settings: '설정', tab_help: '도움말',
+    tab_sessions: '세션', tab_accounts: '계정', tab_settings: '설정', tab_help: '도움말', tab_office: '사무실',
     claude_desktop: 'Claude 데스크톱 앱의 Claude Code {v}', claude_cli: 'Claude Code {v}', claude_checking: 'Claude Code 확인 중…',
     claude_missing: 'Claude Code 없음',
     mode_auto: '자동 전환', mode_confirm: '전환 전 확인', mode_off: '자동 전환 꺼짐', mode_unset: '전환 방식 미설정',
@@ -206,6 +206,37 @@ const T = {
     upd_err_windows: 'baton이 연 창(세션 창이나 로그인 창)이 아직 열려 있습니다. 그 창들을 닫은 뒤 업데이트하세요.',
     upd_banner: 'baton {v}이(가) 나왔습니다.', upd_banner_go: '자세히', set_upd: 'baton을 열 때 새 버전이 있는지 확인 (GitHub)',
     uninstall_go: '제거…', uninstall_confirm: '이 창이 닫히고, 제거 창에서 한 번 더 확인합니다. 실행 중인 세션이 있으면 먼저 끝내세요.', uninstall_ok: '제거 창 열기',
+    // office
+    office_set: '사무실 보기 (재미 기능)',
+    office_set_hint: '이 PC의 Claude Code 대화를 사무실에서 일하는 사람들로 보여 줍니다. 사무실 탭이 생기고, 따로 띄워 다른 모니터에 둘 수도 있습니다. 대화 기록을 읽기만 하고 아무것도 바꾸지 않습니다.',
+    office_window_title: 'baton 사무실', office_floor_guide: '층별 안내', office_follow: '최근 세션 자동으로 따라가기', office_no_floors: '아직 층이 없습니다.',
+    office_floor_sessions: '세션 {n}개', office_floor_session1: '세션 1개', office_active_now: '지금 활동 중', office_quiet_more: '오래 쉰 층 {n}개 더 보기', office_quiet_more1: '오래 쉰 층 1개 더 보기', office_quiet_less: '오래 쉰 층 접기',
+    office_popout: '따로 띄우기', office_popout_tip: '사무실만 별도 창으로 띄웁니다. 다른 모니터에 두고 보기 좋습니다.',
+    office_history: '지난 기록', office_untitled: '제목 없는 세션 · {id}',
+    office_zoom_in: '확대', office_zoom_out: '축소', office_zoom_reset: '원래대로', office_hint: '드래그로 이동 · 휠로 확대 · 더블클릭으로 원위치', office_lift: '{dir} {n}F',
+    office_empty_title: '아직 출근한 Claude가 없어요', office_empty_body: 'Claude Code로 대화를 시작하면 여기서 일하는 모습이 보입니다.',
+    office_off_title: '사무실이 닫혀 있습니다', office_off: '설정에서 ‘사무실 보기’를 켜면 다시 열립니다.',
+    office_gone_title: '퇴근 시간입니다', office_gone: 'baton 창이 닫혀 사무실도 문을 닫았습니다.', office_reconnect: '연결이 끊겨 다시 연결하는 중…',
+    office_f_project: '프로젝트', office_f_session: '세션', office_f_account: '계정', office_f_state: '상태', office_f_source: '어디서',
+    office_src_baton: 'baton', office_src_cli: 'Claude Code (터미널)', office_src_desktop: 'Claude 데스크톱 앱', office_no_account: 'baton 밖에서 실행',
+    office_todos: '회의실 화이트보드', office_people: '사무실 사람들', office_people_n: '{n}명 근무 중', office_people_empty: '아무도 없습니다.',
+    office_log: '활동 로그', office_log_empty: '아직 기록이 없습니다.', office_legend: '어디서 무엇을 하나',
+    office_me: '{name} (나)', office_agent: '서브에이전트', office_more_agents: '+{n}명 더', office_tools_n: '도구 {n}회', office_tools_n1: '도구 1회',
+    office_click_focus: '누르면 세션 창이 앞으로 나옵니다', office_secs: '{n}초', office_mins: '{n}분', office_hours: '{n}시간',
+    office_st_arriving: '출근 중', office_st_working: '작업 중', office_st_thinking: '고민 중', office_st_talking: '말하는 중', office_st_asking: '질문 중',
+    office_st_error: '문제 생김', office_st_idle: '쉬는 중', office_st_reporting: '보고 중', office_st_leaving: '퇴근 중',
+    office_b_think: '고민 중', office_b_secs: '{n}초째', office_b_ask: '확인이 필요해요', office_b_report: '보고합니다',
+    office_b_leave: '👋 퇴근합니다!', office_b_hello: '👋 출근했습니다!', office_b_shift_out: '👋 교대합니다!', office_b_shift_in: '🔁 교대 근무 시작!',
+    office_b_shift: '교대 근무: {d}', office_b_compact: '대화를 정리했어요', office_b_denied: '중단됐어요', office_b_clear: '새 대화 시작!', office_b_end: '오늘 업무 끝!',
+    office_l_think: '고민 중', office_l_fail: '실패: {d}', office_l_deny: '거절되거나 중단됨', office_l_compact: '대화가 길어져 정리(압축)했습니다',
+    office_l_idle: '차례를 마치고 쉬는 중', office_l_hire: '{type} 고용', office_l_report: '결과를 보고했습니다', office_l_leave: '퇴근했습니다',
+    office_l_ask: '질문: {d}', office_l_ask_plain: '답을 기다리는 중', office_l_shift: '교대 근무: {d}', office_l_clear: '/clear로 새 대화를 시작했습니다', office_l_end: '세션이 끝났습니다',
+    office_room_library: '자료실', office_room_dev: '개발실', office_room_server: '서버실', office_room_search: '정보검색실', office_room_meeting: '회의실',
+    office_room_desk: '내 자리', office_room_seat: 'Claude 자리', office_room_lounge: '라운지', office_room_elevator: '엘리베이터',
+    office_room_library_d: '파일 읽기 · 검색', office_room_dev_d: '코드 작성 · 수정', office_room_server_d: '명령 실행 · git', office_room_search_d: '웹 · 외부 도구',
+    office_room_meeting_d: '계획 · 할 일 · 스킬', office_room_desk_d: '질문 · 확인 요청', office_room_seat_d: '생각 · 대화 · 에이전트 호출',
+    office_room_lounge_d: '차례가 끝나면 커피 한잔', office_room_elevator_d: '출근 · 퇴근 · 교대',
+    err_office_off: '사무실 보기가 꺼져 있습니다. 설정에서 켜세요.', err_no_popout: '이 baton에서는 사무실을 따로 띄울 수 없습니다.',
     // banners / errors
     problem: '파일을 읽지 못했습니다: {e}', claude_warn: '{w}', need_claude: 'Claude Code를 찾지 못해 세션을 시작할 수 없습니다.',
     need_mode: '계정 전환 방식을 아직 고르지 않았습니다.', choose_now: '지금 고르기',
@@ -227,7 +258,7 @@ const T = {
     ago_now: '방금', ago_min: '{n}분 전', ago_hour: '{n}시간 전', ago_day: '{n}일 전',
   },
   en: {
-    tab_sessions: 'Sessions', tab_accounts: 'Accounts', tab_settings: 'Settings', tab_help: 'Help',
+    tab_sessions: 'Sessions', tab_accounts: 'Accounts', tab_settings: 'Settings', tab_help: 'Help', tab_office: 'Office',
     claude_desktop: 'Claude Code {v} from the Claude desktop app', claude_cli: 'Claude Code {v}', claude_checking: 'Checking Claude Code…',
     claude_missing: 'Claude Code not found',
     mode_auto: 'Auto switch', mode_confirm: 'Ask before switching', mode_off: 'Switching off', mode_unset: 'Switch mode not set',
@@ -419,6 +450,36 @@ const T = {
     upd_err_windows: 'Windows that baton opened (session or sign-in windows) are still open. Close them, then update.',
     upd_banner: 'baton {v} is out.', upd_banner_go: 'Details', set_upd: 'Check for a newer baton when it opens (GitHub)',
     uninstall_go: 'Uninstall…', uninstall_confirm: 'This window closes and the uninstall window asks once more. End running sessions first.', uninstall_ok: 'Open uninstall',
+    office_set: 'Show the office (just for fun)',
+    office_set_hint: 'Shows the Claude Code conversations on this PC as people at work in an office. An Office tab appears, and the office can pop out into a window of its own for another screen. It only reads the conversations and changes nothing.',
+    office_window_title: 'baton office', office_floor_guide: 'Floor guide', office_follow: 'Follow the latest session', office_no_floors: 'No floors yet.',
+    office_floor_sessions: '{n} sessions', office_floor_session1: '1 session', office_active_now: 'active now', office_quiet_more: '{n} quiet floors', office_quiet_more1: '1 quiet floor', office_quiet_less: 'Hide quiet floors',
+    office_popout: 'Pop out', office_popout_tip: 'Opens the office alone in a window of its own, handy on another screen.',
+    office_history: 'history', office_untitled: 'Untitled session · {id}',
+    office_zoom_in: 'Zoom in', office_zoom_out: 'Zoom out', office_zoom_reset: 'Reset the view', office_hint: 'Drag to move · wheel to zoom · double-click to reset', office_lift: '{dir} {n}F',
+    office_empty_title: 'No Claude has clocked in yet', office_empty_body: 'Start a conversation in Claude Code and you will see it at work here.',
+    office_off_title: 'The office is closed', office_off: 'Turn on “Show the office” in Settings to open it again.',
+    office_gone_title: 'Closing time', office_gone: 'The baton window closed, so the office did too.', office_reconnect: 'Connection lost, reconnecting…',
+    office_f_project: 'Project', office_f_session: 'Session', office_f_account: 'Account', office_f_state: 'State', office_f_source: 'From',
+    office_src_baton: 'baton', office_src_cli: 'Claude Code (terminal)', office_src_desktop: 'Claude desktop app', office_no_account: 'outside baton',
+    office_todos: 'Meeting room whiteboard', office_people: 'People in the office', office_people_n: '{n} at work', office_people_empty: 'Nobody here.',
+    office_log: 'Activity', office_log_empty: 'Nothing yet.', office_legend: 'Who works where',
+    office_me: '{name} (me)', office_agent: 'Subagent', office_more_agents: '+{n} more', office_tools_n: '{n} tools', office_tools_n1: '1 tool',
+    office_click_focus: 'click to bring its session window forward', office_secs: '{n}s', office_mins: '{n}m', office_hours: '{n}h',
+    office_st_arriving: 'Arriving', office_st_working: 'Working', office_st_thinking: 'Thinking', office_st_talking: 'Talking', office_st_asking: 'Asking',
+    office_st_error: 'Trouble', office_st_idle: 'Resting', office_st_reporting: 'Reporting', office_st_leaving: 'Leaving',
+    office_b_think: 'Thinking', office_b_secs: 'for {n}s', office_b_ask: 'Needs your answer', office_b_report: 'Reporting back',
+    office_b_leave: '👋 Off home!', office_b_hello: '👋 Clocked in!', office_b_shift_out: '👋 My shift is over!', office_b_shift_in: '🔁 Taking over!',
+    office_b_shift: 'Shift change: {d}', office_b_compact: 'Tidied up the conversation', office_b_denied: 'Stopped', office_b_clear: 'Fresh start!', office_b_end: 'Done for the day!',
+    office_l_think: 'Thinking', office_l_fail: 'Failed: {d}', office_l_deny: 'Rejected or interrupted', office_l_compact: 'Compacted the long conversation',
+    office_l_idle: 'Finished its turn, resting', office_l_hire: 'Hired {type}', office_l_report: 'Reported back', office_l_leave: 'Went home',
+    office_l_ask: 'Asks: {d}', office_l_ask_plain: 'Waiting for your answer', office_l_shift: 'Shift change: {d}', office_l_clear: 'Started over with /clear', office_l_end: 'The session ended',
+    office_room_library: 'Library', office_room_dev: 'Dev', office_room_server: 'Server room', office_room_search: 'Search', office_room_meeting: 'Meeting room',
+    office_room_desk: 'My desk', office_room_seat: 'Claude’s desk', office_room_lounge: 'Lounge', office_room_elevator: 'Elevator',
+    office_room_library_d: 'reading and searching files', office_room_dev_d: 'writing and editing code', office_room_server_d: 'commands, git', office_room_search_d: 'the web and outside tools',
+    office_room_meeting_d: 'plans, to-dos, skills', office_room_desk_d: 'questions for you', office_room_seat_d: 'thinking, talking, calling agents',
+    office_room_lounge_d: 'a coffee when the turn ends', office_room_elevator_d: 'arrivals, departures, shifts',
+    err_office_off: 'The office is turned off. Turn it on in Settings.', err_no_popout: 'This baton cannot open the office in a window of its own.',
     problem: 'Could not read a file: {e}', claude_warn: '{w}', need_claude: 'Claude Code was not found, so sessions cannot start.',
     need_mode: 'You have not chosen how baton switches accounts yet.', choose_now: 'Choose now',
     error: 'Failed: {e}', details: 'Details',
@@ -474,18 +535,23 @@ const pageId = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.t
 let seq = 0; // numbers this load's requests (see the server's seqHeader)
 function ids() { return { 'X-Baton-Token': token, 'X-Baton-Page': pageId, 'X-Baton-Seq': String(++seq) }; }
 
+// The office opens alone in a window of its own with #office in its address
+// (read here, before connect() tidies the address; kept for reloads).
+const officeOnly = location.hash === '#office';
+
 async function connect() {
   const k = new URLSearchParams(location.search).get('k');
   if (!k) return;
-  history.replaceState(null, '', '/');
+  history.replaceState(null, '', officeOnly ? '/#office' : '/');
   const r = await fetch('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: k }) });
   if (!r.ok) return;
   token = (await r.json()).token || '';
   try { sessionStorage.setItem('baton_token', token); } catch (_) { /* this load only */ }
 }
 
-async function api(path, body) {
-  const opts = { method: body === undefined ? 'GET' : 'POST', headers: ids(), credentials: 'omit' };
+// api calls the GUI's API; signal (optional) lets a long poll be called off.
+async function api(path, body, signal) {
+  const opts = { method: body === undefined ? 'GET' : 'POST', headers: ids(), credentials: 'omit', signal };
   if (body !== undefined) { opts.headers['Content-Type'] = 'application/json'; opts.body = JSON.stringify(body); }
   const r = await fetch('/api/' + path, opts);
   let data = {};
@@ -560,7 +626,7 @@ async function refresh() {
     if (S.lang !== st.lang) { S.lang = st.lang; S.lastJSON = ''; document.documentElement.lang = st.lang; }
     if (!S.tab) S.tab = st.accounts.length ? 'sessions' : 'accounts';
     if (json !== S.lastJSON) { S.lastJSON = json; render(); }
-    maybeOnboard();
+    if (!officeOnly) maybeOnboard();
   } catch (e) {
     if (e.status === 403) { document.body.textContent = S.state ? t('expired') : T.ko.expired + ' / ' + T.en.expired; return; }
   }
@@ -581,10 +647,16 @@ window.addEventListener('pagehide', () => {
 function render() {
   const st = S.state;
   if (!st) return;
+  if (S.tab === 'office' && !st.config.office) S.tab = 'sessions';
+  if (officeOnly) { renderOfficeOnly(); return; }
   renderTop(st);
   renderTabs(st);
   renderBanners(st);
   const main = document.getElementById('main');
+  document.getElementById('app').classList.toggle('wide', S.tab === 'office');
+  // The office keeps its own page alive across redraws: it animates.
+  if (S.tab === 'office') { showOffice(main); return; }
+  hideOffice();
   const a = document.activeElement;
   if (a && main.contains(a) && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.type !== 'checkbox' && a.type !== 'radio') {
     S.mainDirty = true; // redrawn when the field loses focus
@@ -630,7 +702,7 @@ function renderTop(st) {
 }
 
 function renderTabs(st) {
-  const tabs = [['sessions', st.runs.length], ['accounts', st.accounts.length], ['settings'], ['help']];
+  const tabs = [['sessions', st.runs.length], st.config.office ? ['office'] : null, ['accounts', st.accounts.length], ['settings'], ['help']].filter(Boolean);
   document.getElementById('tabs').replaceChildren(...tabs.map(([id, n]) => h('button', {
     role: 'tab', 'aria-selected': String(S.tab === id), onclick: () => { S.tab = id; render(); document.getElementById('main').focus(); },
   }, t('tab_' + id), n ? h('span', { class: 'count', text: String(n) }) : null)));
@@ -1554,6 +1626,9 @@ function viewSettings(st) {
     h('label', { class: 'check mt14' }, h('input', { type: 'checkbox', checked: c.keep_awake, onchange: (e) => setConfig('keep_awake', e.target.checked) }),
       h('span', { text: t('set_awake') })),
     h('p', { class: 'small muted', text: t('set_awake_hint') }),
+    h('label', { class: 'check mt14' }, h('input', { type: 'checkbox', checked: c.office, onchange: (e) => setConfig('office', e.target.checked) }),
+      h('span', { text: t('office_set') })),
+    h('p', { class: 'small muted', text: t('office_set_hint') }),
     h('div', { class: 'mt16' }, advanced)), rules];
 }
 
@@ -1664,6 +1739,44 @@ function confirmUpdate(st) {
     st.installed ? null : h('p', { class: 'small muted', text: t('upd_portable') }),
     u.notes ? h('details', {}, h('summary', { text: t('upd_notes') }), h('pre', { class: 'out', text: u.notes })) : null,
     err, h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
+}
+
+// ---- office --------------------------------------------------------------------------------
+// The office (office.js) is mounted once into a root of its own that render()
+// puts back instead of rebuilding, so its animation and its log survive the
+// redraws every state change brings.
+
+let officeHost = null;
+function officeRoot() {
+  if (officeHost || !window.BatonOffice) return officeHost;
+  officeHost = h('div', { class: 'office-host' });
+  window.BatonOffice.mount(officeHost, {
+    api, t, h, standalone: officeOnly,
+    lang: () => S.lang,
+    accounts: () => (S.state ? S.state.accounts.map((a) => a.id) : []),
+    focus: (runId) => api('sessions/focus', { run_id: runId }).catch(showError),
+    popout: () => api('office/popout', {}).catch(showError),
+  });
+  return officeHost;
+}
+
+function showOffice(main) {
+  const root = officeRoot();
+  if (!root) { main.replaceChildren(h('p', { class: 'muted', text: t('error', { e: 'office.js' }) })); return; }
+  if (main.firstChild !== root || main.childNodes.length !== 1) main.replaceChildren(root);
+  window.BatonOffice.show();
+}
+
+function hideOffice() {
+  if (officeHost && window.BatonOffice) window.BatonOffice.hide();
+}
+
+// renderOfficeOnly draws the pop-out window: the office alone, nothing else.
+function renderOfficeOnly() {
+  document.body.classList.add('office-only');
+  document.title = t('office_window_title');
+  document.getElementById('app').classList.add('wide');
+  showOffice(document.getElementById('main'));
 }
 
 // ---- start ---------------------------------------------------------------------------------

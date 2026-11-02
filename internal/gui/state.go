@@ -98,6 +98,7 @@ type configView struct {
 	RemoteControl         bool   `json:"remote_control"`
 	Notifications         string `json:"notifications"`
 	KeepAwake             bool   `json:"keep_awake"`
+	Office                bool   `json:"office"`
 	CheckUpdates          bool   `json:"check_updates"`
 	GUILanguage           string `json:"gui_language"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
@@ -165,7 +166,7 @@ func (s *Server) state() stateView {
 		MaxSwitchesPerHour: cfg.MaxSwitchesPerHour, ExhaustedRetryMinutes: cfg.ExhaustedRetryMinutes,
 		ContinuePrompt: cfg.ContinuePrompt, ShareUserConfig: cfg.ShareEnabled(), AllowDesktopBundle: cfg.DesktopBundleAllowed(),
 		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, Notifications: cfg.NotifyLevel(), KeepAwake: cfg.KeepAwakeOn(),
-		CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
+		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 	}
 	v.Lang = cfg.GUILanguage

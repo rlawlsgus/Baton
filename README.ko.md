@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.6.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.7.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -19,6 +19,7 @@
 [다운로드](../../releases/latest) ·
 [시작하기](#시작하기) ·
 [기존 대화 가져오기](#데스크톱-앱의-대화-가져오기) ·
+[사무실](#사무실) ·
 [작동 방식](#작동-방식) ·
 [명령줄](#명령줄) ·
 [알아 둘 점](#알아-둘-점)
@@ -63,6 +64,10 @@
   할 수 있습니다. 실행 중인 세션을 언제든 다른 계정으로 옮길 수도 있습니다.
 - 🧭 **폴더마다 쓸 계정 정하기.** 폴더 규칙을 두면 그 폴더(와 그 안의 폴더)의 세션은 고른 계정에서만 시작하고
   전환합니다. 회사 저장소를 회사 계정에만 둘 수 있습니다.
+- 🏢 **Claude가 일하는 사무실 (재미 기능).** 설정에서 켜면 *사무실* 탭에서 이 PC의 Claude Code 대화를
+  사무실 풍경으로 실시간으로 볼 수 있습니다. 파일을 읽을 때는 자료실, 코드를 고칠 때는 개발실, 명령을 실행할
+  때는 서버실에 가고, 물어볼 게 생기면 내 자리로 옵니다. 서브에이전트는 엘리베이터로 출근하고, 프로젝트마다
+  층이 하나씩 있습니다. 따로 띄워 다른 모니터에 둘 수도 있습니다.
 - ⌨️ **명령줄도 함께.** `baton.exe`로 터미널과 스크립트에서 같은 기능을 쓸 수 있습니다.
 - ⬆️ **업데이트는 클릭 한 번.** 새 버전이 나오면 알려 주고, GitHub에서 받아 체크섬을 확인한 뒤 설치합니다.
 
@@ -126,6 +131,19 @@ baton sessions
 baton resume 2cd067ab-193c-4e56-baa2-0b34dc203160 --copy
 ```
 
+## 사무실
+
+**설정 → 사무실 보기 (재미 기능)**을 켜거나 `baton config office true`를 실행하면 창에 **사무실** 탭이
+생깁니다. 왼쪽 층별 안내에는 프로젝트마다 건물의 층이 하나씩 있고, 오른쪽에는 세션 정보, 회의실 화이트보드의
+할 일 목록, 사무실에 누가 있고 무엇을 하는지가 나옵니다. 아래 그림에서 Claude는 서버실에서 테스트를 돌리고,
+Explore 서브에이전트는 자료실에서 코드를 찾고, Plan 서브에이전트는 정보검색실에서 문서를 읽고 있습니다.
+*따로 띄우기*를 누르면 사무실만 별도 창으로 뜹니다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ko/office-dark.png">
+  <img src="docs/images/ko/office-light.png" alt="사무실 탭: 서버실에서 테스트를 돌리는 Claude, 자료실에서 찾는 Explore 서브에이전트, 정보검색실에서 문서를 읽는 Plan 서브에이전트">
+</picture>
+
 ## 작동 방식
 
 ```mermaid
@@ -161,7 +179,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.6.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.7.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -198,7 +216,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.0
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -285,6 +303,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `remote_control` | 창의 새 세션 시작에서 *리모트 컨트롤 켜기*를 기본으로 체크 |
 | `notifications` | 세션이 보내는 Windows 알림: `all`(기본값), `important`(응답이 끝났을 때는 빼고), `off` |
 | `keep_awake` | 세션이 작업하거나 한도가 풀리기를 기다리는 동안 PC가 저절로 잠들지 않게 함 (기본값 `true`) |
+| `office` | Claude의 작업을 사무실 풍경으로 실시간으로 보여 주는 *사무실* 탭 표시 (기본값 `false`) |
 | `check_updates` | 창이 몇 시간마다 GitHub에서 새 baton이 있는지 확인 (기본값 `true`) |
 
 <details>
@@ -390,6 +409,13 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   수 있으면 그 계정에서, 같은 Claude Code 옵션과 권한 모드로 시작합니다. 작업 중이던 세션은 하던 일을 계속합니다.
   *지우기*를 누르면 목록에서 빠지고, ‘최근 세션’에는 남습니다. 명령줄에서는 `baton status`로 확인하고
   `baton run --restore <run>`으로 엽니다.
+- **사무실은 읽기만 합니다.** Claude Code가 남기는 기록, 곧 내 `%USERPROFILE%\.claude`와 각 계정 프로필의
+  세션 목록(`sessions\*.json`)과 대화 기록(`projects\…\*.jsonl`, 서브에이전트 기록 포함), 그리고 baton 세션
+  정보를 따라 읽습니다. Claude Code에는 아무것도 설치하거나 바꾸지 않고, baton 데이터 폴더의 `office.json`(층
+  번호)만 씁니다. 사무실이 화면에 보일 때만 일합니다. baton 밖에서 연 대화(터미널, VS Code, 데스크톱 앱)도
+  보이지만, baton이 모르는 Claude Code 폴더(다른 `CLAUDE_CONFIG_DIR`, WSL)의 대화는 보이지 않습니다.
+  *따로 띄우기*는 사무실을 전용 프로필(baton 데이터 폴더 안)의 Edge 창으로 엽니다. 이 창은 baton 창이 열려 있는
+  동안 쓸 수 있으니, baton 창은 닫지 말고 최소화하세요.
 - **바뀐 파일은 git으로 봅니다.** 변경사항 줄은 git(Git for Windows)이 설치되어 있고 폴더가 git 저장소일 때
   나옵니다. 마지막 커밋 이후 커밋하지 않은 변경을 새 파일까지 포함해 보여 줍니다.
 - **세션은 데스크톱 앱이 아니라 Claude Code 창에서 열립니다.** baton은 세션을 계정 사이에서 옮기기 위해
@@ -460,6 +486,9 @@ go build -tags batontest -o bin/baton-test.exe ./cmd/baton
 - 계정이 바뀌어도 매번 다시 켜지는 리모트 컨트롤(`--rc`)
 - 설정 공유와 질문 중 Ctrl+C
 - `baton stop`(질문 중이거나 전환을 기다리는 중일 때 포함)
+- 폴더 규칙, 그리고 끊긴 세션 다시 열기
+- 사무실: 정해진 한 차례(파일 읽기, 명령 실행, 서브에이전트, 질문, 실패하는 명령)를 창의 서버가 방마다
+  실시간으로 보여 주는지 (마지막 명령으로 만드는 테스트 빌드가 필요)
 
 창의 서버는 `internal/gui`에 자체 단위 테스트가 있습니다. 마지막 명령으로 만드는 테스트 빌드에는
 `baton gui --no-window --test-spawn`이 추가되며, 이 명령은 브라우저용 페이지를 띄웁니다. 이때 로그인은

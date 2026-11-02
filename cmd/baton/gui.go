@@ -146,6 +146,9 @@ func cmdGUI(args []string) error {
 			return nil
 		},
 		Focus: winui.FocusWindow,
+		OpenApp: func(u string) error {
+			return winui.OpenAppWindow(u, filepath.Join(e.paths.Root, "office-window"))
+		},
 		TestNotify: func(lang string) error {
 			// Registered here too, so the test works before any session ran.
 			app := ""
@@ -178,6 +181,9 @@ func cmdGUI(args []string) error {
 		return err
 	}
 	hs := &http.Server{Handler: srv, ReadHeaderTimeout: 10 * time.Second}
+	// Shutdown waits for requests to end: the office's held polls end with
+	// the server's background work.
+	hs.RegisterOnShutdown(srv.Close)
 	go func() { _ = hs.Serve(ln) }()
 	defer func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

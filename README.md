@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.6.1-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.7.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -19,6 +19,7 @@ on your next signed-in account. You don't need to copy anything or explain it ag
 [Download](../../releases/latest) ·
 [Getting started](#getting-started) ·
 [Bring in a conversation](#bring-in-a-conversation-from-the-desktop-app) ·
+[The office](#the-office) ·
 [How it works](#how-it-works) ·
 [Command line](#command-line) ·
 [Things to know](#things-to-know)
@@ -69,6 +70,11 @@ on your next signed-in account. You don't need to copy anything or explain it ag
 - 🧭 **Keep a folder on its account.** A folder rule keeps the sessions in a folder (and the
   folders under it) on the accounts you choose, so a company repository can stay on the
   company account.
+- 🏢 **An office to watch Claude work (just for fun).** Turn it on in Settings, and the Office
+  tab shows every Claude Code conversation on your PC as people at work in an isometric office:
+  Claude reads in the library, edits in the dev room, runs commands in the server room and comes
+  to your desk with a question, and subagents arrive by elevator. Each project is a floor. Pop it
+  out onto another screen if you like.
 - ⌨️ **Command line included.** `baton.exe` has the same features for terminals and
   scripts.
 - ⬆️ **Updates in one click.** baton tells you when a new release is out and installs it
@@ -144,6 +150,20 @@ baton sessions
 baton resume 2cd067ab-193c-4e56-baa2-0b34dc203160 --copy
 ```
 
+## The office
+
+Turn on **Settings → Show the office (just for fun)**, or run `baton config office true`, and
+the window gets an **Office** tab. The floor guide on the left lists each project as a floor
+of the building. On the right are the session, the todo list from the meeting room's
+whiteboard, and who is in the office doing what. Below, Claude runs the tests in the server
+room while an Explore subagent searches the library and a Plan subagent reads up in the
+search room. *Pop out* opens the office in a window of its own.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/office-dark.png">
+  <img src="docs/images/office-light.png" alt="The Office tab: Claude runs the tests in the server room, an Explore subagent searches the library and a Plan subagent reads the web in the search room">
+</picture>
+
 ## How it works
 
 ```mermaid
@@ -185,7 +205,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.6.1_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.7.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -224,7 +244,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.6.1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -313,6 +333,7 @@ Claude Code reads every word that follows as one of their values.
 | `remote_control` | tick *Turn on Remote Control* in the window's Start dialog by default |
 | `notifications` | Windows notifications from sessions: `all` (default), `important` (all but finished responses) or `off` |
 | `keep_awake` | keep the PC from sleeping by itself while a session works or waits for a limit to reset (default `true`) |
+| `office` | show the Office tab: Claude's work, live, as people in an office (default `false`) |
 | `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
 
 <details>
@@ -434,6 +455,15 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   used, with the same Claude Code options and permission mode; one that was working is told to
   go on with its task. *Dismiss* takes it off the list (it stays in Recent sessions). From the
   command line: `baton status`, then `baton run --restore <run>`.
+- **The office only reads.** It follows what Claude Code writes down: the session list
+  (`sessions\*.json`) and the conversations (`projects\…\*.jsonl`, with their subagents') in your
+  own `%USERPROFILE%\.claude` and in every account's profile, plus baton's own sessions. It
+  installs nothing into Claude Code and changes none of its files; its one file is `office.json`
+  (the floor numbers) in baton's data folder. It works only while the office is on screen. It
+  shows conversations baton does not run too (a terminal, VS Code, the desktop app), but not
+  ones in a Claude Code folder baton does not know (another `CLAUDE_CONFIG_DIR`, WSL). *Pop out*
+  opens it in an Edge window with a profile of its own (in baton's data folder). That window
+  works while the baton window is open, so minimize the baton window rather than close it.
 - **Changed files come from git.** The changes line needs git (Git for Windows) and a folder in
   a git repository; it lists uncommitted work against the last commit, new files included.
 - **Sessions open in a Claude Code window, not in the desktop app.** baton runs Claude Code
@@ -511,6 +541,9 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - Remote Control (`--rc`) kept on every launch, the switch included
 - config sharing and Ctrl+C at the question
 - `baton stop`, also during the question and while a switch waits
+- folder rules, and reopening a cut-off session
+- the office: a scripted turn (reading, a command, a subagent, a question, a failing command)
+  shown live, room by room, by the window's server (this needs the test build, last command)
 
 The window's server has its own unit tests in `internal/gui`. The test build (last
 command) adds `baton gui --no-window --test-spawn`, which serves the page for a browser.

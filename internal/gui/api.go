@@ -85,6 +85,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"conversations": s.apiConversations,
 		"changes":       s.apiChanges,
 		"folder/info":   s.apiFolderInfo,
+		"office":        s.apiOffice,
 	}
 	post := map[string]func(http.ResponseWriter, *http.Request){
 		"accounts/add":     s.apiAddOrLogin("add"),
@@ -113,6 +114,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"update/install":   s.apiUpdateInstall,
 		"doctor":           s.apiDoctor,
 		"open":             s.apiOpen,
+		"office/popout":    s.apiOfficePopout,
 	}
 	switch r.Method {
 	case http.MethodGet:
