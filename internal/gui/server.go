@@ -8,6 +8,7 @@
 package gui
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -24,6 +25,7 @@ import (
 	"time"
 
 	"baton/internal/app"
+	"baton/internal/config"
 	"baton/internal/office"
 	"baton/internal/update"
 )
@@ -338,6 +340,7 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		"icon.svg":   "image/svg+xml",
 		"office.js":  "text/javascript; charset=utf-8",
 		"office.css": "text/css; charset=utf-8",
+		"theme.js":   "text/javascript; charset=utf-8",
 	}
 	ct, ok := types[name]
 	if !ok {
@@ -348,6 +351,14 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.NotFound(w, r)
 		return
+	}
+	if name == "index.html" {
+		// The page starts in the colours chosen (theme.js reads this before
+		// anything is drawn; the page's address, and so its storage, changes
+		// every time).
+		if c, err := config.Load(s.opt.Paths.Config()); err == nil && c.GUITheme != "" {
+			data = bytes.Replace(data, []byte("<html "), []byte(`<html data-theme-pref="`+c.GUITheme+`" `), 1)
+		}
 	}
 	w.Header().Set("Content-Type", ct)
 	_, _ = w.Write(data)

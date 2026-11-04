@@ -19,27 +19,26 @@
   --radius: 12px;
   color-scheme: light;
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1b1a18;
-    --card: #252321;
-    --text: #ece8e1;
-    --muted: #a39d92;
-    --line: #3a3733;
-    --accent: #8fb0e8;
-    --accent-text: #10213d;
-    --accent-soft: #263349;
-    --ok: #6fd19d;
-    --ok-soft: #1f3a2c;
-    --warn: #f0b85a;
-    --warn-soft: #3d2f17;
-    --bad: #f28b82;
-    --bad-soft: #42211e;
-    --off: #a39d92;
-    --off-soft: #302e2a;
-    --shadow: none;
-    color-scheme: dark;
-  }
+/* Dark: as Windows has it, or as chosen (theme.js sets data-theme). */
+:root[data-theme="dark"] {
+  --bg: #1b1a18;
+  --card: #252321;
+  --text: #ece8e1;
+  --muted: #a39d92;
+  --line: #3a3733;
+  --accent: #8fb0e8;
+  --accent-text: #10213d;
+  --accent-soft: #263349;
+  --ok: #6fd19d;
+  --ok-soft: #1f3a2c;
+  --warn: #f0b85a;
+  --warn-soft: #3d2f17;
+  --bad: #f28b82;
+  --bad-soft: #42211e;
+  --off: #a39d92;
+  --off-soft: #302e2a;
+  --shadow: none;
+  color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }

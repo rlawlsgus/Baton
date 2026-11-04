@@ -16,6 +16,7 @@ const (
 	reportFor = 3 * time.Second // a finished subagent reports to Claude, then leaves
 	leaveFor  = 8 * time.Second // one who left stays in the picture this long, walking out
 	talkFor   = 4 * time.Second // speech counts as talking this long
+	doneFor   = 5 * time.Second // a todo list whose every item is done stays on the whiteboard this long
 	failFor   = 5 * time.Second // a failed tool shows as an error this long
 	// activeFor: a conversation no live Claude Code holds still counts as
 	// going on while its transcript was written this recently (Claude Code
@@ -96,6 +97,33 @@ type openTool struct {
 	actor, name, room, detail string
 	git                       bool
 	start                     time.Time
+	undo                      *todoState // the whiteboard before this todo call, should it be refused
+	key                       int        // a TaskCreate's call, on the task it put on the whiteboard
+}
+
+// todoState is what the meeting room's whiteboard shows.
+type todoState struct {
+	todos    []Todo
+	todoTool string    // the tool that wrote the list (the desktop app's plan is one turn's)
+	wrapped  bool      // the plan's turn was wrapped up, which checks every step off
+	doneAt   time.Time // when every item got done (zero while some are not)
+	todoGen  int       // bumped on every change: a refused call undoes only its own
+	hidden   bool      // put away: a plan the turn going on has not touched (kept, as a later call may go on with it)
+}
+
+// board is the list as the whiteboard has it: the plan with every step
+// checked off once its turn is wrapped up (tasks among them are not steps).
+func (b todoState) board() []Todo {
+	if !b.wrapped {
+		return b.todos
+	}
+	list := append([]Todo(nil), b.todos...)
+	for i := range list {
+		if list[i].id == 0 {
+			list[i].Status = "completed"
+		}
+	}
+	return list
 }
 
 type scheduled struct {
@@ -141,7 +169,6 @@ type session struct {
 	me       actor
 	tools    map[string]*openTool // open tool uses of everyone, by tool use id
 	agentIDs map[string]string    // a subagent's own id -> its actor
-	todos    []Todo
 	say      *Say
 	title    string // the newest name in the transcript
 	cwd      string // where the desktop app moved it
@@ -149,6 +176,9 @@ type session struct {
 	sched    []scheduled
 	lastRow  time.Time
 	now      time.Time // when the rows being read were read
+
+	todoState     // the meeting room's whiteboard
+	todoKeys  int // TaskCreate calls seen, to tell their tasks apart
 
 	info    sessionInfo
 	wasLive bool
@@ -291,6 +321,7 @@ func (s *session) row(line []byte, who *actor, now time.Time) {
 			who.thinking = false
 			s.emit(Event{T: t, Actor: who.id, Kind: "compact", Room: s.restRoom(who)})
 		case "stop_hook_summary", "turn_duration":
+			s.lastStepDone(who, t)
 			s.turnEnd(who, t)
 		}
 	case "assistant":
@@ -375,6 +406,7 @@ func (s *session) assistant(r *row, who *actor, t time.Time) {
 		}
 	}
 	if r.Message.StopReason == "end_turn" && final && len(who.open) == 0 {
+		s.lastStepDone(who, t)
 		s.turnEnd(who, t)
 	}
 }
@@ -396,6 +428,97 @@ func (s *session) turnEnd(who *actor, t time.Time) {
 	s.emit(Event{T: t, Actor: who.id, Kind: "idle", Room: roomLounge})
 }
 
+// setTodos changes the whiteboard and returns how it was, to undo the change
+// should its call be refused.
+func (s *session) setTodos(next todoState, t time.Time) *todoState {
+	was := s.todoState
+	next.doneAt = was.doneAt
+	s.todoState = next
+	s.doneSince(t)
+	s.todoGen = was.todoGen + 1
+	was.todoGen = s.todoGen // undone only while this change is the newest
+	return &was
+}
+
+// doneSince keeps doneAt: when the whiteboard's every item got done, or zero.
+func (s *session) doneSince(t time.Time) {
+	switch {
+	case !allDone(s.board()):
+		s.doneAt = time.Time{}
+	case s.doneAt.IsZero():
+		s.doneAt = s.shownFrom(t)
+	}
+}
+
+// taskChanged changes (or, on false, drops) the task a TaskCreate call put on
+// the whiteboard, also in the undo copies of calls still open, so an undo
+// keeps the change.
+func (s *session) taskChanged(key int, change func(*Todo) bool, t time.Time) {
+	s.todos = withTask(s.todos, key, change)
+	for _, o := range s.tools {
+		if o.undo != nil {
+			o.undo.todos = withTask(o.undo.todos, key, change)
+		}
+	}
+	s.doneSince(t)
+}
+
+// numbered and unnumbered split a list into tasks and the rest (a plan's
+// steps, TodoWrite's items).
+func numbered(list []Todo) (out []Todo) {
+	for _, td := range list {
+		if td.id != 0 {
+			out = append(out, td)
+		}
+	}
+	return out
+}
+
+func unnumbered(list []Todo) (out []Todo) {
+	for _, td := range list {
+		if td.id == 0 {
+			out = append(out, td)
+		}
+	}
+	return out
+}
+
+// undoTodos puts the whiteboard back as it was before a refused todo call.
+func (s *session) undoTodos(was *todoState) {
+	if was.todoGen != s.todoGen {
+		return // a newer change came since
+	}
+	st := *was
+	st.todoGen = s.todoGen + 1
+	s.todoState = st
+}
+
+// lastStepDone: a turn that ends normally with only the plan's last step
+// left open checks it off, as the desktop app does.
+func (s *session) lastStepDone(who *actor, t time.Time) {
+	n := len(s.todos)
+	if who.kind != kindClaude || s.todoTool != planTool || s.wrapped || n == 0 || s.todos[n-1].Status != "in_progress" {
+		return
+	}
+	if n > 1 && !allDone(s.todos[:n-1]) || len(numbered(s.todos)) > 0 {
+		return // steps still open, or tasks among the steps (theirs are not the plan's)
+	}
+	s.setTodos(todoState{todos: s.todos, todoTool: planTool, wrapped: true, hidden: s.hidden}, t)
+}
+
+// boardAt is what the whiteboard shows at now: nothing once every item has
+// been done a moment (the list itself is kept, for the Task numbers).
+func (s *session) boardAt(now time.Time) []Todo {
+	if !s.doneAt.IsZero() && now.Sub(s.doneAt) >= doneFor {
+		return []Todo{}
+	}
+	b := s.board()
+	if s.hidden {
+		b = numbered(b) // the plan's steps are put away; tasks stay up
+	}
+	return append([]Todo{}, b...)
+}
+
 func (s *session) toolUse(who *actor, b block, t time.Time) {
 	if b.ID == "" || s.tools[b.ID] != nil {
 		return
@@ -403,14 +526,50 @@ func (s *session) toolUse(who *actor, b block, t time.Time) {
 	in := parseInput(b.Input)
 	room := roomOf(b.Name)
 	detail, git := detailOf(b.Name, in)
-	if isTodoTool(b.Name) {
-		s.todos = applyTodos(s.todos, b.Name, in)
+	var undo *todoState
+	key := 0
+	switch {
+	case b.Name == wrapTool && who.kind == kindClaude:
+		// The desktop app checks its plan off when the turn is wrapped up.
+		if s.todoTool == planTool && len(s.todos) > 0 {
+			undo = s.setTodos(todoState{todos: s.todos, todoTool: planTool, wrapped: true, hidden: s.hidden}, t)
+			if !s.hidden {
+				detail = doneCount(s.board())
+			}
+		}
+	case b.Name == "TaskCreate" || b.Name == "TaskUpdate":
+		// The Task list is the whole conversation's: anyone's calls change it.
+		// On the desktop app's plan it adds its tasks; the plan's steps (no
+		// numbers) keep it a plan, a wrapped-up one counting as done.
+		next := todoState{todoTool: b.Name}
+		base := s.todos
+		if s.todoTool == planTool {
+			base = s.board()
+			if s.hidden {
+				base = numbered(base) // a plan put away is not brought back by tasks
+			}
+		}
+		next.todos = applyTodos(base, b.Name, in)
+		if s.todoTool == planTool && len(numbered(next.todos)) < len(next.todos) {
+			next.todoTool = planTool
+		}
+		if b.Name == "TaskCreate" && len(next.todos) > 0 {
+			s.todoKeys++
+			key = s.todoKeys
+			next.todos[len(next.todos)-1].key = key // a fresh copy: applyTodos made it
+		}
+		undo = s.setTodos(next, t)
+		detail = doneCount(s.todos)
+	case isTodoTool(b.Name) && who.kind == kindClaude:
+		// TodoWrite lists and the plan are each agent's own (the app refuses
+		// subagents the plan).
+		undo = s.setTodos(todoState{todos: applyTodos(s.todos, b.Name, in), todoTool: b.Name}, t)
 		detail = doneCount(s.todos)
 	}
 	who.thinking, who.turnEnded = false, false
 	who.tools++
 	who.room = room
-	s.tools[b.ID] = &openTool{actor: who.id, name: b.Name, room: room, detail: detail, git: git, start: t}
+	s.tools[b.ID] = &openTool{actor: who.id, name: b.Name, room: room, detail: detail, git: git, start: t, undo: undo, key: key}
 	who.open = append(who.open, b.ID)
 	if len(who.open) > maxOpen {
 		delete(s.tools, who.open[0])
@@ -487,6 +646,15 @@ func (s *session) user(r *row, who *actor, t time.Time) {
 		s.notified(n, t)
 		return
 	}
+	if strings.HasPrefix(strings.TrimSpace(text), "<") {
+		// The desktop app puts its reminders before what the user typed.
+		for _, b := range bs {
+			if b.Type == "text" && !strings.HasPrefix(strings.TrimSpace(b.Text), "<") {
+				text = b.Text
+				break
+			}
+		}
+	}
 	// A subagent's prompt is Claude's, not the user's; meta rows and the
 	// summary after a compaction are Claude Code's own.
 	if who.kind != kindClaude || r.IsMeta || r.IsCompactSummary {
@@ -503,6 +671,14 @@ func (s *session) user(r *row, who *actor, t time.Time) {
 		s.closeAll(who)
 		s.turnEnd(who, t)
 		return
+	}
+	if who.turnEnded && s.todoTool == planTool && len(s.todos) > 0 && !s.hidden {
+		// A new turn starts with a clean whiteboard, as in the desktop app (a
+		// message sent while Claude works keeps it). The plan is put away, not
+		// thrown away: a later plan call may go on with it.
+		next := s.todoState
+		next.hidden = true
+		s.setTodos(next, t)
 	}
 	s.me.saidAt = s.shownFrom(t)
 	who.turnEnded = false
@@ -539,6 +715,30 @@ func (s *session) toolResult(who *actor, r *row, b block, t time.Time) {
 	s.emit(ev)
 	if ot == nil {
 		return
+	}
+	switch {
+	case ot.undo != nil && kind != "ok" && ot.undo.todoGen == s.todoGen:
+		s.undoTodos(ot.undo) // refused or failed: the whiteboard is as it was
+	case ot.key > 0 && kind != "ok":
+		// A refused TaskCreate that is no longer the newest change takes back
+		// just its task.
+		s.taskChanged(ot.key, func(*Todo) bool { return false }, t)
+	case ot.key > 0:
+		// Claude Code numbers the tasks: a list read from the middle of a
+		// transcript, or after deletions, does not count from #1.
+		if n := createdTask(r.ToolUseResult, text); n > 0 {
+			s.taskChanged(ot.key, func(td *Todo) bool { td.id = n; return true }, t)
+		}
+	case ot.name == "TaskList" && kind == "ok":
+		if tasks, ok := taskList(r.ToolUseResult); ok {
+			// The whole Task list, as Claude Code has it; a plan's steps stay.
+			next := todoState{todos: tasks, todoTool: ot.name}
+			if steps := unnumbered(s.board()); s.todoTool == planTool && !s.hidden && len(steps) > 0 {
+				next.todos = trimTodos(append(steps, tasks...))
+				next.todoTool = planTool
+			}
+			s.setTodos(next, t)
+		}
 	}
 	switch {
 	case isAgentTool(ot.name):
@@ -814,7 +1014,7 @@ func (s *session) stateOf(a *actor, now time.Time) (v ActorView, since time.Time
 func (s *session) refresh(now time.Time, accountIndex func(string) int, me string) bool {
 	info := s.info
 	v := &View{ID: s.id, Floor: info.floor, Path: info.cwd, Source: info.source(), Account: info.account,
-		Live: info.live, Status: info.status, Todos: append([]Todo{}, s.todos...), Say: s.say, Actors: []ActorView{}}
+		Live: info.live, Status: info.status, Todos: s.boardAt(now), Say: s.say, Actors: []ActorView{}}
 	v.AccountIndex = accountIndex(v.Account)
 	if v.Path == "" {
 		v.Path = s.cwd

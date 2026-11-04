@@ -60,8 +60,10 @@
       spot('meeting', 3, 9, 'ne', 'sit'), spot('meeting', 3, 6, 'sw', 'sit'), spot('meeting', 4, 7, 'nw', 'sit'), spot('meeting', 2, 9, 'ne', 'sit')],
     desk: [spot('desk', 7, 8, 'se', 'stand', { px: 7.6, py: 8.55 }), spot('desk', 7, 9, 'se'), spot('desk', 8, 10, 'ne')],
     seat: [spot('seat', 12, 8, 'nw'), spot('seat', 11, 10, 'ne'), spot('seat', 12, 9, 'nw'), spot('seat', 10, 10, 'ne')],
-    lounge: [spot('lounge', 2, 11, 'sw', 'sit', { sofa: true }), spot('lounge', 1, 13, 'se', 'sit', { sofa: true }),
-      spot('lounge', 3, 11, 'sw', 'sit', { sofa: true }), spot('lounge', 1, 12, 'se', 'sit', { sofa: true }),
+    // Claude takes the first free sofa: the end by the door, so it does not
+    // walk across the other one.
+    lounge: [spot('lounge', 3, 11, 'sw', 'sit', { sofa: true }), spot('lounge', 1, 13, 'se', 'sit', { sofa: true }),
+      spot('lounge', 2, 11, 'sw', 'sit', { sofa: true }), spot('lounge', 1, 12, 'se', 'sit', { sofa: true }),
       spot('lounge', 1, 15, 'nw', 'stand', { coffee: true }), spot('lounge', 4, 13, 'nw'), spot('lounge', 1, 14, 'nw', 'stand', { coffee: true })],
     elevator: [spot('elevator', 15, 1, 'ne'), spot('elevator', 18, 1, 'nw'), spot('elevator', 15, 3, 'ne'), spot('elevator', 19, 2, 'nw')],
   };
@@ -69,9 +71,17 @@
   function freeSpots() { for (const list of Object.values(SPOTS)) for (const s of list) s.by = null; }
   const SEAT_MAIN = spot('seat', 10, 8, 'sw', 'sit', { px: 11, py: 8.45, main: true });
   const SEAT_ME = spot('desk', 8, 8, 'sw', 'sit', { px: 9, py: 8.45, me: true });
+  // The tiles of every spot, with their chairs and sofas: a crowd's overflow
+  // stands elsewhere.
+  const SPOT_TILES = new Set([...Object.values(SPOTS).flat(), SEAT_MAIN, SEAT_ME].flatMap((s) => [s.x + ',' + s.y, Math.floor(s.px) + ',' + Math.floor(s.py)]));
   const LIFT_DOOR = [17, 0.3];
   // Where people step into the elevator to leave (anyone may stand there).
   const DOOR = spot('elevator', 17, 0, 'ne', 'stand', { px: LIFT_DOOR[0], py: LIFT_DOOR[1], door: true });
+  // Inside the elevator car, behind the doors (y < 0): where newcomers wait
+  // for the doors to open and where people leaving turn round. Up to three
+  // stand side by side, in the middle of what the open doors show at that
+  // depth (a point at y < 0 shows further right).
+  const CAR_Y = -0.55, CAR_X = [16.7, 16.3, 17.1];
 
   // ---- looks ---------------------------------------------------------------------------
   // Claude wears its baton account's color (by account order); a session
@@ -196,6 +206,7 @@
     if (/^(Edit|Write|MultiEdit|NotebookEdit)$/.test(tool)) return 'dev';
     if (/^(Bash|PowerShell|BashOutput|KillShell|Monitor|TaskStop)$/.test(tool)) return 'server';
     if (tool === 'mcp__ccd_turn__update_plan') return 'meeting';
+    if (tool === 'mcp__ccd_turn__wrap_up') return 'seat';
     if (/^(WebFetch|WebSearch)$/.test(tool) || tool.startsWith('mcp__')) return 'search';
     if (/^(TodoWrite|TaskCreate|TaskUpdate|TaskList|TaskGet|EnterPlanMode|Workflow|Skill)$/.test(tool)) return 'meeting';
     if (/^(AskUserQuestion|ExitPlanMode)$/.test(tool)) return 'desk';
@@ -211,7 +222,8 @@
   let root = null, els = {};
   let shown = false, destroyed = false;
   let P = DAY, themeKey = 'day';
-  const dark = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+  // Night falls with the window's dark colours (theme.js sets data-theme).
+  new MutationObserver(() => theme()).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   let seq = 0, skew = 0, me = '', building = null, view = null, acctOrder = [];
   let follow = true, pinned = '';
@@ -348,8 +360,10 @@
   for (let x = 16; x < 20; x++) prop('rack', x, 5, 1, 1, 90, { front: 'y' });
   prop('mtable', 2, 7, 2, 2, 40);
   prop('plant', 5, 10, 1, 1, 46, { kind: 'bush' });
-  prop('sofa', 2, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'l', depth: 13.5 });
-  prop('sofa', 3, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'r', depth: 14.5 });
+  // The sofas along the meeting room's partition come after it (or it would
+  // hide their backs) and before whoever sits on them.
+  prop('sofa', 2, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'l', depth: 13.6 });
+  prop('sofa', 3, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'r', depth: 14.6 });
   prop('sofa', 1, 12, 1, 1, 26, { solid: false, face: 'se', end: 'l', depth: 13.5 });
   prop('sofa', 1, 13, 1, 1, 26, { solid: false, face: 'se', end: 'r', depth: 14.5 });
   prop('ctable', 2, 12, 2, 2, 24);
@@ -376,9 +390,12 @@
       if (s.pose !== 'sit' || s.sofa) continue;
       const away = s.face === 'ne' || s.face === 'nw';
       prop('chair', s.px, s.py, 0, 0, 30, { id: 'chair@' + s.px + ',' + s.py, solid: false, face: s.face, depth: s.px + s.py - 0.02 });
-      prop('chairback', s.px, s.py, 0, 0, 30, { id: 'chairback@' + s.px + ',' + s.py, solid: false, face: s.face, depth: s.px + s.py + (away ? 0.02 : -0.03) });
+      prop('chairback', s.px, s.py, 0, 0, 30, { id: 'chairback@' + s.px + ',' + s.py, solid: false, face: s.face, depth: s.px + s.py + (away ? 0.02 : -0.01) });
     }
   }
+  // Nobody walks over the user: the tile on our side of their chair is
+  // taken. People pass on the far side, where they are drawn under the user.
+  blocked[Math.floor(SEAT_ME.py) * GW + Math.floor(SEAT_ME.px)] = 1;
   // Wall segments sort with everything else, one tile edge at a time.
   const segs = [];
   for (const [axis, at, from, to, door, glass] of WALLS) {
@@ -846,8 +863,11 @@
     g.save();
     g.translate(wx, wy);
     g.globalAlpha = a.alpha;
-    if (L.claude) ellipse(g, 0, 0, 14, 6, null, L.color, 1.4);
-    ellipse(g, 0, 0.5, 10.5, 4.4, 'rgba(0,0,0,.16)');
+    // The ring and the shadow lie on what one stands or sits on: a sofa's
+    // cushion is higher than the floor.
+    const seat = sit && a.sofa ? -10 : 0;
+    if (L.claude) ellipse(g, 0, seat, 14, 6, null, L.color, 1.4);
+    ellipse(g, 0, seat + 0.5, 10.5, 4.4, 'rgba(0,0,0,.16)');
     if (flip) g.scale(-1, 1);
     const ph = a.phase;
     const bob = walking ? -Math.abs(Math.sin(ph)) * 1.8 : Math.sin(tt * 2.1 + L.seed) * 0.4;
@@ -1030,10 +1050,37 @@
       a.settled = settleKey(s);
       pose(a);
     } else {
-      a.alpha = 0; a.fade = 1; lift.hold(performance.now());
-      a.queue.push({ act: 'arrive', flash: ['note', t('office_b_hello'), 2.6] });
+      // Newcomers come up in the elevator car and step out once the doors
+      // open; several at once leave the car one after another. One who comes
+      // while the doors are open fades in.
+      const n = carMates(a), now = performance.now();
+      a.x = carSlot(a); a.y = CAR_Y; a.car = 'in'; a.carAt = now + 450;
+      if (lift.open > 0.02) { a.alpha = 0; a.fade = 1; }
+      if (now >= lift.arrowUntil || lift.arrow === '▲') { lift.arrow = '▲'; lift.arrowUntil = Math.max(lift.arrowUntil, a.carAt); } // a ride's arrow stays
+      a.queue.push({ act: 'arrive', flash: ['note', t('office_b_hello'), 2.6], dwell: 850 + 400 * n });
     }
     return a;
+  }
+  // inCar: someone in the elevator car, or stepping in.
+  const inCar = (o) => o.car === 'in' || o.car === 'enter' || o.car === 'ride' || (o.car === 'out' && o.y < 0);
+  // carMates: how many others are in the elevator car.
+  function carMates(a) {
+    let n = 0;
+    for (const o of actors.values()) if (o !== a && inCar(o)) n++;
+    return n;
+  }
+  // carSlot: the first place in the car nobody stands on or walks to.
+  function carSlot(a) {
+    const taken = new Set();
+    for (const o of actors.values()) {
+      if (o === a || !inCar(o)) continue;
+      const p = o.car === 'enter' && o.path.length ? o.path[o.path.length - 1] : [o.x, o.y];
+      let best = 0;
+      CAR_X.forEach((x, i) => { if (Math.abs(x - p[0]) < Math.abs(CAR_X[best] - p[0])) best = i; });
+      taken.add(best);
+    }
+    const i = CAR_X.findIndex((_, k) => !taken.has(k));
+    return CAR_X[i >= 0 ? i : carMates(a) % CAR_X.length];
   }
   function dropActor(a) {
     release(a);
@@ -1070,7 +1117,7 @@
     const r = rng(hash(a.id + room + Date.now()));
     for (let k = 0; k < 30; k++) {
       const x = z[0] + ((r() * (z[2] - z[0])) | 0), y = z[1] + ((r() * (z[3] - z[1])) | 0);
-      if (!freeTile(x, y)) continue;
+      if (!freeTile(x, y) || SPOT_TILES.has(x + ',' + y)) continue;
       const cx = (z[0] + z[2]) / 2, cy = (z[1] + z[3]) / 2;
       return spot(room, x, y, faceOf(cx - x - 0.5, cy - y - 0.5), 'stand', { loose: true });
     }
@@ -1094,6 +1141,8 @@
       const [p0, p1] = a.path;
       if ((p0[0] - a.x) * (p1[0] - p0[0]) + (p0[1] - a.y) * (p1[1] - p0[1]) < 0) a.path.shift();
     }
+    // Out of the elevator car first, straight through the doors.
+    if (a.y < 0) a.path.unshift([clamp(a.x, 16.5, 17.5), 0.45]);
   }
   function flash(a, kind, text, secs, now) {
     a.flash = { kind, text: text || '', until: now + secs * 1000 };
@@ -1167,6 +1216,7 @@
     const sp = a.spot;
     const at = sp && Math.hypot(a.x - sp.px, a.y - sp.py) < 0.05;
     a.body = at && sp.pose === 'sit' ? 'sit' : 'stand';
+    a.sofa = !!(at && sp.sofa); // what one sits on, not where one is going
     let arms = 'down';
     const room = sp ? sp.room : '';
     switch (s.act) {
@@ -1208,14 +1258,28 @@
       if (a.alpha >= 1 && a.fade > 0) a.fade = 0;
       if (a.alpha <= 0 && a.fade < 0) { a.gone = true; return; }
     }
-    if (a.exiting) return; // fading out inside the elevator
+    // The elevator car: newcomers wait in it for the doors to open; people
+    // leaving step in, turn round and are gone once the doors close.
+    if (a.car === 'in') {
+      if (lift.open < 0.9 || now < a.carAt) return;
+      a.car = 'out';
+    }
+    if (a.car === 'enter') {
+      walk(a, dt);
+      if (!a.path.length) { a.moving = false; a.car = 'ride'; a.face = 'sw'; a.carAt = now; }
+      return;
+    }
+    if (a.car === 'ride') {
+      if (lift.open < 0.02 && now - a.carAt > 900) a.gone = true;
+      else if (now - a.carAt > 8000 && !a.fade) a.fade = -1; // the doors are kept busy: just go
+      return;
+    }
+    if (a.car === 'out' && a.y >= 0 && (a.y > 1.2 || !a.path.length)) a.car = null;
     if (a.path.length) {
       // A walk to where the snapshot says gives way to new work at once.
       if (a.cur && a.cur.settle && a.queue.length && !a.leaving) { a.path = []; a.moving = false; a.cur = null; }
       else {
         walk(a, dt);
-        // The doors open for whoever walks up to them.
-        if (a.leaving && Math.hypot(a.x - LIFT_DOOR[0], a.y - LIFT_DOOR[1]) < 2.2) lift.hold(now);
         if (!a.path.length) { a.moving = false; if (a.spot) a.face = a.spot.face; arrive(a, now); }
         return;
       }
@@ -1224,7 +1288,10 @@
     if (a.cur && !a.cur.arrived) arrive(a, now);
     if (a.cur && now < a.cur.until) return;
     if (a.leaving && a.spot === DOOR && a.cur && a.cur.act === 'leave') {
-      a.exiting = true; a.fade = -1; lift.hold(now); // step in and vanish
+      // At the doors: wait for them to open, then step into the car.
+      if (lift.open < 0.9) return;
+      a.car = 'enter';
+      a.path = [[carSlot(a), CAR_Y]];
       return;
     }
     // Too much queued: skip ahead, keeping the latest few steps (and leaving).
@@ -1235,10 +1302,28 @@
   }
 
   // ---- the elevator ----------------------------------------------------------------------
-  const lift = {
-    open: 0, until: 0, arrow: '', arrowUntil: 0, floor: 0,
-    hold(now) { this.until = Math.max(this.until, now + 2200); },
-  };
+  const lift = { open: 0, arrow: '', arrowUntil: 0, floor: 0 };
+  // liftWanted: the doors stay open while anyone waits in the car to step
+  // out, walks out or in through them, walks up to leave, or has just
+  // stepped in and turns round.
+  function liftWanted(now) {
+    for (const a of actors.values()) {
+      if (a.wait > 0 || a.gone) continue;
+      switch (a.car) {
+        case 'in': if (now >= a.carAt) return true; break;
+        case 'out': if (a.y < 0 || (a.path.length && a.y < 1.2)) return true; break;
+        case 'enter': return true;
+        case 'ride': if (now - a.carAt < 600) return true; break;
+        default: if (a.leaving && Math.hypot(a.x - LIFT_DOOR[0], a.y - LIFT_DOOR[1]) < 2.2) return true;
+      }
+    }
+    return false;
+  }
+  // The doors slide at the same pace whatever the frame rate.
+  function moveLift(dt, now) {
+    const step = 1.6 * dt;
+    lift.open = clamp(lift.open + clamp((liftWanted(now) ? 1 : 0) - lift.open, -step, step), 0, 1);
+  }
 
   // ---- reading the server's answer -------------------------------------------------------
   function apply(r) {
@@ -1549,14 +1634,31 @@
     g.save(); g.globalCompositeOperation = 'lighter'; g.fillStyle = grad;
     g.fillRect(c[0] - r, c[1] - r, r * 2, r * 2); g.restore();
   }
+  // The elevator car behind the doors: its back and left walls, its floor,
+  // a warm light and whoever is in it (drawn clipped to the open doors).
+  const CAR = { x0: 15.75 + 6 / HW, x1: 15.75 + (2.5 * HW - 6) / HW, back: -0.95, ht: 67 };
+  function drawCar(g, now) {
+    const { x0, x1, back, ht } = CAR;
+    poly(g, [pt(x0, back, 0), pt(x1, back, 0), pt(x1, back, ht), pt(x0, back, ht)], P.liftIn);
+    poly(g, [pt(x0, back, 0), pt(x0, 0, 0), pt(x0, 0, ht), pt(x0, back, ht)], shade(P.liftIn, -0.1));
+    floorQuad(g, x0, back, x1, 0, shade(P.liftIn, -0.16));
+    poly(g, [pt(x0, back, 0), pt(x1, back, 0), pt(x1, back, ht), pt(x0, back, ht)], 'rgba(255,220,150,.22)');
+    const riders = [...actors.values()].filter((a) => a.y < 0).sort((p, q) => (p.x + p.y) - (q.x + q.y));
+    for (const a of riders) drawPerson(g, a, now);
+  }
   function drawWallLive(g, now) {
-    // Elevator doors and the floor panel over them.
-    const want = now < lift.until ? 1 : 0;
-    lift.open += clamp(want - lift.open, -0.05, 0.05);
+    // Elevator doors and the floor panel over them; between the doors, the car.
+    const world = g.getTransform();
     g.save(); onFaceY(g, 15.75, 0, 76);
     const L = 6, R = 2.5 * HW - 6, mid = (L + R) / 2, half = (R - L) / 2, o = lift.open * half * 0.92;
     g.fillStyle = P.liftIn; g.fillRect(L, 9, R - L, 67);
-    if (lift.open > 0.02) { g.fillStyle = 'rgba(255,220,150,.25)'; g.fillRect(mid - o, 9, o * 2, 67); }
+    if (lift.open > 0.02) {
+      g.save();
+      g.beginPath(); g.rect(mid - o, 9, o * 2, 67); g.clip();
+      g.setTransform(world);
+      drawCar(g, now);
+      g.restore();
+    }
     g.fillStyle = P.lift;
     g.fillRect(L, 9, half - o, 67); g.fillRect(mid + o, 9, half - o, 67);
     g.fillStyle = P.liftLine;
@@ -1583,8 +1685,21 @@
     g.save(); onWallL(g, 10.45, 76);
     g.font = '700 6.5px ' + FONT; g.textBaseline = 'middle'; g.textAlign = 'left';
     g.fillStyle = P.ink2; g.fillText('TODO', 7, 9);
+    // A long list shows five rows around the step at hand, from the first
+    // one not done if it fits; the header says how many are done in all, and
+    // how many open ones are above the rows.
+    const open = todos.findIndex((td) => td.status !== 'completed');
+    let at = todos.findIndex((td) => td.status === 'in_progress');
+    if (at < 0) at = open;
+    const from = Math.max(0, Math.min(at - 1, Math.max(open, at - 4), todos.length - 5));
+    if (todos.length > 5) {
+      const above = todos.slice(0, from).filter((td) => td.status !== 'completed').length;
+      g.fillStyle = P.inkDone;
+      g.fillText(todos.filter((td) => td.status === 'completed').length + '/' + todos.length + (above ? '  ↑' + above : ''),
+        7 + g.measureText('TODO').width + 4, 9);
+    }
     g.font = '6px ' + FONT;
-    todos.slice(0, 5).forEach((td, i) => {
+    todos.slice(from, from + 5).forEach((td, i) => {
       const y = 17 + i * 6.4, done = td.status === 'completed', cur = td.status === 'in_progress';
       g.strokeStyle = done ? P.inkDone : P.ink; g.lineWidth = 0.7; g.strokeRect(7, y - 2, 4, 4);
       if (done) line(g, [7.6, y], [9.6, y + 1.5], P.inkDone, 0.9);
@@ -1593,7 +1708,8 @@
       g.fillText(td.text || '', 14, y + 0.2, 3.9 * HW - 22);
       if (done) line(g, [14, y + 0.2], [14 + Math.min(g.measureText(td.text || '').width, 3.9 * HW - 22), y + 0.2], P.inkDone, 0.5);
     });
-    if (todos.length > 5) { g.fillStyle = P.inkDone; g.fillText('+' + (todos.length - 5), 14, 17 + 5 * 6.4); }
+    const below = todos.length - from - 5;
+    if (below > 0) { g.fillStyle = P.inkDone; g.fillText('+' + below, 14, 17 + 5 * 6.4); }
     g.restore();
   }
 
@@ -1617,7 +1733,9 @@
       const dt = Math.min(0.1, (now - (lastTs || now)) / 1000);
       lastTs = now;
       for (const a of [...actors.values()]) { tick(a, dt, now); if (a.gone) dropActor(a); }
-      const moving = [...actors.values()].some((a) => a.moving || a.fade);
+      const was = lift.open;
+      moveLift(dt, now);
+      const moving = lift.open !== was || [...actors.values()].some((a) => a.moving || a.fade);
       if (moving || now - lastDraw > 30) { draw(now); lastDraw = now; }
       if (now - lastPanel > 1000) { lastPanel = now; renderPanel(); renderSide(); }
     } finally {
@@ -1635,7 +1753,7 @@
     g.setTransform(cam.S, 0, 0, cam.S, cam.tx, cam.ty);
     drawWallLive(g, now);
     const list = statics.slice();
-    for (const a of actors.values()) list.push({ depth: a.x + a.y + 0.01, a });
+    for (const a of actors.values()) if (a.y >= 0) list.push({ depth: a.x + a.y + 0.01, a }); // the car's riders are drawn with it
     list.sort((p, q) => p.depth - q.depth);
     for (const it of list) {
       if (it.a) { drawPerson(g, it.a, now); continue; }
@@ -1734,7 +1852,7 @@
       if (nk !== d.nameKey) { d.nameKey = nk; d.name.textContent = nameOf(a.snap); d.dot.style.background = a.look.color; }
       const head = a.body === 'sit' && !a.moving ? 56 : 52;
       const [sx, sy] = toScreen(...pt(a.x, a.y, head));
-      const visible = a.alpha > 0.25 && sx > -150 && sy > -100 && sx < cam.w + 150 && sy < cam.h + 260;
+      const visible = a.alpha > 0.25 && !(a.y < 0 && lift.open < 0.5) && sx > -150 && sy > -100 && sx < cam.w + 150 && sy < cam.h + 260;
       const pos = visible ? Math.round(sx) + ',' + Math.round(sy) + ',' + Math.round((a.x + a.y) * 10) : 'off';
       if (pos !== d.pos) {
         d.pos = pos;
@@ -2125,7 +2243,6 @@
     }, { passive: false });
     canvas.addEventListener('dblclick', () => resetCam());
     document.addEventListener('visibilitychange', () => { if (destroyed) return; if (running()) start(); else stop(); });
-    if (dark) dark.addEventListener('change', () => theme());
   }
   function canFocusActor(a) { return a.kind === 'claude' && !a.ghost && view && view.window && view.run_id && opts.focus; }
   function hit(e) {
@@ -2133,14 +2250,14 @@
     const [wx, wy] = toWorld(e.clientX - r.left, e.clientY - r.top);
     let best = null;
     for (const a of actors.values()) {
-      if (a.alpha < 0.5) continue;
+      if (a.alpha < 0.5 || (a.y < 0 && lift.open < 0.5)) continue; // behind closed elevator doors
       const [ax, ay] = pt(a.x, a.y);
       if (wx > ax - 12 && wx < ax + 12 && wy > ay - 50 && wy < ay + 4 && (!best || a.x + a.y > best.x + best.y)) best = a;
     }
     return best;
   }
   function theme() {
-    const night = !!(dark && dark.matches);
+    const night = document.documentElement.dataset.theme === 'dark';
     P = night ? NIGHT : DAY;
     themeKey = night ? 'night' : 'day';
     sprites.clear();

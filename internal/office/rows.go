@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -157,6 +158,10 @@ const (
 // tools it is planning, not looking things up.
 const planTool = "mcp__ccd_turn__update_plan"
 
+// wrapTool closes a desktop app turn, and with it checks off the whole plan
+// (no plan call says so).
+const wrapTool = "mcp__ccd_turn__wrap_up"
+
 // roomOf is where a tool is used: reading in the library, changing code in
 // the dev room, commands in the server room, the web and MCP tools in the
 // search room, planning in the meeting room, questions at the user's desk.
@@ -175,6 +180,8 @@ func roomOf(tool string) string {
 		return roomMeeting
 	case "AskUserQuestion", "ExitPlanMode":
 		return roomDesk
+	case wrapTool:
+		return roomSeat // the turn is wrapped up at Claude's own desk
 	}
 	if strings.HasPrefix(tool, "mcp__") {
 		return roomSearch
@@ -249,7 +256,7 @@ func detailOf(tool string, in *toolInput) (detail string, git bool) {
 	case "Workflow":
 		return baseName(in.ScriptPath), false
 	}
-	if strings.HasPrefix(tool, "mcp__") && tool != planTool {
+	if strings.HasPrefix(tool, "mcp__") && tool != planTool && tool != wrapTool {
 		server, name, _ := strings.Cut(strings.TrimPrefix(tool, "mcp__"), "__")
 		return short(server+"/"+name, 60), false
 	}
@@ -315,10 +322,14 @@ func waitTool(w string) string {
 type Todo struct {
 	Text   string `json:"text"`
 	Status string `json:"status"` // pending | in_progress | completed
-	id     int    // a task's number: TaskCreate numbers them from 1 (TodoWrite's items have none)
+	id     int    // a task's number, as Claude Code gives it (TodoWrite's items and plan steps have none)
+	key    int    // the TaskCreate call that put it here (its result has the task's number)
 }
 
-const maxTodos = 50
+const (
+	maxTodos     = 50
+	maxPlanSteps = 12 // the desktop app keeps this many steps of a plan
+)
 
 // todoStatus keeps the three states the whiteboard knows.
 func todoStatus(s string) string {
@@ -330,9 +341,9 @@ func todoStatus(s string) string {
 }
 
 // applyTodos changes the list the way a todo tool call does and returns it.
-// TodoWrite and the plan tool's items replace it; the plan tool's advance,
-// done and start move its steps; TaskCreate adds a task and TaskUpdate
-// changes one (tasks are numbered from 1 in the order they were made).
+// TodoWrite and the plan tool's items replace it; the plan tool's done,
+// start and advance move its steps, the way the desktop app does; TaskCreate
+// adds a task and TaskUpdate changes one, by Claude Code's numbers.
 func applyTodos(list []Todo, tool string, in *toolInput) []Todo {
 	switch tool {
 	case "TodoWrite":
@@ -342,31 +353,17 @@ func applyTodos(list []Todo, tool string, in *toolInput) []Todo {
 		}
 	case planTool:
 		if len(in.Items) > 0 {
+			// The app drops steps with no words, and keeps the first twelve
+			// (so done and start count the same steps).
 			list = nil
 			for _, t := range in.Items {
-				list = append(list, Todo{Text: short(t.Content, 120), Status: todoStatus(t.Status)})
+				if text := short(t.Content, 120); text != "" && len(list) < maxPlanSteps {
+					list = append(list, Todo{Text: text, Status: todoStatus(t.Status)})
+				}
 			}
 			break
 		}
 		list = append([]Todo(nil), list...)
-		if in.Advance {
-			next := -1
-			for i := range list {
-				if list[i].Status == "in_progress" {
-					list[i].Status = "completed"
-					next = i + 1
-				}
-			}
-			if next < 0 {
-				next = 0
-			}
-			for i := next; i < len(list); i++ {
-				if list[i].Status == "pending" {
-					list[i].Status = "in_progress"
-					break
-				}
-			}
-		}
 		for _, n := range in.Done {
 			if n >= 1 && n <= len(list) {
 				list[n-1].Status = "completed"
@@ -375,21 +372,38 @@ func applyTodos(list []Todo, tool string, in *toolInput) []Todo {
 		if in.Start >= 1 && in.Start <= len(list) {
 			list[in.Start-1].Status = "in_progress"
 		}
+		if in.Advance && len(list) > 0 {
+			// The step at hand is done, and the next one waiting starts: after
+			// it, else from the top.
+			at := -1
+			for i := range list {
+				if list[i].Status == "in_progress" {
+					at = i
+					list[i].Status = "completed"
+					break
+				}
+			}
+			for k := range list {
+				if i := (at + 1 + k) % len(list); list[i].Status == "pending" {
+					list[i].Status = "in_progress"
+					break
+				}
+			}
+		}
 	case "TaskCreate":
+		// Numbered after the newest task seen; its result has the number Claude
+		// Code gave it. A finished list makes way for the new one.
 		top := 0
 		for _, t := range list {
 			top = max(top, t.id)
 		}
+		if allDone(list) {
+			list = nil
+		}
 		list = append(append([]Todo(nil), list...), Todo{Text: short(in.Subject, 120), Status: "pending", id: top + 1})
 	case "TaskUpdate":
 		list = append([]Todo(nil), list...)
-		n := 0
-		switch v := in.TaskID.(type) {
-		case string:
-			n, _ = strconv.Atoi(strings.TrimPrefix(v, "#"))
-		case float64:
-			n = int(v)
-		}
+		n := taskNum(in.TaskID)
 		for i := range list {
 			if list[i].id != n || n == 0 {
 				continue
@@ -407,14 +421,116 @@ func applyTodos(list []Todo, tool string, in *toolInput) []Todo {
 			break
 		}
 	}
-	if len(list) > maxTodos {
-		list = list[:maxTodos]
+	return trimTodos(list)
+}
+
+// trimTodos keeps a list to maxTodos: finished items go first, then the oldest.
+func trimTodos(list []Todo) []Todo {
+	if len(list) <= maxTodos {
+		return list
+	}
+	list = append([]Todo(nil), list...)
+	for len(list) > maxTodos {
+		i := 0
+		for j, t := range list {
+			if t.Status == "completed" {
+				i = j
+				break
+			}
+		}
+		list = append(list[:i], list[i+1:]...)
 	}
 	return list
 }
 
-// doneCount says how far a todo list is: "3/5 done".
+// withTask changes the task a TaskCreate call put on a list, if it is there
+// (nil drops it); the list is copied first, as lists are shared.
+func withTask(list []Todo, key int, change func(*Todo) bool) []Todo {
+	for i := range list {
+		if list[i].key != key {
+			continue
+		}
+		list = append([]Todo(nil), list...)
+		if !change(&list[i]) {
+			list = append(list[:i], list[i+1:]...)
+		}
+		break
+	}
+	return list
+}
+
+// allDone says whether a list has items and every one is completed.
+func allDone(list []Todo) bool {
+	for _, t := range list {
+		if t.Status != "completed" {
+			return false
+		}
+	}
+	return len(list) > 0
+}
+
+// taskNum reads a task's number: "7", "#7" or 7.
+func taskNum(v any) int {
+	switch v := v.(type) {
+	case string:
+		n, _ := strconv.Atoi(strings.TrimPrefix(v, "#"))
+		return n
+	case float64:
+		return int(v)
+	}
+	return 0
+}
+
+var createdRx = regexp.MustCompile(`Task #(\d+) created`)
+
+// createdTask is the number Claude Code gave a new task: its result's
+// task.id, else what the result's text says.
+func createdTask(toolUseResult json.RawMessage, text string) int {
+	var r struct {
+		Task struct {
+			ID any `json:"id"`
+		} `json:"task"`
+	}
+	if raw := trimJSON(toolUseResult); len(raw) > 0 && raw[0] == '{' && json.Unmarshal(raw, &r) == nil {
+		if n := taskNum(r.Task.ID); n > 0 {
+			return n
+		}
+	}
+	if m := createdRx.FindStringSubmatch(text); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+	return 0
+}
+
+// taskList is the whole task list a TaskList result shows, by Claude Code's
+// numbers (ok is false for a result that has none).
+func taskList(toolUseResult json.RawMessage) (list []Todo, ok bool) {
+	var r struct {
+		Tasks *[]struct {
+			ID      any    `json:"id"`
+			Subject string `json:"subject"`
+			Status  string `json:"status"`
+		} `json:"tasks"`
+	}
+	raw := trimJSON(toolUseResult)
+	if len(raw) == 0 || raw[0] != '{' || json.Unmarshal(raw, &r) != nil || r.Tasks == nil {
+		return nil, false
+	}
+	for _, t := range *r.Tasks {
+		if n := taskNum(t.ID); n > 0 {
+			list = append(list, Todo{Text: short(t.Subject, 120), Status: todoStatus(t.Status), id: n})
+		}
+	}
+	sort.SliceStable(list, func(i, j int) bool { return list[i].id < list[j].id })
+	return trimTodos(list), true
+}
+
+// doneCount says how far a todo list is: "3/5 done" (nothing for no list).
 func doneCount(list []Todo) string {
+	if len(list) == 0 {
+		return ""
+	}
 	n := 0
 	for _, t := range list {
 		if t.Status == "completed" {

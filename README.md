@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.7.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.7.2-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -205,7 +205,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.7.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.7.2_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -244,7 +244,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.2
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -335,6 +335,8 @@ Claude Code reads every word that follows as one of their values.
 | `keep_awake` | keep the PC from sleeping by itself while a session works or waits for a limit to reset (default `true`) |
 | `office` | show the Office tab: Claude's work, live, as people in an office (default `false`) |
 | `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
+| `gui_language` | the window's language: `auto` (as Windows has it), `ko` or `en` |
+| `gui_theme` | the window's colours: `auto` (as Windows has them), `light` or `dark`; also in the window's header |
 
 <details>
 <summary><b>Your Claude Code setup on every account</b></summary>
@@ -427,7 +429,10 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   Sessions tab says which. After a switch, the session comes back on the next account. The
   account you are signed in with on your phone is a good one to put first in the order, so
   sessions stay on it until its limit. Remote Control needs a Claude subscription, and an
-  organization can turn it off.
+  organization can turn it off. It is turned on per session when it starts (the Start dialog's
+  *Turn on Remote Control*, also when continuing a conversation from the list). For a session
+  that is already running, type `/remote-control` in its window: Claude Code then shows it, but
+  baton does not know, so it does not come back on after a switch.
 - **Notifications come from the session.** Each session's `baton run` sends its own Windows
   notifications, so they come with the baton window closed too: when it switches accounts,
   when every account is limited, when baton or Claude Code waits for your answer in the
@@ -538,7 +543,8 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - `/clear`, and resuming by id across accounts
 - bringing in a conversation that is open elsewhere, as a copy
 - baton's status line in a session, and a status line of your own left alone
-- Remote Control (`--rc`) kept on every launch, the switch included
+- Remote Control (`--rc`) kept on every launch, the switch included, and only on the session it
+  was turned on for
 - config sharing and Ctrl+C at the question
 - `baton stop`, also during the question and while a switch waits
 - folder rules, and reopening a cut-off session

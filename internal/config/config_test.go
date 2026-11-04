@@ -56,10 +56,28 @@ func TestSetterAndGet(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	for key, bad := range map[string]string{"on_exhausted": "later", "cooldown_seconds": "0", "share_user_config": "maybe",
-		"gui_language": "fr", "claude_path": `C:\nope\claude.exe`, "notifications": "some", "keep_awake": "yes please", "office": "fun", "nope": "x"} {
+		"gui_language": "fr", "gui_theme": "pink", "claude_path": `C:\nope\claude.exe`, "notifications": "some", "keep_awake": "yes please",
+		"office": "fun", "nope": "x"} {
 		if _, err := Setter(c, key, bad, false); err == nil {
 			t.Errorf("%s=%q accepted", key, bad)
 		}
+	}
+	// The window's colours: as Windows has them until chosen, and back.
+	if v, _ := Defaults().Get("gui_theme"); v != "auto" {
+		t.Fatalf("theme default: %s", v)
+	}
+	for _, v := range []string{" Dark ", "auto"} {
+		set, err = Setter(c, "gui_theme", v, false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		set(&c)
+		if err := c.Validate(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.GUITheme != "" {
+		t.Fatalf("theme after auto: %q", c.GUITheme)
 	}
 	set, _ = Setter(c, "allow_desktop_bundle", "false", false)
 	set(&c)

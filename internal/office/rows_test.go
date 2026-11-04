@@ -127,6 +127,12 @@ func TestRowsToEventsAndRooms(t *testing.T) {
 	if e := lastEvent(t, s); e.Kind != "prompt" || e.Actor != "me" || e.Detail != "고쳐 주세요: 테스트가 깨져요" {
 		t.Fatalf("prompt: %+v", e)
 	}
+	// The desktop app puts a reminder before what the user typed.
+	feed(s, now, k.user(0.05, []any{text("<system-reminder>\nToday is Monday.\n</system-reminder>"), text("이것도 봐 주세요")},
+		map[string]any{"promptSource": "sdk", "origin": map[string]any{"kind": "human"}}))
+	if e := lastEvent(t, s); e.Kind != "prompt" || e.Detail != "이것도 봐 주세요" {
+		t.Fatalf("desktop prompt: %+v", e)
+	}
 	// Claude Code's own rows are not the user's prompts.
 	n := len(s.events)
 	feed(s, now,
@@ -372,6 +378,412 @@ func TestTodos(t *testing.T) {
 		k.asst(8, "tool_use", use("toolu_u2", "TaskUpdate", map[string]any{"taskId": "2", "status": "in_progress"})))
 	if n := len(s.todos); n != 4 || s.todos[0].Text != "Look around" || s.todos[3].Text != "Port the GUI" || s.todos[3].Status != "in_progress" {
 		t.Fatalf("tasks: %+v", s.todos)
+	}
+}
+
+// feedAs runs rows through a session as one person's transcript.
+func feedAs(s *session, who *actor, now time.Time, rows ...string) {
+	for _, r := range rows {
+		for _, line := range strings.Split(strings.TrimSpace(r), "\n") {
+			if b := []byte(line); wanted(b) {
+				s.row(b, who, now)
+			}
+		}
+	}
+}
+
+func boardText(s *session, now time.Time) string {
+	var out []string
+	for _, td := range s.boardAt(now) {
+		out = append(out, td.Text+":"+td.Status)
+	}
+	return strings.Join(out, " ")
+}
+
+func plan(steps ...string) map[string]any {
+	var items []any
+	for i, st := range steps {
+		status := "pending"
+		if i == 0 {
+			status = "in_progress"
+		}
+		items = append(items, map[string]any{"content": st, "status": status})
+	}
+	return map[string]any{"items": items, "scope": "continuation"}
+}
+
+// The desktop app checks its plan off when the turn is wrapped up, and a
+// list whose every item is done leaves the whiteboard a moment later.
+func TestWrapUpChecksOffThePlan(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.asst(1, "tool_use", use("toolu_p1", planTool, plan("Look", "Fix", "Verify"))),
+		k.user(1.1, result("toolu_p1", "ok", false), nil),
+		k.asst(2, "tool_use", use("toolu_p2", planTool, map[string]any{"done": []int{1, 2}, "start": 3})),
+		k.user(2.1, result("toolu_p2", "ok", false), nil),
+		k.asst(3, "tool_use", use("toolu_w1", wrapTool, map[string]any{"recap": "All done."})))
+	if e := lastEvent(t, s); e.Room != roomSeat || e.Detail != "3/3 done" {
+		t.Fatalf("wrap_up event %+v", e)
+	}
+	if got := boardText(s, t0.Add(4*time.Second)); got != "Look:completed Fix:completed Verify:completed" {
+		t.Fatalf("wrapped board %q", got)
+	}
+	if s.todos[2].Status != "in_progress" {
+		t.Fatalf("the plan itself changed: %+v", s.todos)
+	}
+	feed(s, t0, k.user(3.1, result("toolu_w1", "ok", false), nil))
+	if got := boardText(s, t0.Add(3*time.Second+doneFor)); got != "" {
+		t.Fatalf("finished board still shown: %q", got)
+	}
+	s.refresh(t0.Add(9*time.Second), func(string) int { return 0 }, "me")
+	if len(s.view.Todos) != 0 {
+		t.Fatalf("view todos %+v", s.view.Todos)
+	}
+
+	// A plan call after a wrap_up in the same turn counts from the plan as it
+	// was (the app checks off only while the wrap_up is the newest).
+	feed(s, t0, k.asst(10, "tool_use", use("toolu_p3", planTool, map[string]any{"start": 2})))
+	if got := boardText(s, t0.Add(11*time.Second)); got != "Look:completed Fix:in_progress Verify:in_progress" {
+		t.Fatalf("after a later plan call %q", got)
+	}
+
+	// No plan: a wrap_up changes nothing and says nothing of todos.
+	s2 := liveSession(t0)
+	feed(s2, t0, k.asst(1, "tool_use", use("toolu_w2", wrapTool, map[string]any{"recap": "x"})))
+	if e := lastEvent(t, s2); e.Detail != "" || len(s2.todos) != 0 {
+		t.Fatalf("wrap_up without a plan %+v %+v", e, s2.todos)
+	}
+}
+
+// A finished TodoWrite list stays a moment, then the board is wiped.
+func TestFinishedListLeavesTheBoard(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0, k.asst(1, "tool_use", use("toolu_t1", "TodoWrite", map[string]any{"todos": []any{
+		map[string]any{"content": "A", "status": "completed", "activeForm": "a"},
+		map[string]any{"content": "B", "status": "completed", "activeForm": "b"}}})))
+	if got := boardText(s, t0.Add(1*time.Second+doneFor-time.Millisecond)); got != "A:completed B:completed" {
+		t.Fatalf("finished list not shown for a moment: %q", got)
+	}
+	if got := boardText(s, t0.Add(1*time.Second+doneFor)); got != "" {
+		t.Fatalf("finished list still shown: %q", got)
+	}
+	// Reopened: shown again.
+	feed(s, t0, k.asst(20, "tool_use", use("toolu_t2", "TodoWrite", map[string]any{"todos": []any{
+		map[string]any{"content": "A", "status": "completed", "activeForm": "a"},
+		map[string]any{"content": "C", "status": "in_progress", "activeForm": "c"}}})))
+	if got := boardText(s, t0.Add(60*time.Second)); got != "A:completed C:in_progress" {
+		t.Fatalf("open list %q", got)
+	}
+}
+
+// A new turn starts with a clean whiteboard: the desktop app's plan is put
+// away (and comes back if a later plan call goes on with it); a TodoWrite
+// list, which Claude Code keeps, stays.
+func TestNewTurnPutsThePlanAway(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.user(0, "Fix the parser.", nil),
+		k.asst(1, "tool_use", use("toolu_p1", planTool, plan("Look", "Fix"))),
+		k.user(1.1, result("toolu_p1", "ok", false), nil),
+		k.user(1.5, "Also the tests.", nil)) // sent while Claude works
+	if len(s.todos) != 2 {
+		t.Fatalf("a message mid-turn wiped the plan: %+v", s.todos)
+	}
+	feed(s, t0,
+		k.asst(2, "end_turn", text("Here is where it stands.")),
+		k.system(2.1, "stop_hook_summary"),
+		k.user(9, "Thanks, go on.", nil))
+	if got := boardText(s, t0.Add(10*time.Second)); got != "" || len(s.todos) != 2 {
+		t.Fatalf("the plan is still up (%q), or was thrown away: %+v", got, s.todos)
+	}
+	feed(s, t0, k.asst(11, "tool_use", use("toolu_p2", planTool, map[string]any{"done": []int{1}, "start": 2})))
+	if got := boardText(s, t0.Add(12*time.Second)); got != "Look:completed Fix:in_progress" {
+		t.Fatalf("the plan did not come back: %q", got)
+	}
+
+	s2 := liveSession(t0)
+	feed(s2, t0,
+		k.asst(1, "tool_use", use("toolu_t1", "TodoWrite", map[string]any{"todos": []any{
+			map[string]any{"content": "A", "status": "in_progress", "activeForm": "a"}}})),
+		k.user(1.1, result("toolu_t1", "ok", false), nil),
+		k.asst(2, "end_turn", text("Paused.")),
+		k.system(2.1, "stop_hook_summary"),
+		k.user(9, "Go on.", nil))
+	if len(s2.todos) != 1 {
+		t.Fatalf("a TodoWrite list was wiped by a new turn: %+v", s2.todos)
+	}
+}
+
+// A turn that ends normally with only the plan's last step open checks it
+// off; an interrupted one does not.
+func TestLastStepDoneAtTurnEnd(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	for _, interrupted := range []bool{false, true} {
+		s := liveSession(t0)
+		feed(s, t0,
+			k.asst(1, "tool_use", use("toolu_p1", planTool, plan("Look", "Fix"))),
+			k.user(1.1, result("toolu_p1", "ok", false), nil),
+			k.asst(2, "tool_use", use("toolu_p2", planTool, map[string]any{"advance": true})),
+			k.user(2.1, result("toolu_p2", "ok", false), nil))
+		if interrupted {
+			feed(s, t0, k.user(3, "[Request interrupted by user]", nil))
+		} else {
+			feed(s, t0, k.asst(3, "end_turn", text("Fixed.")))
+		}
+		want := "Look:completed Fix:completed"
+		if interrupted {
+			want = "Look:completed Fix:in_progress"
+		}
+		if got := boardText(s, t0.Add(4*time.Second)); got != want {
+			t.Errorf("interrupted=%v: board %q, want %q", interrupted, got, want)
+		}
+	}
+}
+
+// A subagent's plan and TodoWrite list are its own (the app refuses
+// subagents the plan); the Task list is the whole conversation's.
+func TestSubagentTodosStayOffTheBoard(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.asst(1, "tool_use", use("toolu_p1", planTool, plan("Main A", "Main B"))),
+		k.user(1.1, result("toolu_p1", "ok", false), nil))
+	a := s.hire("toolu_ag", "Explore", "look", t0.Add(2*time.Second))
+	feedAs(s, a, t0,
+		k.asst(3, "tool_use", use("toolu_ap", planTool, plan("Agent X"))),
+		k.user(3.1, result("toolu_ap", "Not shown: you are a subagent", true), map[string]any{"toolDenialKind": "permission-rule"}),
+		k.asst(4, "tool_use", use("toolu_at", "TodoWrite", map[string]any{"todos": []any{
+			map[string]any{"content": "Agent Y", "status": "in_progress", "activeForm": "y"}}})))
+	if got := boardText(s, t0.Add(5*time.Second)); got != "Main A:in_progress Main B:pending" {
+		t.Fatalf("a subagent's list reached the board: %q", got)
+	}
+	feed(s, t0, k.asst(5, "tool_use", use("toolu_p2", planTool, map[string]any{"advance": true})))
+	if got := boardText(s, t0.Add(6*time.Second)); got != "Main A:completed Main B:in_progress" {
+		t.Fatalf("Claude's advance %q", got)
+	}
+	feedAs(s, a, t0, k.asst(6, "tool_use", use("toolu_ac", "TaskCreate", map[string]any{"subject": "Shared task"})))
+	if n := len(s.todos); n != 3 || s.todos[2].Text != "Shared task" {
+		t.Fatalf("a subagent's task is the conversation's: %+v", s.todos)
+	}
+}
+
+// A refused or failed todo call leaves the whiteboard as it was.
+func TestRefusedTodoCallIsUndone(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.asst(1, "tool_use", use("toolu_p1", planTool, plan("A", "B"))),
+		k.user(1.1, result("toolu_p1", "ok", false), nil),
+		k.asst(2, "tool_use", use("toolu_p2", planTool, map[string]any{"items": []any{map[string]any{"content": "X", "status": "pending"}}})),
+		k.user(2.1, result("toolu_p2", "items also needs a scope", true), nil))
+	if got := boardText(s, t0.Add(3*time.Second)); got != "A:in_progress B:pending" {
+		t.Fatalf("a refused plan stayed: %q", got)
+	}
+	// A refusal that comes after a newer change does not undo that one.
+	feed(s, t0,
+		k.asst(3, "tool_use", use("toolu_p3", planTool, map[string]any{"done": []int{9}})),
+		k.asst(3.5, "tool_use", use("toolu_p4", planTool, map[string]any{"advance": true})),
+		k.user(3.6, result("toolu_p4", "ok", false), nil),
+		k.user(3.7, result("toolu_p3", "step 9 is out of range", true), nil))
+	if got := boardText(s, t0.Add(4*time.Second)); got != "A:completed B:in_progress" {
+		t.Fatalf("an older refusal undid a newer change: %q", got)
+	}
+}
+
+// Plan steps move the way the desktop app moves them: advance finishes the
+// step at hand and starts the next one waiting, from the top if need be;
+// steps with no words are dropped and twelve are kept.
+func TestPlanMovesLikeTheApp(t *testing.T) {
+	list := []Todo{{Text: "A", Status: "pending"}, {Text: "B", Status: "in_progress"}, {Text: "C", Status: "completed"}}
+	got := applyTodos(list, planTool, &toolInput{Advance: true})
+	if got[0].Status != "in_progress" || got[1].Status != "completed" || got[2].Status != "completed" {
+		t.Fatalf("advance wraps round: %+v", got)
+	}
+	if list[1].Status != "in_progress" {
+		t.Fatal("applyTodos changed the list it was given")
+	}
+	two := []Todo{{Text: "A", Status: "in_progress"}, {Text: "B", Status: "in_progress"}}
+	if got := applyTodos(two, planTool, &toolInput{Advance: true}); got[0].Status != "completed" || got[1].Status != "in_progress" {
+		t.Fatalf("advance finishes one step: %+v", got)
+	}
+	in := &toolInput{}
+	for i := 0; i < 15; i++ {
+		c := strconv.Itoa(i)
+		if i == 3 {
+			c = " "
+		}
+		in.Items = append(in.Items, struct {
+			Content string `json:"content"`
+			Status  string `json:"status"`
+		}{c, "pending"})
+	}
+	if got := applyTodos(nil, planTool, in); len(got) != maxPlanSteps || got[3].Text != "4" {
+		t.Fatalf("items: %d %+v", len(got), got)
+	}
+}
+
+// Tasks carry Claude Code's numbers, from TaskCreate's result (or a
+// TaskList), so a list read from the middle of a transcript still matches.
+func TestTaskNumbersFromResults(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.asst(1, "tool_use", use("toolu_c5", "TaskCreate", map[string]any{"subject": "Fifth"})),
+		k.user(1.1, result("toolu_c5", "Task #5 created successfully: Fifth", false), map[string]any{
+			"toolUseResult": map[string]any{"task": map[string]any{"id": "5", "subject": "Fifth"}}}),
+		k.asst(2, "tool_use", use("toolu_c6", "TaskCreate", map[string]any{"subject": "Sixth"})),
+		k.user(2.1, result("toolu_c6", "Task #6 created successfully: Sixth", false), nil),
+		k.asst(3, "tool_use", use("toolu_u1", "TaskUpdate", map[string]any{"taskId": "1", "status": "completed"})),
+		k.asst(4, "tool_use", use("toolu_u5", "TaskUpdate", map[string]any{"taskId": "5", "status": "completed"})))
+	if got := boardText(s, t0.Add(5*time.Second)); got != "Fifth:completed Sixth:pending" || s.todos[1].id != 6 {
+		t.Fatalf("tasks %q %+v", got, s.todos)
+	}
+	// A TaskCreate the hook refused is dropped.
+	feed(s, t0,
+		k.asst(5, "tool_use", use("toolu_cx", "TaskCreate", map[string]any{"subject": "Blocked"})),
+		k.user(5.1, result("toolu_cx", "blocked by a hook", true), nil))
+	if len(s.todos) != 2 {
+		t.Fatalf("a refused task stayed: %+v", s.todos)
+	}
+	// Everything done: wiped a moment later; the next task starts a new list,
+	// numbered on.
+	feed(s, t0, k.asst(6, "tool_use", use("toolu_u6", "TaskUpdate", map[string]any{"taskId": "#6", "status": "completed"})))
+	if got := boardText(s, t0.Add(6*time.Second+doneFor)); got != "" {
+		t.Fatalf("finished tasks still shown %q", got)
+	}
+	feed(s, t0, k.asst(20, "tool_use", use("toolu_c7", "TaskCreate", map[string]any{"subject": "Seventh"})))
+	if len(s.todos) != 1 || s.todos[0].id != 7 || boardText(s, t0.Add(21*time.Second)) != "Seventh:pending" {
+		t.Fatalf("new list %+v", s.todos)
+	}
+	// A TaskList result is the whole list.
+	feed(s, t0,
+		k.asst(21, "tool_use", use("toolu_l1", "TaskList", map[string]any{})),
+		k.user(21.1, result("toolu_l1", "#2 Two, #7 Seventh", false), map[string]any{
+			"toolUseResult": map[string]any{"tasks": []any{
+				map[string]any{"id": "2", "subject": "Two", "status": "in_progress", "blockedBy": []any{}},
+				map[string]any{"id": "7", "subject": "Seventh", "status": "pending", "blockedBy": []any{}}}}}),
+		k.asst(22, "tool_use", use("toolu_u2", "TaskUpdate", map[string]any{"taskId": "2", "status": "completed"})))
+	if got := boardText(s, t0.Add(23*time.Second)); got != "Two:completed Seventh:pending" {
+		t.Fatalf("after TaskList %q", got)
+	}
+}
+
+// Tasks made together are told apart by their calls, not by the numbers
+// given here: renumbering, a refusal and an undo each touch their own task.
+func TestTasksMadeTogether(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	created := func(id string, n int) string {
+		return k.user(1.5, result(id, "Task #"+strconv.Itoa(n)+" created successfully", false), nil)
+	}
+	creates := func(base float64, ids ...string) (rows []string) {
+		for i, id := range ids {
+			rows = append(rows, k.asst(base+float64(i)*0.1, "tool_use", use(id, "TaskCreate", map[string]any{"subject": strings.TrimPrefix(id, "toolu_")})))
+		}
+		return rows
+	}
+	// Read from the middle: Claude Code's numbers start at #2.
+	s := liveSession(t0)
+	feed(s, t0, creates(1, "toolu_A", "toolu_B", "toolu_C")...)
+	feed(s, t0, created("toolu_A", 2), created("toolu_B", 3), created("toolu_C", 4),
+		k.asst(2, "tool_use", use("toolu_u", "TaskUpdate", map[string]any{"taskId": "2", "status": "in_progress"})))
+	if got := boardText(s, t0.Add(3*time.Second)); got != "A:in_progress B:pending C:pending" || s.todos[2].id != 4 {
+		t.Fatalf("renumbered %q %+v", got, s.todos)
+	}
+	// All refused: none stays.
+	s = liveSession(t0)
+	feed(s, t0, creates(1, "toolu_A", "toolu_B", "toolu_C")...)
+	for _, id := range []string{"toolu_A", "toolu_B", "toolu_C"} {
+		feed(s, t0, k.user(1.5, result(id, "[Request interrupted by user for tool use]", true), nil))
+	}
+	if len(s.todos) != 0 {
+		t.Fatalf("refused tasks stayed: %+v", s.todos)
+	}
+	// A renumber survives the undo of a later call that failed.
+	s = liveSession(t0)
+	feed(s, t0, creates(1, "toolu_A")...)
+	feed(s, t0,
+		k.asst(1.2, "tool_use", use("toolu_u9", "TaskUpdate", map[string]any{"taskId": "9", "status": "completed"})),
+		created("toolu_A", 7),
+		k.user(1.6, result("toolu_u9", "Task not found", true), nil),
+		k.asst(2, "tool_use", use("toolu_u7", "TaskUpdate", map[string]any{"taskId": "7", "status": "in_progress"})))
+	if got := boardText(s, t0.Add(3*time.Second)); got != "A:in_progress" {
+		t.Fatalf("after the undo %q %+v", got, s.todos)
+	}
+}
+
+// Tasks put on the desktop app's plan keep it a plan: wrap_up checks off its
+// steps (not the tasks), a new turn puts the steps away, and a TaskList
+// result replaces the tasks only.
+func TestTasksOnThePlan(t *testing.T) {
+	t0 := time.Now().Add(-time.Minute).Truncate(time.Second)
+	k := newKit(t0)
+	s := liveSession(t0)
+	feed(s, t0,
+		k.asst(1, "tool_use", use("toolu_p1", planTool, plan("Look", "Fix"))),
+		k.user(1.1, result("toolu_p1", "ok", false), nil),
+		k.asst(2, "tool_use", use("toolu_l1", "TaskList", map[string]any{})),
+		k.user(2.1, result("toolu_l1", "No tasks", false), map[string]any{"toolUseResult": map[string]any{"tasks": []any{}}}))
+	if got := boardText(s, t0.Add(3*time.Second)); got != "Look:in_progress Fix:pending" {
+		t.Fatalf("an empty TaskList wiped the plan: %q", got)
+	}
+	a := s.hire("toolu_ag", "general-purpose", "help", t0.Add(3*time.Second))
+	feedAs(s, a, t0, k.asst(4, "tool_use", use("toolu_t", "TaskCreate", map[string]any{"subject": "Shared"})))
+	feed(s, t0,
+		k.asst(5, "tool_use", use("toolu_w", wrapTool, map[string]any{"recap": "x"})),
+		k.user(5.1, result("toolu_w", "ok", false), nil))
+	if got := boardText(s, t0.Add(6*time.Second)); got != "Look:completed Fix:completed Shared:pending" {
+		t.Fatalf("wrap_up with a task on the plan: %q", got)
+	}
+	feed(s, t0,
+		k.asst(7, "end_turn", text("Done.")),
+		k.system(7.1, "stop_hook_summary"),
+		k.user(20, "Next thing.", nil))
+	if got := boardText(s, t0.Add(21*time.Second)); got != "Shared:pending" {
+		t.Fatalf("new turn: %q", got)
+	}
+}
+
+// A TaskList result over the cap keeps the open and newest tasks, in order.
+func TestLongTaskList(t *testing.T) {
+	var tasks []any
+	for i := 60; i >= 1; i-- {
+		st := "pending"
+		if i <= 10 {
+			st = "completed"
+		}
+		tasks = append(tasks, map[string]any{"id": strconv.Itoa(i), "subject": "T" + strconv.Itoa(i), "status": st})
+	}
+	raw, _ := json.Marshal(map[string]any{"tasks": tasks})
+	list, ok := taskList(raw)
+	if !ok || len(list) != maxTodos || list[0].id != 1+(60-maxTodos) || list[len(list)-1].id != 60 {
+		t.Fatalf("ok=%v %d items, first %+v last %+v", ok, len(list), list[0], list[len(list)-1])
+	}
+}
+
+// Over the cap, finished items go first, so new tasks are never cut off.
+func TestTodosKeepTheNewest(t *testing.T) {
+	var list []Todo
+	for i := 1; i <= maxTodos; i++ {
+		st := "pending"
+		if i == 4 {
+			st = "completed"
+		}
+		list = append(list, Todo{Text: strconv.Itoa(i), Status: st, id: i})
+	}
+	got := applyTodos(list, "TaskCreate", &toolInput{Subject: "new"})
+	if len(got) != maxTodos || got[len(got)-1].Text != "new" || got[len(got)-1].id != maxTodos+1 || got[3].Text != "5" {
+		t.Fatalf("%d items, last %+v, fourth %+v", len(got), got[len(got)-1], got[3])
 	}
 }
 

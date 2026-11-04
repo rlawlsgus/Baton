@@ -70,6 +70,8 @@ type Config struct {
 	RiskAcknowledged int `json:"risk_acknowledged,omitempty"`
 	// GUILanguage is the GUI's language: "" (follow Windows), "ko" or "en".
 	GUILanguage string `json:"gui_language,omitempty"`
+	// GUITheme is the window's colours: "" (follow Windows), "light" or "dark".
+	GUITheme string `json:"gui_theme,omitempty"`
 	// FolderRules keep the sessions in some folders on some accounts.
 	FolderRules []FolderRule `json:"folder_rules,omitempty"`
 }
@@ -146,6 +148,11 @@ func (c Config) Validate() error {
 	case "", "ko", "en":
 	default:
 		return fmt.Errorf("config: gui_language must be ko or en (got %q)", c.GUILanguage)
+	}
+	switch c.GUITheme {
+	case "", "light", "dark":
+	default:
+		return fmt.Errorf("config: gui_theme must be light or dark (got %q)", c.GUITheme)
 	}
 	switch c.Notifications {
 	case "", NotifyAll, NotifyImportant, NotifyOff:

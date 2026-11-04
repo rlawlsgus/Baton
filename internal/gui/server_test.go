@@ -494,13 +494,28 @@ func TestMoveReordersAccounts(t *testing.T) {
 func TestStaticFiles(t *testing.T) {
 	r := newRig(t)
 	r.login()
-	for _, p := range []string{"/", "/app.js", "/app.css", "/icon.svg"} {
+	for _, p := range []string{"/", "/app.js", "/app.css", "/icon.svg", "/theme.js", "/office.js", "/office.css"} {
 		if code, _ := r.do("GET", p, "", nil); code != 200 {
 			t.Errorf("%s: %d", p, code)
 		}
 	}
 	if code, _ := r.do("GET", "/../server.go", "", nil); code == 200 {
 		t.Error("source file served")
+	}
+	// The page starts in the colours chosen, as Windows has them until then.
+	if _, body := r.do("GET", "/", "", nil); strings.Contains(body, "data-theme-pref") || !strings.Contains(body, `src="/theme.js"`) {
+		t.Fatalf("page before a choice: %.300s", body)
+	}
+	if code, _ := r.do("POST", "/api/config", `{"key":"gui_theme","value":"dark"}`, nil); code != 200 {
+		t.Fatalf("gui_theme: %d", code)
+	}
+	if _, body := r.do("GET", "/", "", nil); !strings.Contains(body, `<html data-theme-pref="dark" lang=`) {
+		t.Fatalf("page after choosing dark: %.300s", body)
+	}
+	var st stateView
+	_, body := r.do("GET", "/api/state", "", nil)
+	if err := json.Unmarshal([]byte(body), &st); err != nil || st.Config.GUITheme != "dark" {
+		t.Fatalf("state theme: %v %q", err, st.Config.GUITheme)
 	}
 }
 

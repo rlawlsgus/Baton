@@ -189,11 +189,9 @@ button.btn.of-pop { font-size: 12.5px; padding: 3px 11px; box-shadow: var(--shad
 .of-todo.in_progress { font-weight: 600; }
 .of-todo.in_progress .of-todo-box { border-color: var(--accent); color: var(--accent); }
 
-@media (prefers-color-scheme: dark) {
-  .pill.violet { background: #2f2847; color: #bba6f7; }
-  .of-bubble.ask { background: #3d3415; color: #f6dc8a; border-color: #6b5a22; }
-  .of-lift { background: #0f1115; }
-}
+:root[data-theme="dark"] .pill.violet { background: #2f2847; color: #bba6f7; }
+:root[data-theme="dark"] .of-bubble.ask { background: #3d3415; color: #f6dc8a; border-color: #6b5a22; }
+:root[data-theme="dark"] .of-lift { background: #0f1115; }
 
 /* Narrower windows: the panel moves under the office. */
 @container (max-width: 1120px) {

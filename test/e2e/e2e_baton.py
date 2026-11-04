@@ -30,6 +30,8 @@ Scenarios:
              status line is left alone
   remotectl  a session started with Remote Control (--rc) keeps working where Remote Control is
              not available (API-key accounts), and keeps the flag after a switch
+  remotetwo  two sessions at once, Remote Control on one only: only its launches carry --rc (its
+             switch included), only its run records it and only its row in the window shows it
   rules      a folder rule keeps the sessions under a folder on the accounts it names
   restore    a session cut off mid-response (as by a power cut) reopens with `baton run --restore`
              and goes on with its task
@@ -1098,6 +1100,64 @@ def scenario_remotectl(w: World, res: list) -> dict:
     return {}
 
 
+def scenario_remotetwo(w: World, res: list) -> dict:
+    """Two sessions in the folder at once, Remote Control on A only (B starts on the other
+    account, so A's limit leaves it alone): only A's launches carry --rc, its switch included,
+    only A's run records it, and the window's state marks only A's row."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto")
+    old = w.run_dirs()
+    pa = w.start("remotetwo-a", ["--", "--rc"])
+    pb = None
+    try:
+        da = w.wait_session_starts(1, 60, old=old)
+        if not da:
+            raise Fail("remotetwo: A did not start")
+        time.sleep(3.0)
+        submit(w, pa, "rt a one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "rt a one"), 60) is not None, "remotetwo: A answers", res)
+        pb = w.start("remotetwo-b", ["--account", "acct-b"])
+        db = w.wait_session_starts(1, 60, old=old | {da})
+        if not db:
+            raise Fail("remotetwo: B did not start")
+        time.sleep(3.0)
+        submit(w, pb, "rt b one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_B, "rt b one"), 60) is not None, "remotetwo: B answers", res)
+        ja, jb = (json.load(open(os.path.join(d, "run.json"), encoding="utf-8")) for d in (da, db))
+        check(ja.get("remote_control") is True and not jb.get("remote_control"),
+              f"remotetwo: only A's run records Remote Control (A {ja.get('remote_control')}, B {jb.get('remote_control')})", res)
+        win = BatonWindow(w)
+        try:
+            status, st = win.call("GET", "state")
+            rc = {r.get("run_id"): r.get("remote_control") for r in st.get("runs") or []}
+            ida, idb = os.path.basename(da), os.path.basename(db)
+            check(status == 200 and rc.get(ida) is True and rc.get(idb) is False,
+                  f"remotetwo: the window marks only A's row ({rc})", res)
+        finally:
+            win.close()
+        w.accounts_flip("limit", "echo")
+        mark = len(w.mock_rows())
+        submit(w, pa, "rt a two hits the limit")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_B, CONTINUE_MARK), 90, since=mark) is not None,
+              "remotetwo: A switches to the other account", res)
+        time.sleep(2.0)
+        la = [l for l in w.run_log(da).splitlines() if "launch account=" in l]
+        lb = [l for l in w.run_log(db).splitlines() if "launch account=" in l]
+        check(len(la) >= 2 and all('"--rc"' in l for l in la), f"remotetwo: every launch of A carries --rc ({len(la)})", res)
+        check(len(lb) >= 1 and not any("--rc" in l or "--remote-control" in l for l in lb),
+              f"remotetwo: no launch of B carries it ({len(lb)})", res)
+        w.accounts_flip("echo", "echo")
+        time.sleep(3.0)
+        check(quit_claude(pa) == 0, "remotetwo: A's baton exits 0", res)
+        check(quit_claude(pb) == 0, "remotetwo: B's baton exits 0", res)
+    finally:
+        pa.close()
+        if pb:
+            pb.close()
+    return {}
+
+
 def scenario_rules(w: World, res: list) -> dict:
     """A rule for the folder that holds the project allows only acct-b: the
     session starts there although acct-a comes first, `baton switch acct-a`
@@ -1710,7 +1770,7 @@ def main() -> int:
     ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "rules,restore,office")
+                                      "remotetwo,rules,restore,office")
     a = ap.parse_args()
     w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.7.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.7.2-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -179,7 +179,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.7.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.7.2_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -216,7 +216,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.2
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -305,6 +305,8 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `keep_awake` | 세션이 작업하거나 한도가 풀리기를 기다리는 동안 PC가 저절로 잠들지 않게 함 (기본값 `true`) |
 | `office` | Claude의 작업을 사무실 풍경으로 실시간으로 보여 주는 *사무실* 탭 표시 (기본값 `false`) |
 | `check_updates` | 창이 몇 시간마다 GitHub에서 새 baton이 있는지 확인 (기본값 `true`) |
+| `gui_language` | 창의 언어: `auto`(Windows 설정을 따름), `ko`, `en` |
+| `gui_theme` | 창의 색: `auto`(Windows 설정을 따름), `light`, `dark`. 창 위쪽에서도 바꿀 수 있음 |
 
 <details>
 <summary><b>모든 계정에서 내 Claude Code 설정 쓰기</b></summary>
@@ -386,7 +388,10 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   휴대폰이나 claude.ai/code에서 그 계정으로 로그인해야 보입니다. 어느 계정인지는 세션 탭에 나옵니다.
   계정이 바뀌면 다음 계정에서 다시 켜집니다. 휴대폰에 로그인해 둔 계정을 계정 순서 맨 위에 두면, 그
   계정의 한도가 찰 때까지 세션이 그 계정에 머뭅니다. 리모트 컨트롤은 Claude 구독이 필요하고, 조직
-  설정으로 꺼져 있을 수 있습니다.
+  설정으로 꺼져 있을 수 있습니다. 리모트 컨트롤은 세션을 시작할 때 세션마다 켭니다(새 세션 시작 창의
+  *리모트 컨트롤 켜기*, 목록의 대화를 이어 갈 때도 같은 창). 이미 실행 중인 세션은 그 창에서
+  `/remote-control`을 입력하면 Claude Code가 켜 주지만, baton은 이를 모르므로 계정이 바뀐 뒤에는 다시
+  켜지지 않습니다.
 - **알림은 세션이 보냅니다.** 세션마다 그 세션의 `baton run`이 Windows 알림을 보내므로 baton 창을 닫아도
   알림이 옵니다. 계정을 바꿨을 때, 모든 계정이 한도에 걸렸을 때, baton이나 Claude Code가 세션 창에서 답을
   기다릴 때, 세션이 예기치 않게 끝났을 때, 30초 넘게 걸린 응답이 끝났을 때 알립니다. 응답이 끝났을 때와
@@ -483,7 +488,7 @@ go build -tags batontest -o bin/baton-test.exe ./cmd/baton
 - `/clear`, 그리고 계정을 넘나드는 id로 이어 하기
 - 다른 곳에서 열려 있는 대화를 사본으로 가져오기
 - 세션의 baton 상태 표시줄, 그리고 직접 설정한 상태 표시줄은 그대로 두기
-- 계정이 바뀌어도 매번 다시 켜지는 리모트 컨트롤(`--rc`)
+- 계정이 바뀌어도 매번 다시 켜지고, 켠 세션에만 켜지는 리모트 컨트롤(`--rc`)
 - 설정 공유와 질문 중 Ctrl+C
 - `baton stop`(질문 중이거나 전환을 기다리는 중일 때 포함)
 - 폴더 규칙, 그리고 끊긴 세션 다시 열기

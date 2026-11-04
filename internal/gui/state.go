@@ -101,6 +101,7 @@ type configView struct {
 	Office                bool   `json:"office"`
 	CheckUpdates          bool   `json:"check_updates"`
 	GUILanguage           string `json:"gui_language"`
+	GUITheme              string `json:"gui_theme"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
 }
 
@@ -166,7 +167,7 @@ func (s *Server) state() stateView {
 		MaxSwitchesPerHour: cfg.MaxSwitchesPerHour, ExhaustedRetryMinutes: cfg.ExhaustedRetryMinutes,
 		ContinuePrompt: cfg.ContinuePrompt, ShareUserConfig: cfg.ShareEnabled(), AllowDesktopBundle: cfg.DesktopBundleAllowed(),
 		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, Notifications: cfg.NotifyLevel(), KeepAwake: cfg.KeepAwakeOn(),
-		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage,
+		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage, GUITheme: cfg.GUITheme,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 	}
 	v.Lang = cfg.GUILanguage

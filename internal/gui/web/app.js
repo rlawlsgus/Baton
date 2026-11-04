@@ -9,6 +9,8 @@ const T = {
     claude_missing: 'Claude Code 없음',
     mode_auto: '자동 전환', mode_confirm: '전환 전 확인', mode_off: '자동 전환 꺼짐', mode_unset: '전환 방식 미설정',
     lang_label: '언어',
+    theme_label: '화면 테마', theme_title: '창 색: Windows 설정을 따르거나, 늘 밝게 또는 어둡게',
+    theme_auto: '◐ 자동', theme_light: '☀ 라이트', theme_dark: '☾ 다크',
     // sessions
     sessions_title: '실행 중인 세션', sessions_sub: '세션은 각각 별도의 창에서 실행됩니다. 이 창을 닫아도 세션은 계속됩니다.',
     new_session: '새 세션 시작', no_sessions_title: '실행 중인 세션이 없습니다',
@@ -263,6 +265,8 @@ const T = {
     claude_missing: 'Claude Code not found',
     mode_auto: 'Auto switch', mode_confirm: 'Ask before switching', mode_off: 'Switching off', mode_unset: 'Switch mode not set',
     lang_label: 'Language',
+    theme_label: 'Theme', theme_title: 'Window colours: as Windows has them, or always light or dark',
+    theme_auto: '◐ Auto', theme_light: '☀ Light', theme_dark: '☾ Dark',
     sessions_title: 'Running sessions', sessions_sub: 'Each session runs in its own window. Closing this window does not stop them.',
     new_session: 'Start a session', no_sessions_title: 'No session is running',
     no_sessions_body: 'Pick a project folder and start Claude Code. When an account hits its limit, baton continues the same conversation on the next one.',
@@ -624,6 +628,7 @@ async function refresh() {
     const json = JSON.stringify(st);
     S.state = st;
     if (S.lang !== st.lang) { S.lang = st.lang; S.lastJSON = ''; document.documentElement.lang = st.lang; }
+    if (window.batonTheme) window.batonTheme.set(st.config.gui_theme || 'auto'); // also a change made in another window
     if (!S.tab) S.tab = st.accounts.length ? 'sessions' : 'accounts';
     if (json !== S.lastJSON) { S.lastJSON = json; render(); }
     if (!officeOnly) maybeOnboard();
@@ -698,7 +703,12 @@ function renderTop(st) {
     h('option', { value: 'ko', text: '한국어', selected: st.config.gui_language === 'ko' }),
     h('option', { value: 'en', text: 'English', selected: st.config.gui_language === 'en' }));
   sel.classList.add('auto-w');
-  document.getElementById('topbar').replaceChildren(claudeChip(st), modeChip(st), sel);
+  const theme = st.config.gui_theme || 'auto';
+  const look = h('select', { 'aria-label': t('theme_label'), title: t('theme_title'), class: 'chip',
+    onchange: (e) => { if (window.batonTheme) window.batonTheme.set(e.target.value); setConfig('gui_theme', e.target.value, false, true); } },
+    ['auto', 'light', 'dark'].map((v) => h('option', { value: v, text: t('theme_' + v), selected: theme === v })));
+  look.classList.add('auto-w');
+  document.getElementById('topbar').replaceChildren(claudeChip(st), modeChip(st), look, sel);
 }
 
 function renderTabs(st) {

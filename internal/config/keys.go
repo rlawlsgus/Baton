@@ -13,7 +13,7 @@ import (
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
 	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control", "notifications",
-	"keep_awake", "office", "check_updates", "gui_language"}
+	"keep_awake", "office", "check_updates", "gui_language", "gui_theme"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
 // first (see DisclosureVersion).
@@ -55,6 +55,11 @@ func (c Config) Get(key string) (string, bool) {
 			return "auto", true
 		}
 		return c.GUILanguage, true
+	case "gui_theme":
+		if c.GUITheme == "" {
+			return "auto", true
+		}
+		return c.GUITheme, true
 	}
 	return "", false
 }
@@ -188,6 +193,16 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			return nil, errors.New("gui_language must be auto, ko or en")
 		}
 		return func(c *Config) { c.GUILanguage = v }, nil
+	case "gui_theme":
+		v := strings.ToLower(strings.TrimSpace(value))
+		switch v {
+		case "auto", "":
+			v = ""
+		case "light", "dark":
+		default:
+			return nil, errors.New("gui_theme must be auto, light or dark")
+		}
+		return func(c *Config) { c.GUITheme = v }, nil
 	}
 	return nil, fmt.Errorf("unknown key %q (keys: %s)", key, strings.Join(Keys, ", "))
 }
