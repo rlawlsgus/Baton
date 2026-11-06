@@ -145,9 +145,10 @@ type SeedResult struct {
 
 // SeedProfile makes a profile launchable without first-run dialogs in cwd:
 // it can mark onboarding complete and trust cwd. Without this an unattended
-// relaunch stops on the trust dialog, whose default answer exits claude. Call
-// it only while no claude session uses the profile; every other key is kept,
-// and claude's own config lock is held while writing.
+// relaunch stops on the trust dialog, whose default answer exits claude. Mark
+// onboarding only while no claude session uses the profile (TrustFolder may
+// run while one does); every other key is kept, and claude's own config lock
+// is held while writing.
 func SeedProfile(profileDir, cwd string, onboarding, trust bool) (SeedResult, error) {
 	var res SeedResult
 	unlock, err := lockClaudeConfig(profileDir)
@@ -186,6 +187,15 @@ func SeedProfile(profileDir, cwd string, onboarding, trust bool) (SeedResult, er
 		return res, err
 	}
 	return res, fsx.WriteFileAtomic(claudeJSON(profileDir), append(data, '\n'), 0o600)
+}
+
+// TrustFolder marks cwd trusted in the profile and changes nothing else. It
+// may run while a claude uses the profile: claude saves .claude.json under
+// the same lock, applying its change to the file as it is on disk then and
+// keeping the projects it did not touch, so the entry is not lost.
+func TrustFolder(profileDir, cwd string) (bool, error) {
+	res, err := SeedProfile(profileDir, cwd, false, true)
+	return res.Trust, err
 }
 
 // lockClaudeConfig takes the lock claude itself uses for .claude.json (a

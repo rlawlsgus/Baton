@@ -19,7 +19,6 @@ import (
 	"baton/internal/app"
 	"baton/internal/claude"
 	"baton/internal/config"
-	"baton/internal/ledger"
 	"baton/internal/run"
 	"baton/internal/update"
 	"baton/internal/usage"
@@ -812,36 +811,64 @@ func TestUninstallRefusedWhileAWindowIsOpen(t *testing.T) {
 	}
 }
 
-// With equal priorities baton picks by when an account was last limited:
-// the window's choice for a busy account must follow baton's own.
-func TestIdleStartFollowsBatonsPick(t *testing.T) {
+// Automatic starts on the first usable account in the list even while
+// another session runs on it in another folder: the window does not choose
+// an idle account instead, and the trust the user gives reaches the busy
+// account too, so Claude Code does not ask again there.
+func TestAutomaticStartsOnTheTopAccountInUse(t *testing.T) {
 	r := newRig(t)
-	busyDir := filepath.Join(r.paths.ProfilesDir(), "work")
-	idleDir := filepath.Join(r.paths.ProfilesDir(), "personal")
-	_ = os.MkdirAll(filepath.Join(busyDir, "sessions"), 0o700)
-	_ = os.MkdirAll(idleDir, 0o700)
-	// A live claude on "work": a session file holding this test's own pid.
+	r.login()
+	topDir := filepath.Join(r.paths.ProfilesDir(), "top")
+	nextDir := filepath.Join(r.paths.ProfilesDir(), "next")
+	_ = os.MkdirAll(filepath.Join(topDir, "sessions"), 0o700)
+	_ = os.MkdirAll(nextDir, 0o700)
+	// A live claude on "top", in another folder: a session file holding this
+	// test's own pid.
 	pid := os.Getpid()
-	_ = os.WriteFile(filepath.Join(busyDir, "sessions", strconv.Itoa(pid)+".json"),
-		[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"x","cwd":"C:\x","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+	_ = os.WriteFile(filepath.Join(topDir, "sessions", strconv.Itoa(pid)+".json"),
+		[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"x","cwd":"C:\\x","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
 	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
-		if err := reg.Add(accounts.Account{ID: "personal", ProfileDir: idleDir, Enabled: true, LoggedIn: true, Priority: 50}); err != nil {
+		if err := reg.Add(accounts.Account{ID: "top", ProfileDir: topDir, Enabled: true, LoggedIn: true, Priority: 100}); err != nil {
 			return err
 		}
-		return reg.Add(accounts.Account{ID: "work", ProfileDir: busyDir, Enabled: true, LoggedIn: true, Priority: 50})
+		return reg.Add(accounts.Account{ID: "next", ProfileDir: nextDir, Enabled: true, LoggedIn: true, Priority: 90})
 	})
-	if !claude.BusyProfile(busyDir) {
+	if !claude.BusyProfile(topDir) {
 		t.Skip("cannot fake a running claude here")
 	}
-	// "personal" was limited yesterday; "work" never: baton picks "work".
-	_ = ledger.Update(r.paths.State(), r.paths.StateLock(), func(st *ledger.State) error {
-		a := st.Account("personal")
-		a.Status, a.LimitedAt, a.RetryAt = ledger.StatusExhausted, time.Now().Add(-24*time.Hour), time.Now().Add(-23*time.Hour)
-		return nil
-	})
-	reg, _ := accounts.Load(r.paths.Accounts())
-	if got := r.srv.idleStart(reg, t.TempDir()); got != "personal" {
-		t.Fatalf("idleStart = %q, want personal (baton would pick the busy work)", got)
+	start := func(proj string, trust bool) []string {
+		t.Helper()
+		body := `{"folder":` + strconv.Quote(proj) + `,"trust":` + strconv.FormatBool(trust) + `}`
+		if code, b := r.do("POST", "/api/sessions/start", body, nil); code != http.StatusAccepted {
+			t.Fatalf("start %s: %d %s", proj, code, b)
+		}
+		r.spawn.mu.Lock()
+		defer r.spawn.mu.Unlock()
+		return r.spawn.console[len(r.spawn.console)-1]
+	}
+	// A new folder, trusted in the dialog: baton picks (the top account), and
+	// the trust is written into both profiles, the busy one included.
+	proj := t.TempDir()
+	if args := start(proj, true); !slices.Equal(args, []string{"run"}) {
+		t.Fatalf("args %q, want [run]: Automatic must not pick another account", args)
+	}
+	for _, d := range []string{topDir, nextDir} {
+		if !claude.IsTrusted(d, proj) {
+			t.Fatalf("%s does not trust the folder", d)
+		}
+	}
+	// The busy profile's other settings are kept.
+	if m, err := os.ReadFile(filepath.Join(topDir, ".claude.json")); err != nil || strings.Contains(string(m), "hasCompletedOnboarding") {
+		t.Fatalf("busy profile: onboarding was written (%v): %s", err, m)
+	}
+	// A folder trusted only on the other account: still the top account (the
+	// session copies the trust over when it starts).
+	other := t.TempDir()
+	if _, err := claude.TrustFolder(nextDir, other); err != nil {
+		t.Fatal(err)
+	}
+	if args := start(other, false); !slices.Equal(args, []string{"run"}) {
+		t.Fatalf("args %q, want [run]", args)
 	}
 }
 

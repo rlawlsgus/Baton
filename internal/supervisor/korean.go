@@ -48,8 +48,6 @@ var koreanNotices = map[string]string{
 	"this folder's rule allows only %s, not %q (change it with: baton rules)":                                  "이 폴더의 규칙은 %s 계정만 허용합니다. %q 계정으로는 시작하지 않습니다 (baton 창의 설정에서 바꿀 수 있습니다)",
 	"this session is open in another claude window (pid %d); close it and run the command below":               "이 대화가 다른 Claude Code 창(pid %d)에서 열려 있습니다. 그 창을 닫고 아래 방법으로 이어 가세요",
 	"%s -> continuing on %q": "%s → %q 계정에서 이어 갑니다",
-	"%q is in use elsewhere, so its folder trust could not be set; if claude asks, choose \"Yes, I trust this folder\"": "%q 계정이 다른 곳에서 사용 중이라 폴더 신뢰를 미리 설정하지 못했습니다. " +
-		"Claude Code가 물으면 \"Yes, I trust this folder\"를 고르세요",
 	"claude may ask whether you trust this folder on %q; choose \"Yes, I trust this folder\" to continue": "%q 계정에서 Claude Code가 이 폴더를 신뢰하는지 물을 수 있습니다. " +
 		"계속하려면 \"Yes, I trust this folder\"를 고르세요",
 	"stopped while waiting": "기다리는 중에 멈췄습니다",

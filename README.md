@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.7.2-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.7.3-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -205,7 +205,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.7.2_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.7.3_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -244,7 +244,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.7.3
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -548,6 +548,8 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - config sharing and Ctrl+C at the question
 - `baton stop`, also during the question and while a switch waits
 - folder rules, and reopening a cut-off session
+- a second session on *Automatic* while another runs on the top account, in a new folder: it
+  starts on that account too, without Claude Code's trust question, and the trust stays
 - the office: a scripted turn (reading, a command, a subagent, a question, a failing command)
   shown live, room by room, by the window's server (this needs the test build, last command)
 

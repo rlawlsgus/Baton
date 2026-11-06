@@ -32,6 +32,9 @@ Scenarios:
              not available (API-key accounts), and keeps the flag after a switch
   remotetwo  two sessions at once, Remote Control on one only: only its launches carry --rc (its
              switch included), only its run records it and only its row in the window shows it
+  busytrust  a second session started from the window on Automatic while one runs on the top account,
+             in a new folder: it starts on that account too, with the trust written into the profile
+             in use, and the running claude keeps that trust when it saves its settings
   rules      a folder rule keeps the sessions under a folder on the accounts it names
   restore    a session cut off mid-response (as by a power cut) reopens with `baton run --restore`
              and goes on with its task
@@ -1158,6 +1161,89 @@ def scenario_remotetwo(w: World, res: list) -> dict:
     return {}
 
 
+def scenario_busytrust(w: World, res: list) -> dict:
+    """A second session started from the window on Automatic while a session runs on the top
+    account, in a folder that account never trusted: the window leaves the choice to baton (no
+    other account), the trust the user gives reaches the profile in use, the new session starts
+    there without Claude Code's trust question, and the running claude keeps that trust when it
+    saves its own settings on exit."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto")
+    new = os.path.join(w.run.root, "busytrust-proj")
+    os.makedirs(new, exist_ok=True)
+    cj = os.path.join(w.a.dir, ".claude.json")
+
+    def project(folder: str) -> dict:
+        try:
+            with open(cj, encoding="utf-8") as f:
+                return (json.load(f).get("projects") or {}).get(fwd(folder)) or {}
+        except (OSError, ValueError):
+            return {}
+
+    if project(new).get("hasTrustDialogAccepted"):
+        raise Fail("busytrust: acct-a already trusts the new folder")
+    old = w.run_dirs()
+    pa = w.start("busytrust-a")
+    pn = None
+    try:
+        da = w.wait_session_starts(1, 60, old=old)
+        if not da:
+            raise Fail("busytrust: the first session did not start")
+        time.sleep(3.0)
+        submit(w, pa, "bt first one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "bt first one"), 60) is not None,
+              "busytrust: the first session runs on acct-a", res)
+        acc = os.path.join(w.home, "accounts.json")
+        with open(acc, encoding="utf-8") as f:
+            keep = f.read()
+        win = BatonWindow(w, test_spawn=True)
+        try:
+            status, info = win.call("GET", "folder/info?path=" + urllib.parse.quote(new))
+            check(status == 200 and info.get("trusted") is False, f"busytrust: the window asks to trust the new folder ({info})", res)
+            status, body = win.call("POST", "sessions/start", {"folder": new, "account": "", "mode": "new", "trust": True})
+            check(status == 202, f"busytrust: the window starts the session ({status} {body})", res)
+            line = win.spawned() or ""
+            check('["run"]' in line, f"busytrust: Automatic leaves the choice to baton, no other account ({line})", res)
+        finally:
+            win.close()
+        # The window's sign-in check may mark the mock accounts signed out.
+        with open(acc, encoding="utf-8") as f:
+            if f.read() != keep:
+                with open(acc, "w", encoding="utf-8") as g:
+                    g.write(keep)
+        check(project(new).get("hasTrustDialogAccepted") is True, "busytrust: the trust reached acct-a's profile while it is in use", res)
+        old2 = w.run_dirs()
+        pn = w.start("busytrust-new", cwd=new)
+        dn = w.wait_session_starts(1, 60, old=old2)
+        check(dn is not None and pn.wait_for("trust this folder", 1) is None,
+              "busytrust: the second session starts without Claude Code's trust question", res)
+        time.sleep(3.0)
+        submit(w, pn, "bt second one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "bt second one"), 60) is not None,
+              "busytrust: the second session runs on acct-a too", res)
+        sid_a = json.load(open(os.path.join(da, "run.json"), encoding="utf-8"))["session_id"]
+        mark = len(w.mock_rows())
+        submit(w, pa, "bt first two")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "bt first two"), 60, since=mark) is not None,
+              "busytrust: the first session goes on", res)
+        time.sleep(2.0)
+        check(quit_claude(pa) == 0, "busytrust: the first session's baton exits 0", res)
+        time.sleep(1.5)
+        mine = project(w.run.proj)
+        check(mine.get("lastSessionId") == sid_a, f"busytrust: the first claude saved its settings on exit ({mine.get('lastSessionId')} vs {sid_a})", res)
+        check(project(new).get("hasTrustDialogAccepted") is True and mine.get("hasTrustDialogAccepted") is True,
+              "busytrust: acct-a still trusts both folders after that save", res)
+        check(quit_claude(pn) == 0, "busytrust: the second session's baton exits 0", res)
+        time.sleep(1.5)
+        check(project(new).get("hasTrustDialogAccepted") is True, "busytrust: and after the second one exits", res)
+    finally:
+        pa.close()
+        if pn:
+            pn.close()
+    return {}
+
+
 def scenario_rules(w: World, res: list) -> dict:
     """A rule for the folder that holds the project allows only acct-b: the
     session starts there although acct-a comes first, `baton switch acct-a`
@@ -1417,13 +1503,16 @@ class BatonWindow:
     as the page makes them: the address's one-time code buys a session token,
     and every API call carries it with a page id and a request number."""
 
-    def __init__(self, w: World):
+    def __init__(self, w: World, test_spawn: bool = False):
+        """test_spawn: session starts are printed ("test-spawn: [args] in dir",
+        read with spawned()) instead of opening console windows."""
         if not os.path.isfile(w.baton_test):
             raise Fail(f"no test build at {w.baton_test}: go build -tags batontest -o {w.baton_test} ./cmd/baton")
         self.err = open(os.path.join(w.run.logs, "office-gui.log"), "wb")
-        self.proc = subprocess.Popen([w.baton_test, "gui", "--no-window"], env=w.env(), cwd=w.run.root,
+        self.proc = subprocess.Popen([w.baton_test, "gui", "--no-window", *(["--test-spawn"] if test_spawn else [])],
+                                     env=w.env(), cwd=w.run.root,
                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=self.err)
-        lines: queue.Queue = queue.Queue()
+        self.lines = lines = queue.Queue()
         threading.Thread(target=lambda: [lines.put(line) for line in self.proc.stdout], daemon=True).start()
         self.page, self.seq, self.token = os.urandom(8).hex(), itertools.count(1), ""
         try:
@@ -1437,6 +1526,18 @@ class BatonWindow:
             self.close()
             raise Fail(f"office: the one-time code was not taken ({status} {body})")
         self.token = body["token"]
+
+    def spawned(self, timeout: float = 20) -> str | None:
+        """The next session start the test build printed instead of opening it."""
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                line = self.lines.get(timeout=max(0.1, deadline - time.time())).decode("utf-8", "replace").strip()
+            except queue.Empty:
+                return None
+            if line.startswith("test-spawn:"):
+                return line
+        return None
 
     def call(self, method: str, path: str, body: dict | None = None, timeout: float = 20) -> tuple[int, dict]:
         headers = {"X-Baton-Page": self.page, "X-Baton-Seq": str(next(self.seq))}
@@ -1770,7 +1871,7 @@ def main() -> int:
     ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "remotetwo,rules,restore,office")
+                                      "remotetwo,busytrust,rules,restore,office")
     a = ap.parse_args()
     w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

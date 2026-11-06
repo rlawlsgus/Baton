@@ -361,11 +361,15 @@
   prop('mtable', 2, 7, 2, 2, 40);
   prop('plant', 5, 10, 1, 1, 46, { kind: 'bush' });
   // The sofas along the meeting room's partition come after it (or it would
-  // hide their backs) and before whoever sits on them.
+  // hide their backs) and before whoever sits on them. The armrest at the
+  // near end of each sofa is in front of whoever sits next to it, so it is a
+  // prop of its own, drawn after them (like the back of a chair).
   prop('sofa', 2, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'l', depth: 13.6 });
-  prop('sofa', 3, 11, 1, 1, 26, { solid: false, face: 'sw', end: 'r', depth: 14.6 });
+  prop('sofa', 3, 11, 1, 1, 26, { solid: false, face: 'sw', depth: 14.6 });
   prop('sofa', 1, 12, 1, 1, 26, { solid: false, face: 'se', end: 'l', depth: 13.5 });
-  prop('sofa', 1, 13, 1, 1, 26, { solid: false, face: 'se', end: 'r', depth: 14.5 });
+  prop('sofa', 1, 13, 1, 1, 26, { solid: false, face: 'se', depth: 14.5 });
+  prop('sofaarm', 3, 11, 1, 1, 17, { solid: false, face: 'sw', depth: 3.5 + 11.5 + 0.02 });
+  prop('sofaarm', 1, 13, 1, 1, 17, { solid: false, face: 'se', depth: 1.5 + 13.5 + 0.02 });
   prop('ctable', 2, 12, 2, 2, 24);
   prop('counter', 0, 14, 1, 1, 40);
   prop('counter', 0, 15, 1, 1, 56, { machine: true });
@@ -480,23 +484,33 @@
     },
     udesk(g, p) {
       const { x, y } = p, mine = p.who === 'me';
-      box(g, x + 0.04, y + 0.1, 1.92, 0.8, 20, 3.5, P.desk, P.deskL, P.deskR, 'rgba(0,0,0,.06)');
+      // What is under the top comes first: the right leg (flush with the
+      // front panel), the panel, then the top over both.
+      box(g, x + 1.87, y + 0.12, 0.06, 0.7, 1, 19, P.deskL, P.deskL, P.deskR);
       box(g, x + 0.07, y + 0.78, 1.86, 0.08, 1, 19, P.deskL, P.deskL, P.deskR);
-      box(g, x + 1.88, y + 0.12, 0.06, 0.7, 0, 20, P.deskL, P.deskL, P.deskR);
+      box(g, x + 0.04, y + 0.1, 1.92, 0.8, 20, 3.5, P.desk, P.deskL, P.deskR, 'rgba(0,0,0,.06)');
+      // Left of the monitor and behind it (on the sitter's side): a desk lamp
+      // or a stack of paper, drawn before the monitor so it hides them.
+      if (mine) {
+        box(g, x + 0.1, y + 0.48, 0.18, 0.18, 23.5, 2, '#d0c8ba', '#bfb6a6', '#b0a696');
+        const arm = P.night ? '#8f97a6' : '#6b7280', b = pt(x + 0.19, y + 0.57, 25.5);
+        const elbow = [b[0] - 3, b[1] - 15], head = [elbow[0] + 7, elbow[1] + 2];
+        line(g, b, elbow, arm, 1.6); line(g, elbow, head, arm, 1.6);
+        poly(g, [[head[0] - 2.5, head[1] - 1], [head[0] + 2.5, head[1] - 1], [head[0] + 4.5, head[1] + 5], [head[0] - 4.5, head[1] + 5]], '#f2b84b');
+      } else {
+        for (let i = 0; i < 3; i++) box(g, x + 0.14, y + 0.44, 0.24, 0.3, 23.5 + i * 1.6, 1.4, '#fff', '#eeeae2', '#e2ddd3');
+      }
       // The monitor faces the sitter, so we see its back.
       box(g, x + 0.94, y + 0.48, 0.12, 0.08, 23.5, 5, P.mon, P.monL, P.monL);
       box(g, x + 0.55, y + 0.56, 0.9, 0.07, 27, 22, P.mon, P.mon, P.monL);
       ellipse(g, ...pt(x + 1, y + 0.63, 38), 2.2, 1.6, mine ? '#9fb3d9' : CORAL);
-      if (mine) { // a lamp and a mug
-        box(g, x + 0.12, y + 0.2, 0.18, 0.18, 23.5, 2, '#d0c8ba', '#bfb6a6', '#b0a696');
-        line(g, pt(x + 0.21, y + 0.29, 25), pt(x + 0.26, y + 0.33, 44), P.night ? '#8f97a6' : '#6b7280', 1.6);
-        poly(g, [pt(x + 0.2, y + 0.28, 46), pt(x + 0.4, y + 0.42, 46), pt(x + 0.42, y + 0.44, 38), pt(x + 0.16, y + 0.24, 38)], '#f2b84b');
+      // Right of the monitor, clear of it: a mug or a sprout.
+      if (mine) {
         box(g, x + 1.6, y + 0.3, 0.1, 0.1, 23.5, 6, '#fff', '#e7eef8', '#d3dcea');
-      } else { // a sprout and a stack of paper
+      } else {
         box(g, x + 1.62, y + 0.24, 0.16, 0.16, 23.5, 5, P.pot, P.potL, P.potR);
         ellipse(g, ...pt(x + 1.7, y + 0.32, 32), 4, 3, P.leaf[0]);
         ellipse(g, ...pt(x + 1.66, y + 0.3, 35), 3, 2.4, P.leaf[2]);
-        for (let i = 0; i < 3; i++) box(g, x + 0.18, y + 0.24, 0.24, 0.3, 23.5 + i * 1.6, 1.4, '#fff', '#eeeae2', '#e2ddd3');
       }
       // The name plate on the front panel.
       g.save(); onFaceY(g, x + 0.07, y + 0.86, 20);
@@ -558,26 +572,37 @@
     plant(g, p) { plant(g, p.x + 0.5, p.y + 0.5, p.kind, hash(p.id)); },
     sofa(g, p) {
       const { x, y } = p, se = p.face === 'se';
+      // The armrest at the far end starts at the backrest's front, not inside it.
       if (se) {
         box(g, x + 0.12, y + 0.02, 0.76, 0.96, 0, 10, P.cushion, P.sofaL, P.sofaR);
         box(g, x + 0.04, y + 0.02, 0.24, 0.96, 10, 14, P.sofa, P.sofaL, P.sofaR);
-        if (p.end === 'l') box(g, x + 0.12, y + 0.02, 0.76, 0.16, 10, 7, P.sofa, P.sofaL, P.sofaR);
-        if (p.end === 'r') box(g, x + 0.12, y + 0.84, 0.76, 0.16, 10, 7, P.sofa, P.sofaL, P.sofaR);
+        if (p.end === 'l') box(g, x + 0.28, y + 0.02, 0.6, 0.16, 10, 7, P.sofa, P.sofaL, P.sofaR);
       } else {
         box(g, x + 0.02, y + 0.12, 0.96, 0.76, 0, 10, P.cushion, P.sofaL, P.sofaR);
         box(g, x + 0.02, y + 0.04, 0.96, 0.24, 10, 14, P.sofa, P.sofaL, P.sofaR);
-        if (p.end === 'l') box(g, x + 0.02, y + 0.12, 0.16, 0.76, 10, 7, P.sofa, P.sofaL, P.sofaR);
-        if (p.end === 'r') box(g, x + 0.84, y + 0.12, 0.16, 0.76, 10, 7, P.sofa, P.sofaL, P.sofaR);
+        if (p.end === 'l') box(g, x + 0.02, y + 0.28, 0.16, 0.6, 10, 7, P.sofa, P.sofaL, P.sofaR);
       }
+    },
+    sofaarm(g, p) {
+      const { x, y } = p;
+      if (p.face === 'se') box(g, x + 0.28, y + 0.84, 0.6, 0.16, 10, 7, P.sofa, P.sofaL, P.sofaR);
+      else box(g, x + 0.84, y + 0.28, 0.16, 0.6, 10, 7, P.sofa, P.sofaL, P.sofaR);
     },
     ctable(g, p) {
       const { x, y } = p;
       box(g, x + 0.3, y + 0.3, 1.4, 1.4, 0, 8, P.tableR, P.tableL, P.tableR);
       box(g, x + 0.2, y + 0.2, 1.6, 1.6, 8, 3, P.table, P.tableL, P.tableR, 'rgba(0,0,0,.08)');
+      // A magazine lies flat, so it goes first: a blue cover with its title,
+      // a picture and a few lines of text. Then the rest, back to front.
+      const mx = x + 0.7, my = y + 0.92, mz = 12.3;
+      box(g, mx, my, 0.42, 0.3, 11, 1.3, '#7aa6e0', '#f4f1ea', '#e4dfd4');
+      const onCover = (x0, y0, x1, y1, c) => poly(g, [pt(mx + x0, my + y0, mz), pt(mx + x1, my + y0, mz), pt(mx + x1, my + y1, mz), pt(mx + x0, my + y1, mz)], c);
+      onCover(0.04, 0.03, 0.38, 0.08, 'rgba(255,255,255,.88)');
+      onCover(0.04, 0.12, 0.2, 0.26, '#f2b84b');
+      for (const ly of [0.14, 0.19, 0.24]) line(g, pt(mx + 0.24, my + ly, mz), pt(mx + 0.37, my + ly, mz), 'rgba(255,255,255,.75)', 0.7);
       box(g, x + 0.5, y + 0.45, 0.14, 0.14, 11, 6, '#fff', '#f1ece4', '#e1dbd0');
-      box(g, x + 1.25, y + 1.1, 0.14, 0.14, 11, 6, '#fff', '#f1ece4', '#e1dbd0');
-      poly(g, [pt(x + 0.8, y + 1.0, 11.2), pt(x + 1.3, y + 0.85, 11.2), pt(x + 1.45, y + 1.0, 11.2), pt(x + 0.95, y + 1.15, 11.2)], '#7aa6e0');
       plant(g, x + 1.35, y + 0.55, 'tiny', hash(p.id), 11);
+      box(g, x + 1.25, y + 1.1, 0.14, 0.14, 11, 6, '#fff', '#f1ece4', '#e1dbd0');
     },
     counter(g, p) {
       const { x, y } = p;
@@ -619,14 +644,14 @@
     const { x, y, w, d } = p;
     for (const [lx, ly] of [[0.18, 0.18], [w - 0.28, 0.18], [0.18, d - 0.28], [w - 0.28, d - 0.28]]) box(g, x + lx, y + ly, 0.1, 0.1, 0, 18, l, l, r);
     box(g, x + 0.1, y + 0.1, w - 0.2, d - 0.2, 18, 4, top, l, r, 'rgba(0,0,0,.08)');
-    if (lampOn) { // reading lamp and open books
-      box(g, x + 0.9, y + 0.9, 0.2, 0.2, 22, 2, '#c9a46c', '#b8935b', '#a6834e');
-      line(g, pt(x + 1, y + 1, 24), pt(x + 1, y + 1, 34), '#b8935b', 1.5);
-      box(g, x + 0.78, y + 0.86, 0.44, 0.28, 33, 6, '#3f8f5a', '#367c4e', '#2e6b43');
-      for (const [bx, by] of [[0.3, 0.45], [1.25, 1.2]]) {
+    if (lampOn) { // open books (flat, so first) and a reading lamp
+      for (const [bx, by] of [[1.2, 0.4], [1.25, 1.2]]) {
         poly(g, [pt(x + bx, y + by, 22.4), pt(x + bx + 0.42, y + by, 22.4), pt(x + bx + 0.42, y + by + 0.3, 22.4), pt(x + bx, y + by + 0.3, 22.4)], '#fffaf0', 'rgba(0,0,0,.12)', 0.5);
         line(g, pt(x + bx + 0.21, y + by, 22.6), pt(x + bx + 0.21, y + by + 0.3, 22.6), 'rgba(0,0,0,.18)', 0.6);
       }
+      box(g, x + 0.9, y + 0.9, 0.2, 0.2, 22, 2, '#c9a46c', '#b8935b', '#a6834e');
+      line(g, pt(x + 1, y + 1, 24), pt(x + 1, y + 1, 34), '#b8935b', 1.5);
+      box(g, x + 0.78, y + 0.86, 0.44, 0.28, 33, 6, '#3f8f5a', '#367c4e', '#2e6b43');
     } else { // a laptop, notes and a cup on the meeting table
       box(g, x + 0.7, y + 0.6, 0.5, 0.34, 22, 1.4, '#c9ced6', '#b8bec8', '#aab0bb');
       poly(g, [pt(x + 0.7, y + 0.6, 23.4), pt(x + 1.2, y + 0.6, 23.4), pt(x + 1.2, y + 0.56, 38), pt(x + 0.7, y + 0.56, 38)], '#2d3442');
@@ -1620,7 +1645,7 @@
     rtable(g, p) { if (P.night) glow(g, pt(p.x + 1, p.y + 1, 32), 46, 'rgba(255,210,130,.18)'); },
     udesk(g, p) {
       if (!P.night) return;
-      if (p.who === 'me') glow(g, pt(p.x + 0.3, p.y + 0.35, 40), 40, 'rgba(255,210,130,.22)');
+      if (p.who === 'me') glow(g, pt(p.x + 0.31, p.y + 0.57, 38), 40, 'rgba(255,210,130,.22)');
       glow(g, pt(p.x + 1, p.y + 0.5, 34), 36, 'rgba(110,190,255,.14)');
     },
   };

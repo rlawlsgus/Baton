@@ -1242,9 +1242,19 @@ func (s *Supervisor) prepareProfile(next *accounts.Account) {
 		}
 	}
 	if claude.BusyProfile(next.ProfileDir) {
-		if !claude.IsTrusted(next.ProfileDir, s.opt.Cwd) {
-			s.notice("%q is in use elsewhere, so its folder trust could not be set; if claude asks, choose \"Yes, I trust this folder\"", next.ID)
+		// Another claude runs on it: only the folder trust may be written.
+		if claude.IsTrusted(next.ProfileDir, s.opt.Cwd) {
+			return
 		}
+		if trustedSomewhere {
+			_, err := claude.TrustFolder(next.ProfileDir, s.opt.Cwd)
+			if err == nil {
+				s.logf("trusted the folder on %s (in use elsewhere)", next.ID)
+				return
+			}
+			s.logf("trust on %s: %v", next.ID, err)
+		}
+		s.notice("claude may ask whether you trust this folder on %q; choose \"Yes, I trust this folder\" to continue", next.ID)
 		return
 	}
 	res, err := claude.SeedProfile(next.ProfileDir, s.opt.Cwd, true, trustedSomewhere)
@@ -1267,11 +1277,7 @@ func (s *Supervisor) copyTrustForFirstLaunch() {
 	if claude.IsTrusted(s.acct.ProfileDir, s.opt.Cwd) {
 		return
 	}
-	if claude.BusyProfile(s.acct.ProfileDir) {
-		// Another claude owns the profile's .claude.json now.
-		s.notice("%q is in use elsewhere, so its folder trust could not be set; if claude asks, choose \"Yes, I trust this folder\"", s.acct.ID)
-		return
-	}
+	// The profile may be in use by another claude: trust alone is safe to add.
 	from := ""
 	if s.trustedByUser() {
 		from = "your own Claude Code setup"
@@ -1284,8 +1290,9 @@ func (s *Supervisor) copyTrustForFirstLaunch() {
 	if from == "" {
 		return
 	}
-	if _, err := claude.SeedProfile(s.acct.ProfileDir, s.opt.Cwd, false, true); err != nil {
+	if _, err := claude.TrustFolder(s.acct.ProfileDir, s.opt.Cwd); err != nil {
 		s.logf("copy trust to %s: %v", s.acct.ID, err)
+		s.notice("claude may ask whether you trust this folder on %q; choose \"Yes, I trust this folder\" to continue", s.acct.ID)
 	} else {
 		s.logf("copied folder trust from %s to %s", from, s.acct.ID)
 	}

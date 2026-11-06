@@ -15,9 +15,7 @@ import (
 	"baton/internal/accounts"
 	"baton/internal/claude"
 	"baton/internal/config"
-	"baton/internal/ledger"
 	"baton/internal/run"
-	"baton/internal/sched"
 	"baton/internal/share"
 	"baton/internal/update"
 	"baton/internal/winui"
@@ -415,8 +413,6 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		args = append(args, "--account", req.Account)
-	} else if id := s.idleStart(onlyAllowed(reg, rule), folder); id != "" {
-		args = append(args, "--account", id)
 	}
 	var cargs []string // Claude Code's own options, after "--"
 	switch req.Mode {
@@ -460,9 +456,15 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 	// A new account's first start would stop at Claude Code's first-run
 	// screens (in English, and the folder question exits on Enter): answer
 	// the setup ones, and folder trust only if the user just agreed to it.
+	// An account another session runs on gets the trust too, so that
+	// Automatic can start on it as the list says.
 	for _, a := range reg.Accounts {
-		if a.Enabled && !claude.BusyProfile(a.ProfileDir) {
+		switch {
+		case !a.Enabled:
+		case !claude.BusyProfile(a.ProfileDir):
 			_, _ = claude.SeedProfile(a.ProfileDir, folder, true, req.Trust)
+		case req.Trust:
+			_, _ = claude.TrustFolder(a.ProfileDir, folder)
 		}
 	}
 	if err := s.console("run", folder, folder, args); err != nil {
@@ -470,42 +472,6 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
-}
-
-// idleStart picks the account an "Automatic" session starts on when the one
-// baton would pick runs another Claude Code and does not trust the folder:
-// trust cannot be written into a profile in use, and Claude Code's own trust
-// question exits on Enter. "" leaves the choice to baton.
-func (s *Server) idleStart(reg accounts.Registry, folder string) string {
-	st, err := ledger.Load(s.opt.Paths.State())
-	if err != nil {
-		return ""
-	}
-	now := time.Now()
-	best, _, _ := sched.Pick(reg, st, now, "") // what `baton run` would pick
-	if best == nil || !claude.BusyProfile(best.ProfileDir) || claude.IsTrusted(best.ProfileDir, folder) {
-		return ""
-	}
-	for _, a := range byPriority(reg.Accounts) {
-		if ok, _ := sched.Eligible(a, st.StatusOf(a.ID), now); ok && a.ID != best.ID && !claude.BusyProfile(a.ProfileDir) {
-			return a.ID
-		}
-	}
-	return ""
-}
-
-// onlyAllowed is the registry without the accounts rule does not allow.
-func onlyAllowed(reg accounts.Registry, rule *config.FolderRule) accounts.Registry {
-	if rule == nil {
-		return reg
-	}
-	out := accounts.Registry{Schema: reg.Schema}
-	for _, a := range reg.Accounts {
-		if rule.Allows(a.ID) {
-			out.Accounts = append(out.Accounts, a)
-		}
-	}
-	return out
 }
 
 // apiRuleSet adds or replaces the rule for a folder.
