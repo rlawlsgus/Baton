@@ -583,6 +583,10 @@ func parseNotice(s string) (notice, bool) {
 	return n, n.taskID != "" || n.toolUseID != ""
 }
 
+// ProjectKey is a project folder's key: one floor per folder, whatever its
+// case. The window hides a floor by it.
+func ProjectKey(cwd string) string { return projectKey(cwd) }
+
 // projectKey is a project folder's key: one floor per folder, whatever its case.
 func projectKey(cwd string) string {
 	if cwd == "" {

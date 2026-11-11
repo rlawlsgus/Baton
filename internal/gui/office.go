@@ -76,13 +76,138 @@ func (s *Server) apiOfficePopout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
+// apiOfficeLayout keeps the width of the office's side columns, and which
+// are folded, for one kind of window (the tab, or the pop-out), so they look
+// the same next time: the page's own storage starts empty every launch.
+// {"window":"tab"|"popout","left":px,"right":px,"left_folded":b,"right_folded":b}
+func (s *Server) apiOfficeLayout(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Window string `json:"window"`
+		config.OfficePanes
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !s.officeOn() {
+		fail(w, http.StatusNotFound, "office_off", "the office is turned off", "")
+		return
+	}
+	if req.Window != "tab" && req.Window != "popout" {
+		fail(w, http.StatusBadRequest, "bad_value", "window must be tab or popout", "")
+		return
+	}
+	panes := req.OfficePanes.Clamp()
+	if _, err := config.Update(s.opt.Paths.Config(), s.opt.Paths.ConfigLock(), func(c *config.Config) error {
+		if c.OfficeView == nil {
+			c.OfficeView = &config.OfficeView{}
+		}
+		if req.Window == "tab" {
+			c.OfficeView.Tab = panes
+		} else {
+			c.OfficeView.Popout = panes
+		}
+		c.OfficeView = c.OfficeView.Normalized()
+		return nil
+	}); err != nil {
+		fail(w, http.StatusInternalServerError, "config", err.Error(), "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// officeHide is one thing hidden from the office, or shown again: a session
+// (by id) or a floor (by its project folder).
+type officeHide struct {
+	Session string `json:"session,omitempty"`
+	Floor   string `json:"floor,omitempty"`
+	Hidden  bool   `json:"hidden"`
+}
+
+// apiOfficeHide hides sessions and floors from the office, or shows them
+// again; follow mode skips what is hidden. One change at the top level,
+// more in "changes" (all written at once: showing one session of a hidden
+// floor hides the floor's others), or {"all":true,"hidden":false} to show
+// everything again.
+func (s *Server) apiOfficeHide(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		officeHide
+		All     bool         `json:"all"`
+		Changes []officeHide `json:"changes"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	if !s.officeOn() {
+		fail(w, http.StatusNotFound, "office_off", "the office is turned off", "")
+		return
+	}
+	changes := req.Changes
+	if req.Session != "" || req.Floor != "" {
+		changes = append([]officeHide{req.officeHide}, changes...)
+	}
+	switch {
+	case req.All && (req.Hidden || len(changes) > 0):
+		fail(w, http.StatusBadRequest, "bad_value", "all only shows everything again", "")
+		return
+	case !req.All && len(changes) == 0:
+		fail(w, http.StatusBadRequest, "bad_value", "nothing to hide or show", "")
+		return
+	case len(changes) > 2*config.OfficeHiddenSessionsMax:
+		fail(w, http.StatusBadRequest, "bad_value", "too many changes", "")
+		return
+	}
+	for i, c := range changes {
+		switch {
+		case (c.Session == "") == (c.Floor == ""):
+			fail(w, http.StatusBadRequest, "bad_value", "each change names a session or a floor", "")
+			return
+		case c.Session != "" && !office.ValidSession(c.Session):
+			fail(w, http.StatusBadRequest, "bad_session", "unknown session", "")
+			return
+		case c.Floor != "":
+			if len(c.Floor) > 1024 || office.ProjectKey(c.Floor) == "" {
+				fail(w, http.StatusBadRequest, "bad_value", "not a project folder", "")
+				return
+			}
+			changes[i].Floor = office.ProjectKey(c.Floor)
+		}
+	}
+	if _, err := config.Update(s.opt.Paths.Config(), s.opt.Paths.ConfigLock(), func(c *config.Config) error {
+		if c.OfficeView == nil {
+			c.OfficeView = &config.OfficeView{}
+		}
+		v := c.OfficeView
+		if req.All {
+			v.HiddenSessions, v.HiddenFloors = nil, nil
+		}
+		for _, ch := range changes {
+			if ch.Floor != "" {
+				v.SetHidden(true, ch.Floor, ch.Hidden)
+			} else {
+				v.SetHidden(false, ch.Session, ch.Hidden)
+			}
+		}
+		c.OfficeView = v.Normalized()
+		return nil
+	}); err != nil {
+		fail(w, http.StatusInternalServerError, "config", err.Error(), "")
+		return
+	}
+	if tr := s.officeTracker(); tr != nil {
+		tr.Refresh()
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
 // officeSources tells the office where conversations live and which baton
 // sessions run: every account's profile (in accounts.json order, which
 // gives each account its colour) and the user's own setup.
 func (s *Server) officeSources() office.Sources {
 	p := s.opt.Paths
 	var src office.Sources
-	reg, _ := accounts.Load(p.Accounts())
+	reg, err := accounts.Load(p.Accounts())
+	// A folder out of sight must not look like a project with nothing left.
+	src.Partial = err != nil
 	for _, a := range reg.Accounts {
 		src.Accounts = append(src.Accounts, a.ID)
 		if a.ProfileDir != "" {
@@ -91,6 +216,11 @@ func (s *Server) officeSources() office.Sources {
 	}
 	if h := share.UserHome(p.ProfilesDir()); h != "" {
 		src.Dirs = append(src.Dirs, office.Dir{Path: h})
+	} else {
+		src.Partial = true
+	}
+	if cfg, _ := config.Load(p.Config()); cfg.OfficeView != nil {
+		src.HiddenSessions, src.HiddenFloors = cfg.OfficeView.HiddenSessions, cfg.OfficeView.HiddenFloors
 	}
 	for _, j := range s.cache.journals(p.RunsDir()) {
 		if j.State == run.StateDone || !supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {

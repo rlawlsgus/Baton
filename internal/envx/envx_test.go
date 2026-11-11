@@ -31,3 +31,13 @@ func TestBuildScrubsAuthAndHostVars(t *testing.T) {
 		t.Errorf("Notable = %q", Notable(removed))
 	}
 }
+
+// Claude Code's opt-in transcript trimming replaces the file by a rename:
+// a conversation baton shows in the Claude desktop app has two names, and a
+// rename would split them, so it never reaches baton's claude.
+func TestTranscriptTrimmingIsKeptOut(t *testing.T) {
+	env, removed := Build([]string{"PATH=x", "claude_code_transcript_local_gc=1"}, nil)
+	if strings.Contains(strings.Join(env, "\n"), "LOCAL_GC") || len(removed) != 1 || len(Notable(removed)) != 0 {
+		t.Fatalf("env %q removed %q", env, removed)
+	}
+}

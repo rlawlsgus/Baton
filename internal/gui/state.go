@@ -11,8 +11,10 @@ import (
 	"baton/internal/accounts"
 	"baton/internal/claude"
 	"baton/internal/config"
+	"baton/internal/desktop"
 	"baton/internal/ledger"
 	"baton/internal/run"
+	"baton/internal/share"
 	"baton/internal/usage"
 	"baton/internal/winproc"
 
@@ -48,6 +50,10 @@ type runView struct {
 	SessionID  string    `json:"session_id"`
 	Cwd        string    `json:"cwd"`
 	Started    time.Time `json:"started"`
+	// Moving: the switch under way (state stopping or switching) is a move to
+	// a copy on the same account, because the conversation was opened
+	// elsewhere too.
+	Moving bool `json:"moving,omitempty"`
 	// What Claude Code is doing now: busy, idle, or waiting (for an answer
 	// in the session window: waiting_for says what, in Claude Code's words).
 	Claude     string `json:"claude,omitempty"`
@@ -59,6 +65,21 @@ type runView struct {
 	Changes       *changesView `json:"changes,omitempty"` // git changes in the session's folder
 	Window        bool         `json:"window"`            // its console window is known, so it can be brought forward
 	Allowed       []string     `json:"allowed,omitempty"` // its folder rule's accounts (none: any account)
+	// AlsoOpen: other Claude Codes that have this conversation open too (the
+	// desktop app, a terminal...). Two writers would split it, so the session
+	// moves to a copy as soon as Claude is idle.
+	AlsoOpen []elsewhereView `json:"also_open,omitempty"`
+	// HasFile: the conversation has its file (after its first message), so
+	// it can be shown in the Claude desktop app; Desktop says where it is.
+	HasFile bool           `json:"has_file"`
+	Desktop *desktop.Badge `json:"desktop,omitempty"`
+}
+
+// elsewhereView is another place a session's conversation is open: where is
+// desktop, terminal, vscode, account (another session on Account) or other.
+type elsewhereView struct {
+	Where   string `json:"where"`
+	Account string `json:"account,omitempty"`
 }
 
 // ruleView is a folder rule; Missing are its accounts that do not exist.
@@ -77,7 +98,7 @@ type switchView struct {
 
 type jobView struct {
 	ID       int           `json:"id"`
-	Kind     string        `json:"kind"` // add | login | run
+	Kind     string        `json:"kind"` // add | login | run | claude-update
 	Target   string        `json:"target"`
 	Started  time.Time     `json:"started"`
 	Running  bool          `json:"running"`
@@ -103,6 +124,14 @@ type configView struct {
 	GUILanguage           string `json:"gui_language"`
 	GUITheme              string `json:"gui_theme"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
+	// OfficeLayout is how the office's side columns were left in each kind
+	// of window, there before the office is first drawn.
+	OfficeLayout officeLayoutView `json:"office_layout"`
+}
+
+type officeLayoutView struct {
+	Tab    config.OfficePanes `json:"tab"`
+	Popout config.OfficePanes `json:"popout"`
 }
 
 // unfinishedView is a session that was cut off (Windows restarted, or it
@@ -127,6 +156,8 @@ type recentView struct {
 	Title       string    `json:"title"`
 	FirstPrompt string    `json:"first_prompt"`
 	Ended       time.Time `json:"ended"`
+	// Desktop: where it shows in the Claude desktop app.
+	Desktop *desktop.Badge `json:"desktop,omitempty"`
 }
 
 type stateView struct {
@@ -150,6 +181,9 @@ type stateView struct {
 	Rules         []ruleView       `json:"rules"`
 	Problems      []string         `json:"problems,omitempty"`
 	Update        *updateView      `json:"update,omitempty"`
+	// Desktop: the Claude desktop app is on this PC, so sessions can be
+	// shown in it.
+	Desktop bool `json:"desktop"`
 }
 
 func (s *Server) state() stateView {
@@ -169,6 +203,9 @@ func (s *Server) state() stateView {
 		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, Notifications: cfg.NotifyLevel(), KeepAwake: cfg.KeepAwakeOn(),
 		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage, GUITheme: cfg.GUITheme,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
+	}
+	if ov := cfg.OfficeView; ov != nil {
+		v.Config.OfficeLayout = officeLayoutView{Tab: ov.Tab, Popout: ov.Popout}
 	}
 	v.Lang = cfg.GUILanguage
 	if v.Lang == "" {
@@ -241,14 +278,59 @@ func (s *Server) state() stateView {
 	// again only when they change), and each supervisor is checked once.
 	journals := s.cache.journals(p.RunsDir())
 	alive := map[string]bool{}
+	// The config folders a session's conversation can also be open in: every
+	// account's profile, the user's own Claude Code and the folder a running
+	// session's conversation is kept in (as the session itself checks).
+	var dirs []string
+	acctOf := map[string]string{}
+	seen := map[string]bool{}
+	addDir := func(d string) {
+		if k := strings.ToLower(filepath.Clean(d)); d != "" && !seen[k] {
+			seen[k] = true
+			dirs = append(dirs, d)
+		}
+	}
+	for _, a := range reg.Accounts {
+		addDir(a.ProfileDir)
+		acctOf[strings.ToLower(filepath.Clean(a.ProfileDir))] = a.ID
+	}
+	addDir(share.UserHome(p.ProfilesDir()))
+	for _, j := range journals {
+		if proj := filepath.Dir(filepath.Dir(j.TranscriptPath)); j.State != run.StateDone && j.TranscriptPath != "" &&
+			strings.EqualFold(filepath.Base(proj), "projects") {
+			addDir(filepath.Dir(proj))
+		}
+	}
+	var open map[string][]claude.LiveSession // read once per poll, when a session runs
+	var badges map[string]desktop.Badge
+	var threads []*desktop.Thread
+	v.Desktop, badges, threads = s.deskNow()
+	badge := func(id string) *desktop.Badge {
+		if b, ok := badges[strings.ToLower(id)]; ok && id != "" {
+			return &b
+		}
+		return nil
+	}
 	for _, j := range journals {
 		if j.State != run.StateDone && supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {
 			alive[j.RunID] = true
-			rv := runView{RunID: j.RunID, Account: j.Account, SwitchMode: j.SwitchMode, State: j.State,
+			rv := runView{RunID: j.RunID, Account: j.Account, SwitchMode: j.SwitchMode, State: j.State, Moving: j.Moving,
 				SessionID: j.SessionID, Cwd: j.Cwd, Started: j.Started, RemoteControl: j.RemoteControl, Window: j.ConsoleWindow != 0}
 			if a := reg.Get(j.Account); a != nil && j.ChildPID > 0 {
 				if ls, ok := claude.SessionFor(a.ProfileDir, j.ChildPID); ok && ls.Alive() {
 					rv.Claude, rv.WaitingFor = ls.Status, ls.WaitingFor
+				}
+			}
+			if j.ChildPID > 0 && j.SessionID != "" {
+				if open == nil {
+					open = claude.LiveByConversation(dirs)
+				}
+				list := open[j.SessionID]
+				for _, o := range claude.Others(list, j.ChildPID) {
+					if movesInstead(o, list, j, journals) {
+						continue // that session moves to a copy; this one stays
+					}
+					rv.AlsoOpen = append(rv.AlsoOpen, elsewhereOf(o, acctOf))
 				}
 			}
 			if st, ok := run.LoadStatus(p.Run(j.RunID)); ok {
@@ -258,6 +340,8 @@ func (s *Server) state() stateView {
 				rv.Allowed = r.Accounts
 			}
 			rv.Changes = s.changesOf(j.RunID, j.Cwd)
+			rv.HasFile = j.TranscriptPath != "" && isFile(j.TranscriptPath)
+			rv.Desktop = badge(j.SessionID)
 			v.Runs = append(v.Runs, rv)
 		}
 	}
@@ -277,7 +361,10 @@ func (s *Server) state() stateView {
 		}
 		v.Unfinished = append(v.Unfinished, uv)
 	}
-	v.Recent = s.recentSessions(journals, alive, v.Runs, cut, 6)
+	v.Recent = s.recentSessions(journals, alive, v.Runs, cut, 6, threads)
+	for i := range v.Recent {
+		v.Recent[i].Desktop = badge(v.Recent[i].SessionID)
+	}
 	v.Claude, v.ClaudePending = s.claudeInfo()
 	v.Update = s.updateInfo(cfg)
 	if s.opt.Installed != nil {
@@ -294,14 +381,26 @@ func (s *Server) claudeInfo() (ClaudeInfo, bool) {
 	pending := s.claudeAt.IsZero()
 	if time.Since(s.claudeAt) > time.Minute && s.opt.Claude != nil && !s.claudeBusy {
 		s.claudeBusy = true
+		gen := s.claudeGen
 		go func() {
 			info := s.opt.Claude()
 			s.mu.Lock()
-			s.claude, s.claudeAt, s.claudeBusy = info, time.Now(), false
+			s.claudeBusy = false
+			if gen == s.claudeGen {
+				s.claude, s.claudeAt = info, time.Now()
+			}
 			s.mu.Unlock()
 		}()
 	}
 	return s.claude, pending
+}
+
+// claudeAgainLocked has the next state look for Claude Code again (another
+// copy was chosen, or one was updated); an answer still being worked out
+// from before is dropped. s.mu is held.
+func (s *Server) claudeAgainLocked() {
+	s.claudeAt = time.Time{}
+	s.claudeGen++
 }
 
 // unfinished are the runs that were cut off and can be reopened.
@@ -316,6 +415,47 @@ func supervisorAlive(pid int, created time.Time) bool {
 	}
 	d := got.Sub(created)
 	return d > -time.Second && d < time.Second
+}
+
+// movesInstead reports whether o, another claude with run j's conversation
+// open (list: every claude with it open), is the claude of another running
+// baton session that started after j's: of two baton sessions, only the
+// later one moves to a copy (as the sessions themselves decide), so the row
+// of the one that stays has nothing to say about it.
+func movesInstead(o claude.LiveSession, list []claude.LiveSession, j run.Journal, journals []run.Journal) bool {
+	var own *claude.LiveSession
+	for i := range list {
+		if claude.StartedBy(list[i], j.ChildPID) {
+			own = &list[i]
+			break
+		}
+	}
+	if own == nil || own.StartedAt == 0 || !claude.StartedLater(o, *own) {
+		return false
+	}
+	for _, k := range journals {
+		if k.RunID != j.RunID && k.State != run.StateDone && k.ChildPID > 0 &&
+			supervisorAlive(k.SupervisorPID, k.SupervisorCreated) && claude.StartedBy(o, k.ChildPID) {
+			return true
+		}
+	}
+	return false
+}
+
+// elsewhereOf says where another claude with a session's conversation runs.
+func elsewhereOf(o claude.LiveSession, acctOf map[string]string) elsewhereView {
+	if id, ok := acctOf[strings.ToLower(filepath.Clean(o.ConfigDir()))]; ok {
+		return elsewhereView{Where: "account", Account: id}
+	}
+	switch o.Entrypoint {
+	case "claude-desktop":
+		return elsewhereView{Where: "desktop"}
+	case "cli":
+		return elsewhereView{Where: "terminal"}
+	case "claude-vscode":
+		return elsewhereView{Where: "vscode"}
+	}
+	return elsewhereView{Where: "other"}
 }
 
 func byPriority(in []accounts.Account) []accounts.Account {
@@ -376,8 +516,10 @@ func (c *readCache) journals(runsDir string) []run.Journal {
 // recentSessions are conversations of ended runs whose transcript still
 // exists, newest first, without the ones running now. A run whose
 // supervisor is gone ended too (its window was closed), whatever its
-// journal last said.
-func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, running []runView, cut []run.Journal, max int) []recentView {
+// journal last said. One shown in the Claude desktop app (threads) is
+// always listed, so it can be taken out of there again: beyond max too, and
+// also after its run's folder was cleaned up.
+func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, running []runView, cut []run.Journal, max int, threads []*desktop.Thread) []recentView {
 	busy := map[string]bool{}
 	for _, r := range running {
 		busy[r.SessionID] = true
@@ -393,12 +535,27 @@ func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, r
 		fi os.FileInfo
 	}
 	var all []candidate
+	shown := map[string]bool{}
+	for _, t := range threads {
+		if t.Listed() {
+			shown[strings.ToLower(t.Session)] = true
+		}
+	}
+	listed := map[string]bool{}
 	for _, j := range journals {
+		listed[strings.ToLower(j.SessionID)] = true
 		if j.TranscriptPath == "" || busy[j.SessionID] || (j.State != run.StateDone && alive[j.RunID]) {
 			continue
 		}
 		if fi, err := os.Stat(j.TranscriptPath); err == nil && !fi.IsDir() {
 			all = append(all, candidate{j, fi})
+		}
+	}
+	for _, t := range threads {
+		if id := strings.ToLower(t.Session); shown[id] && !listed[id] && !busy[t.Session] && t.Transcript != "" {
+			if fi, err := os.Stat(t.Transcript); err == nil && !fi.IsDir() {
+				all = append(all, candidate{run.Journal{SessionID: t.Session, TranscriptPath: t.Transcript, Cwd: t.Cwd}, fi})
+			}
 		}
 	}
 	sort.Slice(all, func(i, k int) bool { return all[i].fi.ModTime().After(all[k].fi.ModTime()) })
@@ -407,7 +564,7 @@ func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, r
 	seen := map[string]bool{}
 	for _, c := range all {
 		j, fi := c.j, c.fi
-		if seen[j.SessionID] {
+		if seen[j.SessionID] || len(out) >= max && !shown[strings.ToLower(j.SessionID)] {
 			continue
 		}
 		seen[j.SessionID] = true
@@ -423,9 +580,6 @@ func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, r
 		t := claude.Describe(j.TranscriptPath, fi)
 		out = append(out, recentView{SessionID: j.SessionID, Where: w, Cwd: j.Cwd, Account: j.Account,
 			Title: t.Title, FirstPrompt: t.FirstPrompt, Ended: fi.ModTime()})
-		if len(out) == max {
-			break
-		}
 	}
 	return out
 }

@@ -54,6 +54,26 @@ func Unregister() {
 	deleteTree(schemeKey)
 }
 
+// HandlerGone reports that a click on a toast would run a baton-app.exe that
+// no longer exists (the folder it was registered from was deleted, say).
+func HandlerGone() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, schemeKey+`\shell\open\command`, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetStringValue("")
+	if err != nil || !strings.HasPrefix(v, `"`) {
+		return false
+	}
+	exe, _, ok := strings.Cut(v[1:], `"`)
+	if !ok {
+		return false
+	}
+	_, err = os.Stat(exe)
+	return errors.Is(err, os.ErrNotExist)
+}
+
 // Registered reports whether a click on a toast opens app.
 func Registered(app string) bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, schemeKey+`\shell\open\command`, registry.QUERY_VALUE)

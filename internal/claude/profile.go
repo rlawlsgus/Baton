@@ -38,6 +38,24 @@ func readClaudeJSON(profileDir string) (map[string]any, error) {
 	return m, nil
 }
 
+// OAuthIdentity is the claude.ai account a config folder was last signed in
+// as, from the oauthAccount Claude Code keeps in its .claude.json: the
+// account and organization ids (lower case) and the email address. They are
+// the ids the Claude desktop app names its per-account folders after. No
+// token is in that file, and nothing else is kept.
+func OAuthIdentity(dir string) (accountUUID, orgUUID, email string) {
+	m, err := readClaudeJSON(dir)
+	if err != nil {
+		return "", "", ""
+	}
+	o, _ := m["oauthAccount"].(map[string]any)
+	str := func(k string) string {
+		s, _ := o[k].(string)
+		return strings.TrimSpace(s)
+	}
+	return strings.ToLower(str("accountUuid")), strings.ToLower(str("organizationUuid")), str("emailAddress")
+}
+
 // TrustKeys lists the .claude.json keys claude accepts as trusting cwd,
 // nearest first. Inside a git repository claude only looks from cwd up to the
 // repository root (and, for a worktree, the main repository's root); outside

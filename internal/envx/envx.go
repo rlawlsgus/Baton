@@ -58,6 +58,10 @@ var scrubExact = map[string]bool{
 	"BATON_RUN":                                 true,
 	"BATON_NEW_CONSOLE":                         true, // must never reach `baton hook`
 	"BATON_SIGNIN_PRIVATE":                      true, // only a sign-in's own browser command
+	// Claude Code's transcript trimming replaces the file by a rename, which
+	// would part a conversation from the second name baton gives it for the
+	// Claude desktop app: each side would then go on alone.
+	"CLAUDE_CODE_TRANSCRIPT_LOCAL_GC": true,
 }
 
 var scrubPrefixes = []string{

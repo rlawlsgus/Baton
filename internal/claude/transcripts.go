@@ -30,10 +30,21 @@ type Transcript struct {
 	asked bool // something was asked in it: a user or assistant row
 }
 
+// Name is what baton's lists call the conversation: its name, else its
+// first prompt (the window does the same).
+func (t Transcript) Name() string {
+	if t.Title != "" {
+		return t.Title
+	}
+	return t.FirstPrompt
+}
+
 // ListTranscripts returns the newest conversations that ran in cwd, from all
-// the given config folders, newest first.
+// the given config folders, newest first. A conversation with two names (see
+// FirstNames) is listed once, under the folder listed first.
 func ListTranscripts(configDirs []string, cwd string, max int) []Transcript {
 	var out []Transcript
+	var infos []os.FileInfo
 	for _, dir := range configDirs {
 		for _, p := range transcriptFiles(dir, cwd) {
 			fi, err := os.Stat(p)
@@ -46,13 +57,74 @@ func ListTranscripts(configDirs []string, cwd string, max int) []Transcript {
 			}
 			t.ConfigDir = dir
 			out = append(out, t)
+			infos = append(infos, fi)
 		}
 	}
+	paths := make([]string, len(out))
+	for i, t := range out {
+		paths[i] = t.Path
+	}
+	keep := FirstNames(paths, infos)
+	kept := out[:0]
+	for i, t := range out {
+		if keep[i] {
+			kept = append(kept, t)
+		}
+	}
+	out = kept
 	sort.Slice(out, func(i, j int) bool { return out[i].Modified.After(out[j].Modified) })
 	if max > 0 && len(out) > max {
 		out = out[:max]
 	}
 	return out
+}
+
+// HasTranscripts says whether any of the config folders still holds a
+// conversation that ran in cwd. It is asked often (the office, before it
+// gives a floor number away), so unlike ListTranscripts it looks only in
+// the folders claude names after cwd, never reads the others, and stops at
+// the first one found: with no such folder it costs one listing of each
+// projects folder. A folder that cannot be listed counts as holding one.
+func HasTranscripts(configDirs []string, cwd string) bool {
+	if cwd == "" {
+		return false
+	}
+	want := filepath.Clean(cwd)
+	for _, dir := range configDirs {
+		projects := filepath.Join(dir, "projects")
+		ents, err := os.ReadDir(projects)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return true
+		}
+		for _, e := range ents {
+			if !e.IsDir() || !inProject(want, e.Name()) {
+				continue
+			}
+			files, err := os.ReadDir(filepath.Join(projects, e.Name()))
+			if err != nil {
+				return true
+			}
+			var paths []string
+			for _, f := range files {
+				if strings.HasSuffix(f.Name(), ".jsonl") {
+					paths = append(paths, filepath.Join(projects, e.Name(), f.Name()))
+				}
+			}
+			for _, p := range conversationFiles(paths) {
+				fi, err := os.Stat(p)
+				if err != nil || fi.IsDir() {
+					continue
+				}
+				if t := Describe(p, fi); t.Cwd != "" && strings.EqualFold(filepath.Clean(t.Cwd), want) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 // transcriptFiles are the transcripts in a config folder that can belong to
@@ -85,23 +157,62 @@ func conversationFiles(paths []string) []string {
 	return out
 }
 
+// FirstNames says which of the transcripts (paths, with their infos from
+// os.Stat, in the order of the config folders they were found in) to list: a
+// file listed earlier under another name is listed only there. A
+// conversation baton shows in the Claude desktop app has a second name in
+// the user's own setup, a hard link to the file in the account's profile;
+// callers list the profiles first, so the profile's name stays. Only files
+// of the same name in different places can be one file, so others are never
+// opened to tell.
+func FirstNames(paths []string, infos []os.FileInfo) []bool {
+	keep := make([]bool, len(paths))
+	first := map[string][]int{} // by file name: the ones kept so far
+	for i, p := range paths {
+		keep[i] = true
+		name := strings.ToLower(filepath.Base(p))
+		for _, k := range first[name] {
+			if os.SameFile(infos[k], infos[i]) {
+				keep[i] = false
+				break
+			}
+		}
+		if keep[i] {
+			first[name] = append(first[name], i)
+		}
+	}
+	return keep
+}
+
 // ListAllTranscripts returns the newest conversations of every folder, from
 // all the given config folders, newest first. Only files that get listed are
-// read; ones where nothing was asked yet are left out.
+// read; ones where nothing was asked yet are left out. A conversation with
+// two names (see FirstNames) is listed once, under the folder listed first.
 func ListAllTranscripts(configDirs []string, max int) []Transcript {
 	type file struct {
 		path, dir string
 		fi        os.FileInfo
 	}
 	var files []file
+	var paths []string
+	var infos []os.FileInfo
 	for _, dir := range configDirs {
 		m, _ := filepath.Glob(filepath.Join(dir, "projects", "*", "*.jsonl"))
 		for _, p := range conversationFiles(m) {
 			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
 				files = append(files, file{p, dir, fi})
+				paths, infos = append(paths, p), append(infos, fi)
 			}
 		}
 	}
+	keep := FirstNames(paths, infos)
+	kept := files[:0]
+	for i, f := range files {
+		if keep[i] {
+			kept = append(kept, f)
+		}
+	}
+	files = kept
 	sort.Slice(files, func(i, j int) bool { return files[i].fi.ModTime().After(files[j].fi.ModTime()) })
 	var out []Transcript
 	for _, f := range files {

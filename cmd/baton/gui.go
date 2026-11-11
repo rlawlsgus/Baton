@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -66,6 +67,14 @@ func cmdGUI(args []string) error {
 	}
 	defer inst.Close()
 	winui.EnableDPIAwareness()
+	// A click on a notification runs the baton-app.exe registered last; when
+	// that copy is gone (an unzipped folder deleted after installing), this one
+	// takes over, so clicks keep working.
+	if self, err := os.Executable(); err == nil && guiBuild == "1" && notify.HandlerGone() {
+		if err := notify.Prepare(e.paths.Root, self); err != nil {
+			guiLog("notification registration: %v", err)
+		}
+	}
 
 	cli, err := cliExe()
 	if err != nil {
@@ -145,7 +154,8 @@ func cmdGUI(args []string) error {
 			quit()
 			return nil
 		},
-		Focus: winui.FocusWindow,
+		Focus: winui.FocusShown, // a hidden console (no terminal around it) has nothing to show
+		Log:   guiLog,
 		OpenApp: func(u string) error {
 			return winui.OpenAppWindow(u, filepath.Join(e.paths.Root, "office-window"))
 		},
@@ -160,11 +170,15 @@ func cmdGUI(args []string) error {
 			if err := notify.Prepare(e.paths.Root, app); err != nil {
 				return err
 			}
-			body := "This is how baton's notifications look. Clicking one brings up that session's window."
+			body := "This is how baton's notifications look. Click this one to bring up baton's window; a session's notification brings up that session's window."
 			if lang == "ko" {
-				body = "baton 알림은 이렇게 보입니다. 알림을 누르면 그 세션 창이 앞으로 나옵니다."
+				body = "baton 알림은 이렇게 보입니다. 이 알림을 누르면 baton 창이, 세션 알림을 누르면 그 세션 창이 앞으로 나옵니다."
 			}
-			return notify.Show(notify.Note{Title: "baton", Body: body, Tag: "test", Group: "baton"})
+			n := notify.Note{Title: "baton", Body: body, Tag: "test", Group: "baton"}
+			if app != "" {
+				n.Launch = notify.Scheme + ":" + notify.OpenWindow // clickable, like a session's
+			}
+			return notify.Show(n)
 		},
 		Installed: func() (bool, bool) {
 			self, err := os.Executable()
@@ -191,6 +205,10 @@ func cmdGUI(args []string) error {
 		_ = hs.Shutdown(ctx)
 	}()
 	srv.StartCheck() // refresh every account's sign-in status
+	// The Claude desktop app's lists follow what baton shows there.
+	deskStop := make(chan struct{})
+	defer close(deskStop)
+	go srv.DesktopLoop(deskStop)
 	shows := inst.ShowRequests()
 
 	if !*noWindow && !*browser && webview2.Available() {
@@ -341,22 +359,43 @@ func claudeInfo(configPath string) gui.ClaudeInfo {
 		return gui.ClaudeInfo{Error: err.Error()}
 	}
 	base, _ := envx.Build(os.Environ(), nil)
-	inst, skipped, err := claude.ResolveUsable(cfg.ClaudePath, cfg.DesktopBundleAllowed(), base)
+	inst, all, fb, err := claude.ResolveUsable(cfg.ClaudePath, cfg.DesktopBundleAllowed(), base)
 	info := gui.ClaudeInfo{Path: inst.Path, Source: inst.Source, Version: inst.Version, DesktopApp: claude.DesktopAppInstalled(),
-		BundleOff: cfg.ClaudePath == "" && !cfg.DesktopBundleAllowed() && claude.DesktopBundle() != ""}
+		Installs: []gui.ClaudeInstall{}, Choice: cfg.ClaudePath, Min: claude.MinVersion}
+	for _, i := range all {
+		info.Installs = append(info.Installs, gui.ClaudeInstall{Path: i.Path, Version: i.Version, Source: i.Source, Problem: i.Problem,
+			InUse: err == nil && strings.EqualFold(i.Path, inst.Path)})
+		info.BundleOff = info.BundleOff || cfg.ClaudePath == "" && !cfg.DesktopBundleAllowed() && i.Desktop() && i.Problem == ""
+	}
+	// Automatic picks among the copies found where baton looks, not a path
+	// set by hand somewhere else.
+	looked := slices.DeleteFunc(slices.Clone(all), func(i claude.Install) bool { return i.Source == "config" })
+	if a, _, aerr := claude.Choose("", cfg.DesktopBundleAllowed(), looked); aerr == nil {
+		info.Auto = a.Path
+	}
+	// The row claude_path is: a Scoop shim is listed as the claude.exe it
+	// leads to, and a version of the desktop app's that the app removed
+	// follows the app's copies.
+	switch {
+	case cfg.ClaudePath == "" || strings.EqualFold(cfg.ClaudePath, claude.DesktopChoice):
+		info.Selected = strings.ToLower(cfg.ClaudePath)
+	default:
+		info.Selected = cfg.ClaudePath
+		if i, ok := claude.Chosen(cfg.ClaudePath, all); ok {
+			info.Selected = i.Path
+		} else if claude.IsDesktopCopy(cfg.ClaudePath) {
+			info.Selected = claude.DesktopChoice
+		}
+	}
+	if fb != nil {
+		info.Fallback = &gui.ClaudeFallback{Wanted: fb.Wanted, Why: fb.Why}
+	}
 	if err != nil {
 		var old *claude.TooOldError
 		info.Error, info.TooOld = err.Error(), errors.As(err, &old)
 		return info
 	}
 	info.Found = true
-	info.Warning, _ = claude.CheckVersion(inst.Version)
-	for _, s := range skipped {
-		if inst.Source == "desktop" && s.Version != "" {
-			info.OldCLI = s.Version // an old CLI the desktop app's copy is used instead of
-			break
-		}
-	}
 	return info
 }
 

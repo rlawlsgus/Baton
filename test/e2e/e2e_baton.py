@@ -25,7 +25,7 @@ Scenarios:
   stopask    `baton stop` during the confirm question ends the session after the answer
   stopswitch `baton stop` while a manual switch waits for a turn ends the session
   import     a conversation from the user's own Claude Code, open in the desktop app, goes on
-             in a copy (`baton resume <id> --copy`) on an account and switches on a limit
+             in a copy by itself (`baton resume <id>`) on an account and switches on a limit
   statusline baton's status line runs in the session and shows the account; a profile's own
              status line is left alone
   remotectl  a session started with Remote Control (--rc) keeps working where Remote Control is
@@ -35,15 +35,26 @@ Scenarios:
   busytrust  a second session started from the window on Automatic while one runs on the top account,
              in a new folder: it starts on that account too, with the trust written into the profile
              in use, and the running claude keeps that trust when it saves its settings
+  elsewhere  a conversation baton runs (brought in from the user's own Claude Code, no copy) is
+             opened there again while Claude answers: baton says so, waits for the answer and goes
+             on in a copy by itself, in its own permission mode (not one the other side wrote);
+             then a limit while the other side has the copy open goes on in a copy on acct-b
+             instead of ending
   rules      a folder rule keeps the sessions under a folder on the accounts it names
   restore    a session cut off mid-response (as by a power cut) reopens with `baton run --restore`
              and goes on with its task
   office     the window's office (GET /api/office, from the test build `bin/baton-test.exe`)
              shows a scripted turn live: rooms per tool, a subagent coming and going, a failing
              command, then the coffee break
+  desktop    the window shows a running session in two accounts' Claude desktop app (a scratch
+             data folder shaped like the app's): records shaped like the app's own, the
+             conversation's second name in the user's own Claude Code is the same file, a later
+             turn is in both, /clear moves the records on, unticking takes them and then the second
+             name away, and a record the desktop app made itself is never touched
 
 Windows notifications go to a file instead of the screen (BATON_NOTIFY_FILE): auto, confirm,
-exhausted and billing check the ones they would show.
+exhausted and billing check the ones they would show. %LOCALAPPDATA%, %APPDATA% and the Claude
+desktop app's data folder (BATON_DESKTOP_DATA) are scratch folders too, for every scenario.
 """
 from __future__ import annotations
 
@@ -55,6 +66,7 @@ import json
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -91,6 +103,12 @@ class World:
         os.makedirs(self.home, exist_ok=True)
         self.scen = os.path.join(self.run.root, "scenario.json")
         self.notes_file = os.path.join(self.run.logs, "notifications.jsonl")
+        # Never the real %LOCALAPPDATA% / %APPDATA%, nor the desktop app's real data folder.
+        self.local_appdata = os.path.join(self.run.root, "localappdata")
+        self.appdata = os.path.join(self.run.root, "appdata")
+        self.desk_data = os.path.join(self.local_appdata, "Claude-Data", "claude_e2e")
+        for d in (self.local_appdata, self.appdata):
+            os.makedirs(d, exist_ok=True)
         write_scenario(self.scen, {KEY_A: {"mode": "echo"}, KEY_B: {"mode": "echo"}})
         self.mock_log = os.path.join(self.run.logs, "mock.jsonl")
         self.srv = MockServer(self.mock_log, self.scen)
@@ -140,7 +158,9 @@ class World:
         self.write_json("config.json", cfg)
 
     def env(self) -> dict:
-        return self.run.env(None, {"BATON_HOME": self.home, "BATON_NOTIFY_FILE": self.notes_file})
+        return self.run.env(None, {"BATON_HOME": self.home, "BATON_NOTIFY_FILE": self.notes_file,
+                                   "LOCALAPPDATA": self.local_appdata, "APPDATA": self.appdata,
+                                   "BATON_DESKTOP_DATA": self.desk_data, "BATON_DESKTOP_RUNNING": "0"})
 
     def notes(self, run_dir: str) -> list[dict]:
         """The notifications a run would have shown."""
@@ -195,8 +215,17 @@ class World:
         return None
 
     def newest_run_dir(self) -> str | None:
-        dirs = sorted(glob.glob(os.path.join(self.home, "runs", "*")))
-        return dirs[-1] if dirs else None
+        """The run made last. A run id is the second it started plus a random
+        suffix, so two runs of the same second (a refused start just before
+        the next scenario's) sort by chance by name: go by when each folder
+        was made (creation time on Windows), then by name."""
+        def made(d: str) -> float:
+            try:
+                return os.path.getctime(d)
+            except OSError:
+                return 0.0
+        dirs = glob.glob(os.path.join(self.home, "runs", "*"))
+        return max(dirs, key=lambda d: (made(d), d)) if dirs else None
 
     def events(self, run_dir: str) -> list[dict]:
         return read_jsonl(os.path.join(run_dir, "events.jsonl"))
@@ -232,6 +261,23 @@ def process_started_ms(pid: int) -> int:
     k32.CloseHandle(h)
     t = (times[0].dwHighDateTime << 32) | times[0].dwLowDateTime
     return (t - 116444736000000000) // 10000
+
+
+def pid_alive(pid: int) -> bool:
+    """Whether process pid still runs (it can be opened and has no exit code yet)."""
+    import ctypes
+    from ctypes import wintypes
+    if not pid:
+        return False
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.restype = wintypes.HANDLE
+    h = k32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = wintypes.DWORD()
+    ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+    k32.CloseHandle(h)
+    return bool(ok) and code.value == 259  # STILL_ACTIVE
 
 
 def acct(r: dict, key: str) -> bool:
@@ -739,7 +785,8 @@ def scenario_wait(w: World, res: list) -> dict:
 
 
 def scenario_writer(w: World, res: list) -> dict:
-    """A second baton run must not open a session another claude is writing."""
+    """A second baton run must not open a session another baton session is writing: it starts
+    nothing (that session's window would come to the front) and says so."""
     pc = start_on_a_and_answer(w, res, "writer-1", "wr one")
     try:
         sid = json.load(open(os.path.join(w.newest_run_dir(), "run.json"), encoding="utf-8"))["session_id"]
@@ -747,8 +794,8 @@ def scenario_writer(w: World, res: list) -> dict:
         pc2 = w.start("writer-2", ["--account", "acct-b", "--", "--resume", path])
         try:
             code = pc2.wait_exit(30)
-            check(code not in (None, 0), f"writer: the second run refuses (exit {code})", res)
-            check(final_output_has(pc2, r"already open in another claude"), "writer: it says why", res)
+            check(code == 0, f"writer: the second run starts nothing (exit {code})", res)
+            check(final_output_has(pc2, r"already running in baton"), "writer: it says why", res)
         finally:
             pc2.close()
         check(quit_claude(pc) == 0, "writer: the first run still exits 0", res)
@@ -965,8 +1012,8 @@ def scenario_stopswitch(w: World, res: list) -> dict:
 
 def scenario_import(w: World, res: list) -> dict:
     """A conversation kept in the user's own Claude Code and open there (as the desktop
-    app keeps its sessions): `baton resume` refuses to write to it, and `--copy` goes on in
-    a fork on an account, started from another folder, while the original stays as it was.
+    app keeps its sessions): `baton resume` (no --copy) goes on in a fork on an account by
+    itself and says so, started from another folder, while the original stays as it was.
     A later limit continues the fork, not the original."""
     pc = start_on_a_and_answer(w, res, "import-first", "im one in the desktop app")
     try:
@@ -989,18 +1036,17 @@ def scenario_import(w: World, res: list) -> dict:
                    "entrypoint": "claude-desktop", "startedAt": process_started_ms(os.getpid())}, f)
     try:
         listed = w.baton_cmd("sessions")
-        check(sid in listed.stdout and "desktop work" in listed.stdout and "open in the Claude desktop app" in listed.stdout,
+        check(sid in listed.stdout and "desktop work" in listed.stdout and "open in the Claude desktop app: it continues in a copy" in listed.stdout,
               f"import: baton sessions lists it, named and open in the desktop app ({listed.stdout[:300]!r})", res)
-        refused = w.baton_cmd("resume", sid)
-        check(refused.returncode == 1 and "the Claude desktop app" in refused.stderr and "--copy" in refused.stderr,
-              f"import: resume without --copy refuses an open conversation and says where ({refused.stderr.strip()[:200]!r})", res)
         w.reset_state()
         w.accounts_flip("echo", "echo")
         mark = len(w.mock_rows())
-        pc = PseudoConsole([w.baton, "resume", sid, "--copy", "--account", "acct-a"], cwd=w.run.root, env=w.env(),
+        pc = PseudoConsole([w.baton, "resume", sid, "--account", "acct-a"], cwd=w.run.root, env=w.env(),
                            log_dir=w.run.logs, name="import-copy")
         pc.start()
         try:
+            check(pc.wait_for(r"open in the Claude desktop app, so it continues in a copy", 30) is not None,
+                  "import: resume says the open conversation goes on in a copy", res)
             submit_when_ready(w, pc, 1, "im two in baton")
             row = w.wait_mock(lambda r: main_turn(r, KEY_A, "im two in baton"), 60, since=mark)
             check(row is not None, "import: the copy goes on on acct-a", res)
@@ -1244,6 +1290,510 @@ def scenario_busytrust(w: World, res: list) -> dict:
     return {}
 
 
+def scenario_elsewhere(w: World, res: list) -> dict:
+    """A conversation from the user's own Claude Code (where the desktop app keeps its sessions),
+    brought in without a copy, is opened there again while baton answers in it. Claude Code itself
+    does not notice; baton never keeps writing a conversation another Claude Code has open: a
+    notification says it moves the session to a copy once the response is done, the window's row
+    says so meanwhile, and then baton goes on in a copy by itself (a new session id that carries the
+    earlier turns), so the original gets none of baton's later turns and the other side goes on in
+    it. The copy is in the mode baton's own claude reported at the end of the answer (changed with
+    Shift+Tab while it ran), not the plan mode a terminal that only looked wrote into the original,
+    and the run says "moving", not switching accounts. Then the other side opens baton's copy while
+    Claude waits on a question, and the answer runs into a usage limit: the session goes on on acct-b
+    in a copy instead of ending."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto")
+    # The user's own Claude Code, signed in as "B" with the mock (put back afterwards).
+    keep = {}
+    for name in ("settings.json", ".claude.json"):
+        p = os.path.join(w.user_claude, name)
+        keep[p] = open(p, "rb").read() if os.path.exists(p) else None
+    settings = json.load(open(os.path.join(w.user_claude, "settings.json"), encoding="utf-8"))
+    settings["env"] = {**(settings.get("env") or {}), "ANTHROPIC_BASE_URL": w.srv.base_url}
+    desk = w.run.profile("desk", KEY_B, w.srv.base_url, trust=[w.run.proj], dir=w.user_claude, settings_extra=settings)
+
+    def desk_pty(name: str, args: list[str]) -> PseudoConsole:
+        pc = w.run.pty(desk, args, name=name)
+        pc.start()
+        return pc
+
+    def said(pc: PseudoConsole, text: str, key: str) -> dict | None:
+        mark = len(w.mock_rows())
+        pc.submit(text)
+        for _ in range(3):
+            row = w.wait_mock(lambda r: main_turn(r, key, text), 10, since=mark)
+            if row:
+                return row
+            pc.send("\r")
+        return w.wait_mock(lambda r: main_turn(r, key, text), 30, since=mark)
+
+    def elsewhere_notes(d: str) -> list:
+        return [n for n in w.notes(d) if n.get("tag") == "elsewhere"]
+
+    def wait_notes(d: str, n: int, timeout: float) -> list:
+        deadline = time.time() + timeout
+        while time.time() < deadline and len(elsewhere_notes(d)) < n:
+            time.sleep(0.5)
+        return elsewhere_notes(d)
+
+    def text_of(path: str) -> str:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    def says(note: dict, *pairs: tuple[str, str]) -> bool:
+        """The notification says each (English, Korean) part, in the language it is in."""
+        body = note.get("body") or ""
+        return all(en in body or ko in body for en, ko in pairs)
+
+    def stop_modes(d: str) -> list:
+        """The permission mode each Stop of baton's claude reported, in order."""
+        return [(e.get("payload") or {}).get("permission_mode") for e in read_jsonl(os.path.join(d, "events.jsonl"))
+                if e.get("event") == "Stop"]
+
+    terminal = ("Claude Code in a terminal", "터미널의 Claude Code")
+    waits = ("as soon as Claude finishes its current response", "Claude가 지금 응답을 마치면")
+
+    pb = pd = win = None
+    try:
+        p0 = desk_pty("elsewhere-desk0", [])
+        try:
+            time.sleep(6.0)
+            row = said(p0, "el desk zero", KEY_B)
+            if not row:
+                raise Fail("elsewhere: the user's own Claude Code did not answer")
+            sid = row["headers"].get("x-claude-code-session-id")
+            time.sleep(1.5)
+            quit_claude(p0)
+        finally:
+            p0.close()
+        original = glob.glob(os.path.join(w.user_claude, "projects", "*", sid + ".jsonl"))[0]
+        old = w.run_dirs()
+        pb = PseudoConsole([w.baton, "resume", sid, "--account", "acct-a"], cwd=w.run.root, env=w.env(),
+                           log_dir=w.run.logs, name="elsewhere-baton")
+        pb.start()
+        d = w.wait_session_starts(1, 60, old=old)
+        if not d:
+            raise Fail("elsewhere: baton did not bring the conversation in")
+        time.sleep(3.0)
+        row = said(pb, "el baton one", KEY_A)
+        check(row is not None and row["headers"].get("x-claude-code-session-id") == sid,
+              "elsewhere: baton goes on in the same conversation (nobody else has it open)", res)
+        win = BatonWindow(w)
+        time.sleep(4.0)
+        check(not elsewhere_notes(d), "elsewhere: nothing to say while only baton has it open", res)
+
+        # The other side opens it while Claude answers here (a slow reply).
+        write_scenario(w.scen, {KEY_A: {"mode": "slow", "seconds": 40}, KEY_B: {"mode": "echo"}})
+        mark = len(w.mock_rows())
+        pb.submit("el baton slow")
+        if not w.wait_mock(lambda r: main_turn(r, KEY_A, "el baton slow"), 30, since=mark):
+            pb.send("\r")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "el baton slow"), 20, since=mark) is not None,
+              "elsewhere: baton's slow answer starts", res)
+        modes_before = stop_modes(d)
+        pd = desk_pty("elsewhere-desk1", ["--resume", sid])
+        notes = wait_notes(d, 1, 25)
+        check(len(notes) == 1 and says(notes[0], waits, terminal),
+              f"elsewhere: a notification says where it is open, and that the move waits for the answer ({notes})", res)
+        # Meanwhile another terminal only looks at it, in plan mode: a claude that opens a
+        # conversation and quits writes its mode into it, which baton's copy must not take for its own.
+        peek = desk_pty("elsewhere-peek", ["--resume", sid, "--permission-mode", "plan"])
+        try:
+            time.sleep(6.0)
+            quit_claude(peek)
+        finally:
+            peek.close()
+        check(bool(wait_until(lambda: '"permissionMode":"plan"' in text_of(original), 10)),
+              "elsewhere: the terminal that only looked wrote its mode (plan) into the conversation", res)
+        status, st = win.call("GET", "state")
+        rows = {r.get("run_id"): r for r in st.get("runs") or []}
+        check(status == 200 and (rows.get(os.path.basename(d)) or {}).get("also_open") == [{"where": "terminal"}],
+              f"elsewhere: the window's row shows it meanwhile ({rows.get(os.path.basename(d), {}).get('also_open')})", res)
+        # The user changes the mode in baton's window while the answer runs (Shift+Tab).
+        pb.send("\x1b[Z")
+        # The move itself takes a fraction of a second, too short to catch in the window: watch the
+        # run's journal, which the window's row reads.
+        states: list = []
+        deadline = time.time() + 60
+        while time.time() < deadline and len(elsewhere_notes(d)) < 2:
+            try:
+                with open(os.path.join(d, "run.json"), encoding="utf-8") as f:
+                    j = json.load(f)
+            except (OSError, ValueError):
+                j = {}
+            if j.get("state") and (not states or states[-1] != (j["state"], bool(j.get("moving")))):
+                states.append((j["state"], bool(j.get("moving"))))
+            time.sleep(0.02)
+        saw_moving = ("switching", True) in states and ("switching", False) not in states and ("stopping", False) not in states
+        notes = elsewhere_notes(d)
+        check(len(notes) == 2 and says(notes[1], terminal, ("moved this session to a copy", "사본으로 옮겼습니다")),
+              f"elsewhere: once the answer is done, baton moves the session to a copy and says so ({notes})", res)
+        check(saw_moving, f"elsewhere: meanwhile the run says it is moving to a copy, not switching accounts ({states})", res)
+        check(w.wait_session_starts(2, 30) == d, "elsewhere: Claude Code starts again, in the copy", res)
+        launch = [l for l in w.run_log(d).splitlines() if "launch account=" in l]
+        check(len(launch) == 2 and "acct-a" in launch[1] and '"--fork-session"' in launch[1] and os.path.basename(original).lower() in launch[1].lower(),
+              f"elsewhere: on the same account, forking the original ({launch[-1:]})", res)
+        modes = stop_modes(d)
+        at_end = modes[len(modes_before)] if len(modes) > len(modes_before) else None
+        check(bool(at_end) and bool(modes_before) and at_end != modes_before[-1],
+              f"elsewhere: the Stop at the end of the answer reports the mode changed meanwhile ({modes_before[-1:]} -> {at_end})", res)
+        check(bool(at_end) and at_end != "plan" and f'"--permission-mode" "{at_end}"' in launch[-1],
+              f"elsewhere: the copy goes on in that mode, not in the other side's plan ({launch[-1:]})", res)
+        w.accounts_flip("echo", "echo")
+        time.sleep(4.0)
+        row = said(pb, "el baton two", KEY_A)
+        copy_sid = (row or {}).get("headers", {}).get("x-claude-code-session-id")
+        check(row is not None and copy_sid not in (None, sid), f"elsewhere: baton's next turn is in a new conversation ({copy_sid})", res)
+        check(row is not None and row["n_messages"] >= 7, f"elsewhere: the copy carries the earlier turns (n_messages={row and row['n_messages']})", res)
+        # (The long answer may also get its "Claude finished" notification.)
+        check(not [n for n in w.notes(d) if n.get("tag") in ("switched", "limited")],
+              f"elsewhere: no switch was announced ({[n.get('tag') for n in w.notes(d)]})", res)
+        check(not w.state().get("switches"), "elsewhere: no switch was logged", res)
+        time.sleep(2.0)
+        check("el baton two" not in text_of(original), "elsewhere: the original gets none of baton's later turns", res)
+        row = said(pd, "el desk one", KEY_B)
+        check(row is not None and row["headers"].get("x-claude-code-session-id") == sid,
+              "elsewhere: the other side goes on in the original", res)
+        time.sleep(2.0)
+        check("el desk one" in text_of(original), "elsewhere: ... and its turn is in the original", res)
+        _, st = win.call("GET", "state")
+        check(not any(r.get("also_open") for r in st.get("runs") or []), "elsewhere: the row has nothing to say once baton is in the copy", res)
+        check(quit_claude(pd) == 0, "elsewhere: the other one closes", res)
+        pd.close()
+        pd = None
+
+        # Held at a switch: the other side opens baton's copy while Claude waits on a question;
+        # the answer then runs into a usage limit.
+        journal = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))
+        copy_path = journal.get("transcript_path") or ""
+        check(journal.get("session_id") == copy_sid and os.path.isfile(copy_path),
+              f"elsewhere: the run follows the copy ({journal.get('session_id')}, {copy_path})", res)
+        write_scenario(w.scen, {KEY_A: {"mode": "ask"}, KEY_B: {"mode": "echo"}})
+        mark = len(w.mock_rows())
+        submit(w, pb, ASK_GO + " which room next")
+        waiting = wait_until(lambda: next((e for e in w.a.sessions() if e.get("sessionId") == copy_sid and e.get("status") == "waiting"), None), 30)
+        check(bool(waiting), "elsewhere: Claude waits on its question", res)
+        pd = desk_pty("elsewhere-desk2", ["--resume", copy_path])
+        notes = wait_notes(d, 3, 25)
+        check(len(notes) == 3 and says(notes[2], waits, terminal),
+              f"elsewhere: baton waits for the question to be answered ({notes[2:]})", res)
+        time.sleep(2.0)
+        w.accounts_flip("limit", "echo")
+        mark = len(w.mock_rows())
+        b_first = None
+        for _ in range(3):
+            pb.send("\r")  # the first answer is highlighted
+            b_first = w.wait_mock(lambda r: main_turn(r, KEY_B, CONTINUE_MARK), 45, since=mark)
+            if b_first:
+                break
+        check(b_first is not None, "elsewhere: the limit continues the session on acct-b", res)
+        b_sid = (b_first or {}).get("headers", {}).get("x-claude-code-session-id")
+        check(b_sid not in (None, sid, copy_sid), f"elsewhere: ... in a copy of its own ({b_sid})", res)
+        check(b_first is not None and b_first["n_messages"] >= 8, f"elsewhere: ... carrying the whole conversation (n_messages={b_first and b_first['n_messages']})", res)
+        sw = w.state().get("switches", [])
+        check(bool(sw) and sw[-1]["from"] == "acct-a" and sw[-1]["to"] == "acct-b" and sw[-1]["reason"] == "usage_limit",
+              f"elsewhere: the switch is logged ({sw[-1:]})", res)
+        switched = [n for n in w.notes(d) if n.get("tag") == "switched"]
+        check(len(switched) == 1 and says(switched[0], ("acct-a hit its usage limit", "acct-a 계정이 한도에 걸렸습니다"), terminal,
+                                          ("goes on in a copy on acct-b", "acct-b 계정에서 사본으로 이어 갑니다"),
+                                          ("the original stays there", "원래 대화는 그쪽에 그대로 있습니다")),
+              f"elsewhere: the notification says it goes on in a copy ({switched})", res)
+        time.sleep(2.0)
+        check(CONTINUE_MARK not in text_of(copy_path).lower(), "elsewhere: the conversation the other side has open gets none of acct-b's turns", res)
+        check(pb.wait_exit(0.5) is None, "elsewhere: the session did not end", res)
+        check(quit_claude(pd) == 0, "elsewhere: the other one closes again", res)
+        pd.close()
+        pd = None
+        time.sleep(1.0)
+        check(quit_claude(pb) == 0, "elsewhere: baton exits 0", res)
+    finally:
+        if win is not None:
+            win.close()
+        for pc in (pb, pd):
+            if pc:
+                pc.close()
+        w.accounts_flip("echo", "echo")
+        for p, data in keep.items():
+            if data is None:
+                if os.path.exists(p):
+                    os.remove(p)
+            else:
+                with open(p, "wb") as f:
+                    f.write(data)
+    return {"session": sid, "copy": copy_sid, "copy_on_b": b_sid}
+
+
+DESK = {"acct-a": ("aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa", "a0000000-0000-4000-8000-00000000000a"),
+        "acct-b": ("bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb", "b0000000-0000-4000-8000-00000000000b"),
+        "app": ("cccccccc-3333-4ccc-8ccc-cccccccccccc", "c0000000-0000-4000-8000-00000000000c")}
+RECORD_KEYS = ["sessionId", "cliSessionId", "cwd", "originCwd", "createdAt", "lastActivityAt", "indexedAt", "isArchived",
+               "title", "titleSource", "sessionPermissionUpdates", "alwaysAllowedReasons", "adoptedFromOtherSurface",
+               "fromCliTranscript"]
+
+
+def scenario_desktop(w: World, res: list) -> dict:
+    """A running session is shown in two accounts' Claude desktop app through the window's API.
+    The desktop app's data folder is a scratch one shaped like the real one (config.json with the
+    account it is signed in to, claude-code-sessions\\<account>\\<org>), and the app counts as
+    closed (BATON_DESKTOP_RUNNING=0). baton's accounts are claude.ai sign-ins with their ids (the
+    mock still answers by key). Each list gets a record shaped exactly like the desktop app's own
+    import record; the conversation gets a second name in the user's own Claude Code (the fake
+    home's .claude) that is the same file, so a later turn is in both and the session is not taken
+    for "open elsewhere". /clear moves the records on to the new conversation (same files, the old
+    id in priorCliSessionIds) and gives it a second name too; the old conversation keeps its own
+    while the desktop app's own record of it opens it, and loses it once that record is gone;
+    unticking removes baton's records and then the second name; the desktop app's own record of the
+    conversation (in the list of the account the app is signed in to, none of baton's) is ticked
+    and locked, and never touched.
+    Then the app, signed in to acct-a, opens baton's record while baton runs the session (a Claude
+    Code in the user's own folder with the app's entrypoint and host session id): baton goes on in
+    a copy; acct-a's list keeps the app's record of the original as it is and gets one of baton's
+    own for the copy, "<title> (baton)"; acct-b's record follows the copy; the original keeps its
+    second name, which the app's record needs."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto", on_exhausted="stop")
+    data = w.desk_data
+    shutil.rmtree(data, ignore_errors=True)
+    lists = {k: os.path.join(data, "claude-code-sessions", a, o) for k, (a, o) in DESK.items()}
+    for k in ("acct-a", "app"):
+        os.makedirs(lists[k], exist_ok=True)
+    with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
+        json.dump({"lastKnownAccountUuid": DESK["app"][0], "locale": "en-US"}, f)
+    key = {k: "/".join(v) for k, v in DESK.items()}
+    accounts_json = os.path.join(w.home, "accounts.json")
+    home_json = os.path.join(w.run.home, ".claude.json")
+    keep = {}
+    for p in (accounts_json, home_json, w.a.claude_json, w.b.claude_json,
+              os.path.join(w.user_claude, "settings.json"), os.path.join(w.user_claude, ".claude.json")):
+        keep[p] = open(p, "rb").read() if os.path.exists(p) else None
+
+    def put_json(path: str, update: dict) -> None:
+        cur = {}
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                cur = json.load(f)
+        cur.update(update)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(cur, f, indent=1)
+
+    def signed_in_accounts() -> None:
+        reg = json.loads(keep[accounts_json])
+        for a in reg["accounts"]:
+            acct, org = DESK[a["id"]]
+            a.update(auth_method="claude.ai", account_uuid=acct, org_id=org, email=a["id"] + "@example.com")
+        with open(accounts_json, "w", encoding="utf-8") as f:
+            json.dump(reg, f, indent=1)
+
+    def record(k: str, name: str) -> dict | None:
+        try:
+            with open(os.path.join(lists[k], name + ".json"), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def text_of(path: str) -> str:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    win = pc = pd = None
+    copy_sid = None
+    try:
+        # The desktop app's own account, as the user's own Claude Code (its Code tab) has it.
+        put_json(home_json, {"oauthAccount": {"accountUuid": DESK["app"][0], "organizationUuid": DESK["app"][1],
+                                              "emailAddress": "desk@example.com"}})
+        for prof, k in ((w.a, "acct-a"), (w.b, "acct-b")):
+            put_json(prof.claude_json, {"oauthAccount": {"accountUuid": DESK[k][0], "organizationUuid": DESK[k][1],
+                                                         "emailAddress": k + "@example.com"}})
+        win = BatonWindow(w)
+        status, st = win.call("GET", "state")
+        deadline = time.time() + 90
+        while st.get("checking") and time.time() < deadline:  # its sign-in check rewrites accounts.json first
+            time.sleep(0.5)
+            st = win.call("GET", "state")[1]
+        signed_in_accounts()
+        check(st.get("desktop") is True, f"desktop: the window offers the desktop app ({st.get('desktop')})", res)
+
+        old_runs = w.run_dirs()
+        pc = w.start("desktop", ["--account", "acct-a"])
+        d = w.wait_session_starts(1, 60, old=old_runs)
+        if not d:
+            raise Fail("desktop: no SessionStart")
+        time.sleep(3.0)
+        submit(w, pc, "dk one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dk one"), 60) is not None, "desktop: A answers", res)
+        time.sleep(1.5)
+        j = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))
+        sid, tr = j["session_id"], j["transcript_path"]
+        status, st = win.call("GET", "state")
+        run = next((r for r in st.get("runs") or [] if r.get("session_id") == sid), {})
+        check(run.get("has_file") is True and not run.get("desktop"), f"desktop: the row can be shown, and is nowhere yet ({run.get('has_file')})", res)
+
+        # The desktop app made a record of its own for this conversation (it imported it) in the
+        # list of the account it is signed in to.
+        own_name = "local_0d0d0d0d-0000-4000-8000-000000000000"
+        own = json.dumps({"sessionId": own_name, "cliSessionId": sid, "cwd": w.run.proj, "originCwd": w.run.proj,
+                          "title": "made in the app", "isArchived": False, "permissionMode": "default"})
+        with open(os.path.join(lists["app"], own_name + ".json"), "w", encoding="utf-8") as f:
+            f.write(own)
+
+        status, v = win.call("GET", "desktop/places?session_id=" + sid)
+        rows = {r.get("key"): r for r in v.get("places") or []}
+        check(status == 200 and set(rows) == {key["acct-a"], key["acct-b"], key["app"]}, f"desktop: one row per account ({status} {list(rows)})", res)
+        ra, rb, rx = rows.get(key["acct-a"], {}), rows.get(key["acct-b"], {}), rows.get(key["app"], {})
+        check(ra.get("used") and not ra.get("active") and not rb.get("used") and not ra.get("checked") and not rb.get("checked"),
+              f"desktop: acct-a has a list in the app, acct-b not yet ({ra}, {rb})", res)
+        check(rx.get("app_only") and rx.get("active") and rx.get("checked") and rx.get("locked") and rx.get("why") == "own"
+              and rx.get("email") == "desk@example.com", f"desktop: the app's own record is ticked and locked ({rx})", res)
+
+        status, r = win.call("POST", "desktop/apply", {"session_id": sid, "places": [key["acct-a"], key["acct-b"], key["app"]]})
+        check(status == 200 and sorted(r.get("added") or []) == sorted([key["acct-a"], key["acct-b"]]) and not r.get("app_running"),
+              f"desktop: shown for acct-a and acct-b ({status} {r})", res)
+        for k in ("acct-a", "acct-b"):
+            rec = record(k, "local_" + sid)
+            check(rec is not None and list(rec) == RECORD_KEYS and rec["sessionId"] == "local_" + sid and rec["cliSessionId"] == sid
+                  and os.path.normcase(rec["cwd"]) == os.path.normcase(w.run.proj) and rec["cwd"] == rec["originCwd"]
+                  and rec["isArchived"] is False and rec["titleSource"] == "auto" and "dk one" in rec["title"]
+                  and rec["sessionPermissionUpdates"] == [] and rec["alwaysAllowedReasons"] == []
+                  and rec["adoptedFromOtherSurface"] is True and rec["fromCliTranscript"] is True
+                  and isinstance(rec["createdAt"], int) and rec["createdAt"] <= rec["lastActivityAt"] <= rec["indexedAt"],
+                  f"desktop: {k}'s record is shaped like the app's own ({rec})", res)
+            check(not glob.glob(os.path.join(lists[k], "*.tmp")) and not glob.glob(os.path.join(lists[k], ".*")),
+                  f"desktop: nothing else in {k}'s list ({os.listdir(lists[k])})", res)
+        second = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(tr)), sid + ".jsonl")
+        check(os.path.isfile(second) and os.path.samefile(second, tr), f"desktop: the second name is the same file ({second})", res)
+        check(text_of(os.path.join(lists["app"], own_name + ".json")) == own, "desktop: the app's own record is untouched", res)
+
+        # Another turn: in both names; and the second name is not "open elsewhere".
+        mark = len(w.mock_rows())
+        submit(w, pc, "dk two")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dk two"), 60, since=mark) is not None, "desktop: A answers again", res)
+        check(bool(wait_until(lambda: "dk two" in text_of(second), 15)), "desktop: the turn is in the second name too", res)
+        time.sleep(4.0)
+        status, st = win.call("GET", "state")
+        run = next((r for r in st.get("runs") or [] if r.get("session_id") == sid), {})
+        check(not run.get("also_open") and not [n for n in w.notes(d) if n.get("tag") == "elsewhere"],
+              f"desktop: the second name is not taken for the conversation being open elsewhere ({run.get('also_open')})", res)
+        check(sorted((run.get("desktop") or {}).get("places") or []) == ["acct-a", "acct-b"],
+              f"desktop: the row says where it shows ({run.get('desktop')})", res)
+        listed = w.baton_cmd("sessions")
+        check(listed.stdout.count(sid) == 1, f"desktop: `baton sessions` lists it once ({listed.stdout.count(sid)})", res)
+
+        # /clear: the records follow the session into the new conversation once it has its first turn.
+        pc.submit("/clear")
+        if not w.wait_session_starts(2, 30):
+            raise Fail("desktop: no SessionStart after /clear")
+        new_sid = [e for e in w.events(d) if e.get("event") == "SessionStart"][-1]["payload"]["session_id"]
+        time.sleep(3.0)
+        mark = len(w.mock_rows())
+        submit(w, pc, "dk three after clear")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dk three after clear"), 60, since=mark) is not None,
+              "desktop: A answers after /clear", res)
+        moved = wait_until(lambda: all((record(k, "local_" + sid) or {}).get("cliSessionId") == new_sid for k in ("acct-a", "acct-b")), 30)
+        recs = {k: record(k, "local_" + sid) for k in ("acct-a", "acct-b")}
+        check(bool(moved) and new_sid != sid and all(sid in (r or {}).get("priorCliSessionIds", []) and "dk three" in (r or {}).get("title", "")
+                                                    for r in recs.values()),
+              f"desktop: /clear moved the records on, same files, the old id kept as prior ({recs})", res)
+        new_tr = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))["transcript_path"]
+        new_second = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(new_tr)), new_sid + ".jsonl")
+        check(bool(wait_until(lambda: os.path.isfile(new_second) and os.path.samefile(new_second, new_tr), 20)),
+              "desktop: the new conversation has a second name", res)
+        check(os.path.isfile(tr), "desktop: the old conversation stays in its account's profile", res)
+        status, v = win.call("GET", "desktop/places?session_id=" + new_sid)
+        rows = {x.get("key"): x for x in v.get("places") or []}
+        check(rows.get(key["acct-a"], {}).get("checked") and rows.get(key["acct-b"], {}).get("checked"),
+              "desktop: the choice followed the session", res)
+
+        # Unticked: baton's records go, then the second name. The app's own record stays.
+        status, r = win.call("POST", "desktop/apply", {"session_id": new_sid, "places": [key["acct-a"]]})
+        check(status == 200 and r.get("removed") == [key["acct-b"]] and record("acct-b", "local_" + sid) is None
+              and record("acct-a", "local_" + sid) is not None and os.path.isfile(new_second),
+              f"desktop: unticking acct-b removes its record only ({status} {r})", res)
+        status, r = win.call("POST", "desktop/apply", {"session_id": new_sid, "places": []})
+        check(status == 200 and record("acct-a", "local_" + sid) is None, f"desktop: unticking acct-a ({status} {r})", res)
+        check(bool(wait_until(lambda: not os.path.exists(new_second), 20)) and os.path.isfile(new_tr),
+              "desktop: the second name goes once nothing shows it, baton's file stays", res)
+        check(text_of(os.path.join(lists["app"], own_name + ".json")) == own, "desktop: the app's own record is still untouched", res)
+        check(os.path.isfile(second) and os.path.samefile(second, tr),
+              "desktop: the old conversation keeps its second name, which the app's own record of it opens", res)
+
+        # The desktop app, signed in to acct-a now, opens baton's record while baton runs the session.
+        put_json(os.path.join(data, "config.json"), {"lastKnownAccountUuid": DESK["acct-a"][0]})
+        status, r = win.call("POST", "desktop/apply", {"session_id": new_sid, "places": [key["acct-a"], key["acct-b"]]})
+        check(status == 200 and r.get("active_added") and r.get("other_added"),
+              f"desktop: shown again, for the app's account and another one ({status} {r})", res)
+        orig = "local_" + new_sid
+        before = text_of(os.path.join(lists["acct-a"], orig + ".json"))
+        settings = json.load(open(os.path.join(w.user_claude, "settings.json"), encoding="utf-8"))
+        settings["env"] = {**(settings.get("env") or {}), "ANTHROPIC_BASE_URL": w.srv.base_url}
+        desk = w.run.profile("desk", KEY_B, w.srv.base_url, trust=[w.run.proj], dir=w.user_claude, settings_extra=settings)
+        pd = w.run.pty(desk, ["--resume", new_sid], name="desktop-app",
+                       extra_env={"CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": orig,
+                                  "LOCALAPPDATA": w.local_appdata, "APPDATA": w.appdata})
+        pd.start()
+        if not w.wait_session_starts(3, 90):
+            raise Fail("desktop: baton did not go on in a copy when the desktop app opened the session")
+        copy_sid = [e for e in w.events(d) if e.get("event") == "SessionStart"][-1]["payload"]["session_id"]
+        time.sleep(3.0)
+        mark = len(w.mock_rows())
+        submit(w, pc, "dk four in the copy")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dk four in the copy"), 60, since=mark) is not None,
+              "desktop: A answers in the copy", res)
+        mine = wait_until(lambda: record("acct-a", "local_" + copy_sid), 30)
+        followed = wait_until(lambda: (record("acct-b", orig) or {}).get("cliSessionId") == copy_sid, 30)
+        check(copy_sid != new_sid and text_of(os.path.join(lists["acct-a"], orig + ".json")) == before,
+              "desktop: the record the desktop app opened is left as it is", res)
+        check(bool(mine) and list(mine) == RECORD_KEYS and mine["cliSessionId"] == copy_sid and mine["title"].endswith(" (baton)"),
+              f"desktop: baton's copy has a record of its own next to it in acct-a's list ({mine})", res)
+        rb = record("acct-b", orig) or {}
+        check(bool(followed) and new_sid in rb.get("priorCliSessionIds", []) and record("acct-b", "local_" + copy_sid) is None,
+              f"desktop: acct-b's record follows the copy ({rb})", res)
+        status, v = win.call("GET", "desktop/places?session_id=" + copy_sid)
+        rows = {x.get("key"): x for x in v.get("places") or []}
+        ra, rb = rows.get(key["acct-a"], {}), rows.get(key["acct-b"], {})
+        check(ra.get("checked") and ra.get("copy") and not ra.get("locked") and rb.get("checked"),
+              f"desktop: the dialog shows the copy ticked for both ({ra}, {rb})", res)
+        quit_claude(pd)
+        pd.close()
+        pd = None
+        time.sleep(2.0)
+        check(os.path.isfile(new_second) and os.path.samefile(new_second, new_tr),
+              "desktop: the original keeps its second name, which the app's record needs", res)
+        copy_tr = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))["transcript_path"]
+        copy_second = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(copy_tr)), copy_sid + ".jsonl")
+        status, r = win.call("POST", "desktop/apply", {"session_id": copy_sid, "places": []})
+        check(status == 200 and record("acct-a", "local_" + copy_sid) is None and record("acct-b", orig) is None
+              and text_of(os.path.join(lists["acct-a"], orig + ".json")) == before,
+              f"desktop: unticking the copy removes baton's records only ({status} {r})", res)
+        check(bool(wait_until(lambda: not os.path.exists(copy_second), 20)) and os.path.isfile(copy_tr)
+              and os.path.isfile(new_second) and os.path.samefile(new_second, new_tr),
+              "desktop: the copy's second name goes; the original's stays for the app's record", res)
+        # The app's own record of the first conversation goes: so does that one's second name (the
+        # window looks again within seconds).
+        os.remove(os.path.join(lists["app"], own_name + ".json"))
+        check(bool(wait_until(lambda: not os.path.exists(second), 30)) and os.path.isfile(tr),
+              "desktop: the old conversation's second name goes once the app's own record of it is gone", res)
+        time.sleep(1.0)
+        check(quit_claude(pc) == 0, "desktop: baton exits 0", res)
+    finally:
+        if pd is not None:
+            pd.close()
+        if win is not None:
+            win.close()
+        if pc is not None:
+            pc.close()
+        for p, b in keep.items():
+            if b is None:
+                if os.path.exists(p):
+                    os.remove(p)
+            else:
+                with open(p, "wb") as f:
+                    f.write(b)
+    return {"session": sid, "after_clear": new_sid, "copy": copy_sid}
+
+
 def scenario_rules(w: World, res: list) -> dict:
     """A rule for the folder that holds the project allows only acct-b: the
     session starts there although acct-a comes first, `baton switch acct-a`
@@ -1317,9 +1867,20 @@ def scenario_restore(w: World, res: list) -> dict:
             except (OSError, ValueError):
                 pass
         check(owed, "restore: the run records that it has work going", res)
+        try:
+            pids = json.load(open(journal, encoding="utf-8"))
+        except (OSError, ValueError):
+            pids = {}
         kill = subprocess.run(["taskkill", "/F", "/T", "/PID", str(pc.pid)], capture_output=True)
         said = (kill.stdout or b"").decode("mbcs", "replace") + (kill.stderr or b"").decode("mbcs", "replace")
-        check(kill.returncode == 0, f"restore: baton and Claude Code are killed ({said.strip()})", res)
+        # What counts is that baton and Claude Code are gone: taskkill /T also
+        # reports a process of the tree that was already exiting as an error.
+        procs = [pc.pid, pids.get("supervisor_pid") or 0, pids.get("child_pid") or 0]
+        deadline = time.time() + 10
+        while time.time() < deadline and any(pid_alive(p) for p in procs):
+            time.sleep(0.2)
+        check(not any(pid_alive(p) for p in procs),
+              f"restore: baton and Claude Code are killed (taskkill {kill.returncode}: {said.strip()})", res)
         time.sleep(1.0)
     finally:
         pc.close()
@@ -1358,6 +1919,7 @@ def scenario_restore(w: World, res: list) -> dict:
 # ---- the office: a scripted turn, watched through the window's office API -----------
 
 OFFICE_GO, OFFICE_SUB, OFFICE_DONE = "OFFICE-GO", "OFFICE-SUB", "OFFICE-DONE"
+ASK_GO = "ASK-GO"  # the mock's "ask" mode answers a prompt with this with a question
 _office_ids = itertools.count(1)
 
 
@@ -1420,6 +1982,8 @@ class OfficeHandler(Handler):
     def _messages(self, account, body):
         sc = self.state.scenario_for(account)
         offered = [t.get("name") for t in (body.get("tools") or []) if isinstance(t, dict)]
+        if sc.get("mode") == "ask" and "AskUserQuestion" in offered:
+            return self._ask(account, body, offered)
         if sc.get("mode") != "office" or not offered:
             return super()._messages(account, body)
         msgs = body.get("messages") or []
@@ -1458,6 +2022,27 @@ class OfficeHandler(Handler):
             blocks.append({"type": "text", "text": reply["text"]})
         self._blocks(body.get("model") or "claude-mock", bool(body.get("stream")), blocks,
                      "tool_use" if "tool" in reply else "end_turn", float(reply.get("delay") or 0))
+
+    def _ask(self, account, body, offered):
+        """The "ask" mode: a prompt with ASK_GO gets a question (Claude then waits on the user);
+        anything else, the echo."""
+        user_text, has_tr = _last_user_text(body)
+        if has_tr or ASK_GO.lower() not in user_text.lower():
+            return super()._messages(account, body)
+        n, _ = self.state.next_n(account)
+        self.state.log({
+            "ts": time.time(), "n": n, "method": "POST", "path": self.path, "account": _redact(account),
+            "mode": "ask", "model": body.get("model"), "stream": bool(body.get("stream")), "main_loop": True,
+            "n_messages": len(body.get("messages") or []), "n_tools": len(offered), "has_tool_result": has_tr,
+            "user_text": " ".join(user_text.split())[:200], "status": 200, "reply": "tool_use", "tool": "AskUserQuestion",
+            "headers": {k: self.headers.get(k) for k in ("x-claude-code-session-id",) if self.headers.get(k)},
+        })
+        question = {"questions": [{"question": "Which room should I go to next?", "header": "Next room", "multiSelect": False,
+                                   "options": [{"label": "Server room", "description": "Run the last command"},
+                                               {"label": "Lounge", "description": "Take a break"}]}]}
+        self._blocks(body.get("model") or "claude-mock", bool(body.get("stream")),
+                     [{"type": "tool_use", "id": f"toolu_ask_{next(_office_ids)}", "name": "AskUserQuestion", "input": question}],
+                     "tool_use", 0)
 
     def _blocks(self, model: str, stream: bool, blocks: list[dict], stop: str, delay: float) -> None:
         """One reply of several content blocks (the harness's _reply sends one)."""
@@ -1748,6 +2333,51 @@ def office_checks(w: World, res: list, watch: OfficeWatch, sc: dict, sid: str, r
     return out
 
 
+def office_view_checks(w: World, win: BatonWindow, res: list, sid: str) -> dict:
+    """The office's side columns are kept per kind of window, and a session or
+    a floor hidden from the office is flagged in the building and skipped by
+    follow mode (a session asked for by id is still shown); showing
+    everything again brings it back. All in config.json's office_view."""
+    status, _ = win.call("POST", "office/layout", {"window": "tab", "left": 300, "right_folded": True})
+    st = win.call("GET", "state")[1]
+    layout = ((st.get("config") or {}).get("office_layout") or {}).get("tab")
+    check(status == 200 and layout == {"left": 300, "right_folded": True},
+          f"office: the tab's side columns are kept and come back in the state ({status} {layout})", res)
+    status, body = win.call("POST", "office/layout", {"window": "side", "left": 300})
+    check(status == 400, f"office: a layout for an unknown window is refused ({status} {body.get('code')})", res)
+
+    def follow() -> dict:
+        return win.call("GET", "office?since=0&wait=0")[1]
+
+    def floor_of(body: dict) -> dict:
+        want = os.path.normcase(os.path.normpath(w.run.proj))
+        return next((f for f in (body.get("building") or {}).get("floors") or []
+                     if os.path.normcase(os.path.normpath(f.get("path") or "")) == want), {})
+
+    def item(body: dict) -> dict:
+        return next((s for s in floor_of(body).get("sessions") or [] if s.get("id") == sid), {})
+
+    t0 = time.time()
+    status, _ = win.call("POST", "office/hide", {"session": sid, "hidden": True})
+    hid = wait_until(lambda: (lambda b: b if item(b).get("hidden") and (b.get("view") or {}).get("id") != sid else None)(follow()), 10)
+    check(status == 200 and hid is not None,
+          f"office: a hidden session is flagged and follow mode moves off it ({status}, {round(time.time() - t0, 1)} s)", res)
+    pinned = win.call("GET", "office?" + urllib.parse.urlencode({"session": sid, "since": 0, "wait": 0}))[1]
+    check((pinned.get("view") or {}).get("id") == sid, "office: a hidden session asked for by id is still shown", res)
+    status, _ = win.call("POST", "office/hide", {"floor": w.run.proj.upper(), "hidden": True})
+    fl = wait_until(lambda: (lambda b: b if floor_of(b).get("hidden") else None)(follow()), 10)
+    check(status == 200 and fl is not None and not floor_of(fl).get("live"),
+          f"office: a hidden floor (any case of its folder) is flagged and not lit ({status} {floor_of(fl or {}).get('hidden')})", res)
+    with open(os.path.join(w.home, "config.json"), encoding="utf-8") as f:
+        ov = json.load(f).get("office_view") or {}
+    check(ov.get("hidden_sessions") == [sid] and ov.get("hidden_floors") == [os.path.normpath(w.run.proj).lower()],
+          f"office: config.json keeps what is hidden ({ov.get('hidden_sessions')}, {ov.get('hidden_floors')})", res)
+    status, _ = win.call("POST", "office/hide", {"all": True, "hidden": False})
+    back = wait_until(lambda: (lambda b: b if floor_of(b) and not floor_of(b).get("hidden") and not item(b).get("hidden") else None)(follow()), 10)
+    check(status == 200 and back is not None, "office: showing everything again clears the flags", res)
+    return {"office_hide_seconds": round(time.time() - t0, 1)}
+
+
 def scenario_office(w: World, res: list) -> dict:
     """The office (`office` on in Settings) shows Claude's work live. The mock
     walks Claude through a thought, Read, a two-second Bash, Grep, an Explore
@@ -1850,6 +2480,7 @@ def scenario_office(w: World, res: list) -> dict:
             # What the office made of it.
             office = office_checks(w, res, watch, sc, sid, run_id)
             office["office_lag_after_turn_seconds"] = office_lag
+            office.update(office_view_checks(w, win, res, sid))
             time.sleep(1.0)
             check(quit_claude(pc) == 0, "office: baton exits 0", res)
         finally:
@@ -1859,7 +2490,7 @@ def scenario_office(w: World, res: list) -> dict:
             if pc is not None:
                 pc.close()
             win.close()
-            w.config(office=False)
+            w.config(office=False, office_view=None)
     return {"session": sid, "run_id": run_id, "turn_seconds": turn_secs, "scenario_seconds": round(time.time() - t0, 1),
             "tool_calls": names, "subagent_tool_calls": sub_names, "gui": w.baton_test, **office}
 
@@ -1871,7 +2502,7 @@ def main() -> int:
     ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "remotetwo,busytrust,rules,restore,office")
+                                      "remotetwo,busytrust,elsewhere,rules,restore,office,desktop")
     a = ap.parse_args()
     w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

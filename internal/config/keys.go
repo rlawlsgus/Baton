@@ -182,6 +182,11 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 		if fi, err := os.Stat(abs); err != nil || fi.IsDir() {
 			return nil, fmt.Errorf("%s is not a file", abs)
 		}
+		// A .cmd/.ps1 wrapper puts cmd.exe in front of claude, which turns
+		// baton's careful stop (CTRL_BREAK) into a "Terminate batch job" prompt.
+		if !strings.EqualFold(filepath.Ext(abs), ".exe") {
+			return nil, fmt.Errorf("claude_path must point to claude.exe, not %s", abs)
+		}
 		return func(c *Config) { c.ClaudePath = abs }, nil
 	case "gui_language":
 		v := strings.ToLower(strings.TrimSpace(value))

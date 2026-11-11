@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"baton/internal/claude"
+	"baton/internal/envx"
 	"baton/internal/run"
 	"baton/internal/update"
 	"baton/internal/winui"
@@ -87,4 +89,60 @@ func firstLines(s string, n int) string {
 		lines = append(lines[:n], "...")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// cmdClaudeUpdate runs a Claude Code CLI's own `claude update`: the Update
+// button in the baton window, in a console window of its own so the user
+// sees it work. The path comes from the window, so only a copy baton found
+// itself, too old for it and not the desktop app's (the app updates that
+// one), is run.
+func cmdClaudeUpdate(args []string) error {
+	if len(args) != 1 {
+		return errors.New("usage: baton claude-update <path to claude.exe>")
+	}
+	if err := refuseInsideSession("update Claude Code"); err != nil {
+		return err
+	}
+	e, err := load()
+	if err != nil {
+		return err
+	}
+	_, all, _, _ := e.findClaude()
+	var target *claude.Install
+	for i := range all {
+		if strings.EqualFold(all[i].Path, args[0]) && !all[i].Desktop() && all[i].Problem == claude.ProblemTooOld {
+			target = &all[i]
+		}
+	}
+	if target == nil {
+		return fmt.Errorf(say("%s is not a Claude Code CLI that baton found too old", "%s은(는) baton이 찾은 오래된 Claude Code CLI가 아닙니다"), args[0])
+	}
+	fmt.Fprintf(os.Stderr, say("Updating Claude Code %s (%s)...\n", "Claude Code %s 업데이트 중 (%s)...\n"), target.Version, target.Path)
+	base, _ := envx.Build(os.Environ(), nil)
+	code, err := claude.RunInteractive(target.Path, []string{"update"}, base, "")
+	claude.ForgetVersion(target.Path) // an update in place keeps the file's name
+	if err != nil {
+		return err
+	}
+	// `claude update` can end well and change nothing: a copy installed with
+	// WinGet, Scoop or npm is updated by that package manager. Then the
+	// window waits (an error) and says what does update it.
+	how := target.PackageUpdate()
+	if how == "" {
+		how = `powershell -c "irm https://claude.ai/install.ps1 | iex"` // installs it again, the newest
+	}
+	if code != 0 {
+		return fmt.Errorf(say("claude update failed (exit code %d). Update it with: %s",
+			"claude update가 실패했습니다 (종료 코드 %d). 다음으로 업데이트하세요: %s"), code, how)
+	}
+	v, err := claude.Version(target.Path, base)
+	if err != nil {
+		return fmt.Errorf(say("Claude Code does not start after the update: %v", "업데이트한 Claude Code가 실행되지 않습니다: %v"), err)
+	}
+	if claude.CheckVersion(v) != nil {
+		return fmt.Errorf(say("Claude Code is still %s, too old for baton (needs %s or newer). Update it with: %s",
+			"Claude Code가 아직 %s 버전이라 baton에 쓰기에는 낮습니다 (%s 이상 필요). 다음으로 업데이트하세요: %s"), v, claude.MinVersion, how)
+	}
+	fmt.Fprintf(os.Stderr, say("Claude Code is now %s.\n", "이제 Claude Code %s입니다.\n"), v)
+	return nil
 }

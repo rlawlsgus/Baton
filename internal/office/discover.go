@@ -137,7 +137,8 @@ func (t *Tracker) discover(now time.Time) {
 
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.dirs, t.accounts = src.Dirs, src.Accounts
+	t.dirs, t.accounts, t.partial = src.Dirs, src.Accounts, src.Partial
+	t.hiddenS, t.hiddenF = setOf(src.HiddenSessions, nil), setOf(src.HiddenFloors, projectKey)
 	// /clear (or /resume) in a running Claude Code: its process, or its
 	// baton session, holds another conversation now.
 	for k, id := range procs {
@@ -238,6 +239,30 @@ func (t *Tracker) discover(now time.Time) {
 	}
 }
 
+// setOf is a list as a set, each item put through key (when not nil).
+func setOf(list []string, key func(string) string) map[string]bool {
+	m := make(map[string]bool, len(list))
+	for _, s := range list {
+		if key != nil {
+			s = key(s)
+		}
+		if s != "" {
+			m[s] = true
+		}
+	}
+	return m
+}
+
+// hidden says whether the user hid a conversation from the office, by itself
+// or with its floor. Call with mu held.
+func (t *Tracker) hidden(id string) bool {
+	if t.hiddenS[id] {
+		return true
+	}
+	i := t.info[id]
+	return i != nil && t.hiddenF[projectKey(i.cwd)]
+}
+
 // transcriptOf finds a conversation's transcript: the one its baton session
 // names, or the newest <id>.jsonl in any config folder. While there is none
 // yet (a conversation before its first turn) it is looked for again less and
@@ -294,10 +319,14 @@ func (t *Tracker) startScan(dirs []string) {
 
 // updateFollow picks the conversation follow mode shows: the one shown stays
 // while it is busy (or waits for the user); otherwise the busy one that was
-// active last, then the one shown while it is live, then the newest.
+// active last, then the one shown while it is live, then the newest. What
+// the user hid is never picked; with everything hidden nothing is shown.
 // Call with mu held.
 func (t *Tracker) updateFollow(now time.Time) {
 	cur := t.resolve(t.follow)
+	if cur != "" && t.hidden(cur) {
+		cur = ""
+	}
 	last := func(id string) time.Time {
 		if i := t.info[id]; i != nil {
 			return i.last
@@ -312,6 +341,9 @@ func (t *Tracker) updateFollow(now time.Time) {
 	}
 	var busy, newest string
 	for id, i := range t.info {
+		if t.hidden(id) {
+			continue
+		}
 		if i.busy() && (busy == "" || newer(id, busy)) {
 			busy = id
 		}
@@ -388,7 +420,7 @@ func (t *Tracker) describe(id string) (sessionInfo, bool) {
 	i := sessionInfo{id: id, title: c.Title, firstPrompt: c.FirstPrompt, cwd: c.Cwd, path: p, entry: c.Source,
 		last: fi.ModTime(), account: t.accountOf(p)}
 	if k := projectKey(i.cwd); k != "" {
-		if t.floors.of(k) == 0 && (t.floors.begun || t.scanned) && t.floors.number(map[string]time.Time{k: i.last}) {
+		if t.floors.of(k) == 0 && (t.floors.begun || t.scanned) && t.floors.number(map[string]time.Time{k: i.last}, t.vacant) {
 			_ = t.floors.save()
 		}
 		i.floor = t.floors.of(k)
@@ -417,12 +449,18 @@ func (t *Tracker) updateBuilding() {
 			f = &floor{Floor: Floor{Name: folderName(i.cwd), Path: i.cwd}}
 			byKey[k] = f
 		}
-		item := SessionItem{ID: id, Title: i.shownTitle(), Last: utc(i.last), Live: i.live, Account: i.account, Source: i.source()}
+		item := SessionItem{ID: id, Title: i.shownTitle(), Last: utc(i.last), Live: i.live, Account: i.account, Source: i.source(),
+			Hidden: t.hiddenS[id]}
 		if i.live {
 			item.Status = i.status
-			f.Live = true
 		}
-		f.Busy = f.Busy || i.busy()
+		f.Count++
+		if !item.Hidden {
+			f.Shown++
+			// What the user hid does not light its floor up.
+			f.Live = f.Live || i.live
+			f.Busy = f.Busy || i.busy()
+		}
 		f.Sessions = append(f.Sessions, item)
 		if f.last.IsZero() || i.last.After(f.last) {
 			f.last, f.Path = i.last, i.cwd
@@ -433,13 +471,16 @@ func (t *Tracker) updateBuilding() {
 	}
 	// The very first time, wait for the conversation list: the floors are
 	// numbered by age, the oldest project on 1F.
-	if (t.scanned || t.floors.begun) && t.floors.number(oldest) {
+	if (t.scanned || t.floors.begun) && t.floors.number(oldest, t.vacant) {
 		_ = t.floors.save()
 	}
 	list := make([]Floor, 0, len(byKey))
 	for k, f := range byKey {
 		f.Floor.Floor = t.floors.of(k)
 		f.Last = utc(f.last)
+		if t.hiddenF[k] {
+			f.Hidden, f.Live, f.Busy = true, false, false
+		}
 		sort.Slice(f.Sessions, func(a, b int) bool {
 			if !f.Sessions[a].Last.Equal(f.Sessions[b].Last) {
 				return f.Sessions[a].Last.After(f.Sessions[b].Last)
@@ -468,13 +509,39 @@ func (t *Tracker) updateBuilding() {
 		}
 	}
 	for _, f := range list {
-		w(strconv.Itoa(f.Floor), f.Name, f.Path, strconv.FormatBool(f.Live), strconv.FormatBool(f.Busy))
+		w(strconv.Itoa(f.Floor), f.Name, f.Path, strconv.FormatBool(f.Live), strconv.FormatBool(f.Busy),
+			strconv.Itoa(f.Count), strconv.Itoa(f.Shown), strconv.FormatBool(f.Hidden))
 		for _, s := range f.Sessions {
-			w(s.ID, s.Title, strconv.FormatBool(s.Live), s.Status, s.Account, s.Source)
+			w(s.ID, s.Title, strconv.FormatBool(s.Live), s.Status, s.Account, s.Source, strconv.FormatBool(s.Hidden))
 		}
 	}
 	if d := h.Sum64(); d != t.bDigest {
 		t.bDigest, t.dirty = d, true
 	}
 	t.building = Building{Total: len(list), Floors: list}
+}
+
+// vacant says whether a floor number can go to a new project: its folder is
+// not in the building, nobody watches a conversation of it, and no config
+// folder holds a conversation of it any more (one that only aged out of the
+// newest 200 keeps its number). Never while a config folder could not be
+// listed. Call with mu held: every office poll waits for it, so it looks
+// only in the project's own folders (HasTranscripts) and reads nothing when
+// they are gone.
+func (t *Tracker) vacant(key string) bool {
+	if t.partial || key == "" {
+		return false
+	}
+	for _, i := range t.info {
+		if projectKey(i.cwd) == key {
+			return false
+		}
+	}
+	for _, s := range t.sessions {
+		if projectKey(s.info.cwd) == key {
+			return false
+		}
+	}
+	dirs := t.dirPaths()
+	return len(dirs) > 0 && !claude.HasTranscripts(dirs, key)
 }

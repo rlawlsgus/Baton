@@ -74,6 +74,9 @@ type Config struct {
 	GUITheme string `json:"gui_theme,omitempty"`
 	// FolderRules keep the sessions in some folders on some accounts.
 	FolderRules []FolderRule `json:"folder_rules,omitempty"`
+	// OfficeView is how the office tab looks (see OfficeView); the window
+	// keeps it, `baton config` does not show it.
+	OfficeView *OfficeView `json:"office_view,omitempty"`
 }
 
 // DisclosureVersion changes whenever the risk notice changes materially, so
@@ -130,6 +133,8 @@ func Load(path string) (Config, error) {
 	if c.ContinuePrompt == "" {
 		c.ContinuePrompt = d.ContinuePrompt
 	}
+	// Tidied, never validated: how the office looks must not stop baton.
+	c.OfficeView = c.OfficeView.Normalized()
 	return c, c.Validate()
 }
 

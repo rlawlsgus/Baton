@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -923,12 +924,18 @@ func TestImportListsEveryFolderAndCopiesOpenOnes(t *testing.T) {
 		b, _ := json.Marshal(v)
 		return r.do("POST", "/api/sessions/start", string(b), nil)
 	}
-	if held {
-		if code, body := start(map[string]any{"folder": desk, "mode": "resume", "session_id": open, "where": "claude-code"}); code != 400 || !strings.Contains(body, "open_elsewhere") {
-			t.Fatalf("an open conversation continued as it is: %d %s", code, body)
-		}
-	}
 	n := len(r.spawn.console)
+	if held {
+		// Not asked for a copy, but the desktop app has it open: it goes on
+		// in one anyway, and the page is told so. Where the conversation
+		// shows in the desktop app goes along (a copy asked for starts afresh).
+		if code, body := start(map[string]any{"folder": desk, "mode": "resume", "session_id": open, "where": "claude-code"}); code != 202 ||
+			!strings.Contains(body, `"copied":true`) ||
+			!slices.Equal(r.spawn.console[n], []string{"run", "--auto-copy-of", open, "--", "--resume", tr, "--fork-session"}) {
+			t.Fatalf("an open conversation continued as it is: %d %s %q", code, body, r.spawn.console[n:])
+		}
+		n++
+	}
 	for _, mode := range []string{"resume", "continue"} {
 		if code, body := start(map[string]any{"folder": desk, "mode": mode, "session_id": open, "where": "claude-code", "copy": true}); code != 202 {
 			t.Fatalf("%s in a copy: %d %s", mode, code, body)
@@ -940,6 +947,130 @@ func TestImportListsEveryFolderAndCopiesOpenOnes(t *testing.T) {
 	}
 	if code, _ := start(map[string]any{"folder": desk, "copy": true}); code != 202 || !slices.Equal(r.spawn.console[n], []string{"run"}) {
 		t.Fatalf("a new conversation is never a copy: %q", r.spawn.console[n])
+	}
+}
+
+// A conversation a baton session runs already: a start brings that
+// session's window to the front and starts nothing (409 when it has no window
+// to show); the conversation list says so; a copy the user asks for starts.
+func TestStartFocusesTheBatonSessionThatRunsIt(t *testing.T) {
+	r := newRig(t)
+	var focused []uintptr
+	r.srv.opt.Focus = func(w uintptr) error { focused = append(focused, w); return nil }
+	r.login()
+	home := os.Getenv("CLAUDE_CONFIG_DIR")
+	desk := t.TempDir()
+	const sid = "11111111-2222-4333-8444-555555555551"
+	tr := filepath.Join(home, "projects", "p", sid+".jsonl")
+	_ = os.MkdirAll(filepath.Dir(tr), 0o700)
+	_ = os.WriteFile(tr, []byte(`{"type":"user","cwd":`+strconv.Quote(desk)+`,"message":{"role":"user","content":"hi"}}`+"\n"), 0o600)
+	pid := os.Getpid()
+	_ = os.MkdirAll(filepath.Join(home, "sessions"), 0o700)
+	_ = os.WriteFile(filepath.Join(home, "sessions", strconv.Itoa(pid)+".json"),
+		[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"`+sid+`","entrypoint":"cli","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+	if !claude.BusyProfile(home) {
+		t.Skip("cannot fake a running claude here")
+	}
+	id := "20261109-101500-abc123"
+	_ = os.MkdirAll(r.paths.Run(id), 0o700)
+	_ = run.SaveJournal(r.paths.Run(id), run.Journal{RunID: id, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", ChildPID: pid, SessionID: sid, Cwd: desk, ConsoleWindow: 0x1234})
+	start := func(v map[string]any) (int, string) {
+		b, _ := json.Marshal(v)
+		return r.do("POST", "/api/sessions/start", string(b), nil)
+	}
+	req := map[string]any{"folder": desk, "mode": "resume", "session_id": sid, "where": "claude-code"}
+	if code, body := start(req); code != 200 || !strings.Contains(body, `"focused":"`+id+`"`) || !slices.Equal(focused, []uintptr{0x1234}) || len(r.spawn.console) != 0 {
+		t.Fatalf("focus: %d %s %v %q", code, body, focused, r.spawn.console)
+	}
+	r.srv.opt.Focus = nil
+	if code, body := start(req); code != 409 || !strings.Contains(body, "in_baton") || len(r.spawn.console) != 0 {
+		t.Fatalf("no window to show: %d %s", code, body)
+	}
+	_, body := r.do("GET", "/api/conversations?all=1", "", nil)
+	var list []conversationView
+	if err := json.Unmarshal([]byte(body), &list); err != nil || len(list) != 1 || !list[0].Open || !list[0].InBaton {
+		t.Fatalf("list: %v %s", err, body)
+	}
+	req["copy"] = true
+	if code, body := start(req); code != 202 || len(r.spawn.console) != 1 || !slices.Equal(r.spawn.console[0], []string{"run", "--", "--resume", tr, "--fork-session"}) {
+		t.Fatalf("a copy asked for: %d %s %q", code, body, r.spawn.console)
+	}
+}
+
+// Two baton sessions with one conversation open: only the later one moves to
+// a copy, so only its row says the conversation is open elsewhere too.
+func TestOnlyTheMovingSessionsRowSaysItIsOpenElsewhere(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	profA := filepath.Join(r.paths.ProfilesDir(), "a")
+	profB := filepath.Join(r.paths.ProfilesDir(), "b")
+	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+		if err := reg.Add(accounts.Account{ID: "a", ProfileDir: profA, Enabled: true, LoggedIn: true}); err != nil {
+			return err
+		}
+		return reg.Add(accounts.Account{ID: "b", ProfileDir: profB, Enabled: true, LoggedIn: true})
+	})
+	// The later session's claude: a child of this test, started after it.
+	child := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >nul")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	pid, later := os.Getpid(), child.Process.Pid
+	for i := 0; i < 50 && winproc.ProcessCreated(later).IsZero(); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	const sid = "11111111-2222-4333-8444-555555555555"
+	entry := func(dir string, p int) {
+		_ = os.MkdirAll(filepath.Join(dir, "sessions"), 0o700)
+		_ = os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(p)+".json"), []byte(`{"pid":`+strconv.Itoa(p)+
+			`,"sessionId":"`+sid+`","entrypoint":"cli","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(p).UnixMilli(), 10)+`}`), 0o600)
+	}
+	entry(profA, pid)
+	entry(profB, later)
+	if !claude.BusyProfile(profA) || !claude.BusyProfile(profB) {
+		t.Skip("cannot fake running claudes here")
+	}
+	first, second := "20261109-101500-aaaaaa", "20261109-101600-bbbbbb"
+	for id, j := range map[string]run.Journal{first: {Account: "a", ChildPID: pid}, second: {Account: "b", ChildPID: later}} {
+		j.RunID, j.SupervisorPID, j.SupervisorCreated, j.State, j.SessionID, j.Cwd = id, pid, winproc.ProcessCreated(pid), run.StateRunning, sid, t.TempDir()
+		_ = os.MkdirAll(r.paths.Run(id), 0o700)
+		_ = run.SaveJournal(r.paths.Run(id), j)
+	}
+	_, body := r.do("GET", "/api/state", "", nil)
+	var st stateView
+	_ = json.Unmarshal([]byte(body), &st)
+	rows := map[string][]elsewhereView{}
+	for _, rv := range st.Runs {
+		rows[rv.RunID] = rv.AlsoOpen
+	}
+	if len(st.Runs) != 2 || len(rows[first]) != 0 || !slices.Equal(rows[second], []elsewhereView{{Where: "account", Account: "a"}}) {
+		t.Fatalf("rows: %+v", rows)
+	}
+}
+
+// A session moving to a copy (its conversation was opened elsewhere) is not
+// switching accounts: its row says so.
+func TestStateTellsAMoveFromASwitch(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	pid := os.Getpid()
+	for id, moving := range map[string]bool{"20261109-101500-aaaaaa": true, "20261109-101600-bbbbbb": false} {
+		j := run.Journal{RunID: id, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid), State: run.StateStopping,
+			Moving: moving, Account: "a", Cwd: t.TempDir()}
+		_ = os.MkdirAll(r.paths.Run(id), 0o700)
+		_ = run.SaveJournal(r.paths.Run(id), j)
+	}
+	_, body := r.do("GET", "/api/state", "", nil)
+	var st stateView
+	_ = json.Unmarshal([]byte(body), &st)
+	got := map[string]bool{}
+	for _, rv := range st.Runs {
+		got[rv.RunID] = rv.Moving
+	}
+	if len(got) != 2 || !got["20261109-101500-aaaaaa"] || got["20261109-101600-bbbbbb"] {
+		t.Fatalf("moving: %v", got)
 	}
 }
 
@@ -980,6 +1111,62 @@ func TestStateShowsUsage(t *testing.T) {
 // A running session's row: what Claude Code is doing (from its live session
 // file), the model and context (from the status line), git changes and
 // Remote Control; and a start with Remote Control passes it to Claude Code.
+// A running session's conversation opened in the desktop app and in another
+// session on account b too: the row says so, naming both places; the
+// session's own claude does not count.
+func TestRunShowsItsConversationOpenElsewhere(t *testing.T) {
+	r := newRig(t)
+	r.login()
+	profA := filepath.Join(r.paths.ProfilesDir(), "a")
+	profB := filepath.Join(r.paths.ProfilesDir(), "b")
+	_, _ = accounts.Update(r.paths.Accounts(), r.paths.AccountsLock(), func(reg *accounts.Registry) error {
+		if err := reg.Add(accounts.Account{ID: "a", ProfileDir: profA, Enabled: true, LoggedIn: true}); err != nil {
+			return err
+		}
+		return reg.Add(accounts.Account{ID: "b", ProfileDir: profB, Enabled: true, LoggedIn: true})
+	})
+	pid := os.Getpid()
+	const sid = "11111111-2222-4333-8444-555555555555"
+	entry := func(dir, entrypoint string) {
+		_ = os.MkdirAll(filepath.Join(dir, "sessions"), 0o700)
+		_ = os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(pid)+".json"), []byte(`{"pid":`+strconv.Itoa(pid)+
+			`,"sessionId":"`+sid+`","entrypoint":"`+entrypoint+`","startedAt":`+strconv.FormatInt(winproc.ProcessCreated(pid).UnixMilli(), 10)+`}`), 0o600)
+	}
+	entry(os.Getenv("CLAUDE_CONFIG_DIR"), "claude-desktop") // the user's own Claude Code: the desktop app
+	entry(profB, "cli")
+	if !claude.BusyProfile(profB) {
+		t.Skip("cannot fake a running claude here")
+	}
+	id := "20261029-101500-abc123"
+	dir := r.paths.Run(id)
+	_ = os.MkdirAll(dir, 0o700)
+	journal := run.Journal{RunID: id, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", ChildPID: 999997, SessionID: sid, Cwd: t.TempDir()}
+	_ = run.SaveJournal(dir, journal)
+	state := func() runView {
+		t.Helper()
+		_, body := r.do("GET", "/api/state", "", nil)
+		var st stateView
+		_ = json.Unmarshal([]byte(body), &st)
+		if len(st.Runs) != 1 {
+			t.Fatalf("runs %+v", st.Runs)
+		}
+		return st.Runs[0]
+	}
+	got := state().AlsoOpen
+	slices.SortFunc(got, func(x, y elsewhereView) int { return strings.Compare(x.Where, y.Where) })
+	if !slices.Equal(got, []elsewhereView{{Where: "account", Account: "b"}, {Where: "desktop"}}) {
+		t.Fatalf("also open: %+v", got)
+	}
+	// The same process as the session's own claude: nothing to show.
+	journal.ChildPID = pid
+	_ = run.SaveJournal(dir, journal)
+	time.Sleep(20 * time.Millisecond) // the journal cache goes by size and time
+	if got := state().AlsoOpen; len(got) != 0 {
+		t.Fatalf("its own claude shown: %+v", got)
+	}
+}
+
 func TestRunDetailsAndRemoteControl(t *testing.T) {
 	r := newRig(t)
 	r.login()

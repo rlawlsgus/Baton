@@ -116,7 +116,7 @@ func TestFloorsPersist(t *testing.T) {
 		t.Fatal("begun without a file")
 	}
 	now := time.Now()
-	if !f.number(map[string]time.Time{`c:\new`: now, `c:\old`: now.Add(-48 * time.Hour), `c:\mid`: now.Add(-time.Hour)}) {
+	if !f.number(map[string]time.Time{`c:\new`: now, `c:\old`: now.Add(-48 * time.Hour), `c:\mid`: now.Add(-time.Hour)}, nil) {
 		t.Fatal("nothing numbered")
 	}
 	if f.of(`c:\old`) != 1 || f.of(`c:\mid`) != 2 || f.of(`c:\new`) != 3 {
@@ -130,10 +130,10 @@ func TestFloorsPersist(t *testing.T) {
 		t.Fatalf("reloaded %v", g.m)
 	}
 	// A project older than all of them, seen later, still goes on top.
-	if g.number(map[string]time.Time{`c:\old`: now, `c:\ancient`: now.Add(-1000 * time.Hour)}) != true || g.of(`c:\ancient`) != 4 || g.of(`c:\old`) != 1 {
+	if g.number(map[string]time.Time{`c:\old`: now, `c:\ancient`: now.Add(-1000 * time.Hour)}, nil) != true || g.of(`c:\ancient`) != 4 || g.of(`c:\old`) != 1 {
 		t.Fatalf("later floor %v", g.m)
 	}
-	if g.number(map[string]time.Time{`c:\old`: now}) {
+	if g.number(map[string]time.Time{`c:\old`: now}, nil) {
 		t.Fatal("renumbered a known floor")
 	}
 	// A broken file is not a first run.

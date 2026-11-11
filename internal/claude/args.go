@@ -194,6 +194,26 @@ func (a *Args) ReplaceResume(path string) {
 	a.Continue = false
 }
 
+// AsCopy adds --fork-session to a command line that resumes a conversation,
+// so that it goes on in a copy and never writes to the original. It goes right
+// before the resume option (or before a "--" ending the options): an option
+// there can never be taken as the value or the prompt of the one before it.
+func AsCopy(toks []string) []string {
+	at := len(toks)
+	for i, tok := range toks {
+		if tok == "--" {
+			at = i
+			break
+		}
+		if n, _, _ := strings.Cut(tok, "="); n == "-r" || n == "--resume" || n == "-c" || n == "--continue" {
+			at = i
+			break
+		}
+	}
+	out := append(append([]string{}, toks[:at]...), "--fork-session")
+	return append(out, toks[at:]...)
+}
+
 func replaceResume(toks []string, oldValue, path string) []string {
 	out := make([]string, 0, len(toks)+1)
 	for i := 0; i < len(toks); i++ {

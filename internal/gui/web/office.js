@@ -233,6 +233,13 @@
   const log = [];
   const openFloors = new Set(), closedFloors = new Set();
   let quietOpen = false;
+  // What the user hid from the office is kept by the server, which flags it
+  // in the building. A change just made is laid over those flags until the
+  // building shows it (or for 5 s): 's:<id>' or 'f:<floor>' -> {hidden, at}.
+  const pend = new Map();
+  const PEND_MS = 5000;
+  let hiddenOpen = false;
+  const floorPaths = new Map(); // floor number -> its folder, to see a number go to another project
 
   try {
     const saved = JSON.parse(sessionStorage.getItem('baton_office') || 'null');
@@ -1356,6 +1363,14 @@
     if (r.me && r.me !== me) { me = r.me; sprites.clear(); }
     if (Array.isArray(r.accounts)) acctOrder = r.accounts;
     building = r.building || null;
+    settleHidden();
+    // A vacated floor number went to another project: whether that floor's
+    // card was open was about the old one.
+    for (const f of (building && building.floors) || []) {
+      const was = floorPaths.get(f.floor), now = (f.path || '').replace(/[\\/]+$/, '').toLowerCase();
+      if (was !== undefined && was !== now) { openFloors.delete(f.floor); closedFloors.delete(f.floor); pend.delete('f:' + f.floor); }
+      floorPaths.set(f.floor, now);
+    }
     const v = r.view || null;
     const old = view;
     const now = performance.now();
@@ -1493,16 +1508,21 @@
   }
 
   // ---- the camera -----------------------------------------------------------------------
-  const cam = { user: 1, px: 0, py: 0, z: 1, S: 1, w: 0, h: 0, dpr: 1, tx: 0, ty: 0, zoomingUntil: 0 };
+  // insetL and insetR are what an open drawer covers of the stage: the
+  // building is fitted to (and centred in) the rest, though never squeezed
+  // into less than half the stage.
+  const cam = { user: 1, px: 0, py: 0, z: 1, S: 1, w: 0, h: 0, dpr: 1, tx: 0, ty: 0, zoomingUntil: 0, insetL: 0, insetR: 0 };
+  const camFree = () => Math.max(cam.w * 0.5, cam.w - cam.insetL - cam.insetR);
+  const camMid = () => clamp(cam.insetL + (cam.w - cam.insetL - cam.insetR) / 2, cam.w * 0.25, cam.w * 0.75);
   function fitZ() {
-    return Math.min(cam.w / (WORLD.r - WORLD.l), cam.h / (WORLD.b - WORLD.t));
+    return Math.min(camFree() / (WORLD.r - WORLD.l), cam.h / (WORLD.b - WORLD.t));
   }
   function updateCam() {
     const f = fitZ();
     cam.z = clamp(f * cam.user, 0.25, 3);
     cam.S = cam.z * cam.dpr;
     const wcx = (WORLD.l + WORLD.r) / 2, wcy = (WORLD.t + WORLD.b) / 2;
-    cam.tx = Math.round((cam.w / 2 + cam.px - wcx * cam.z) * cam.dpr);
+    cam.tx = Math.round((camMid() + cam.px - wcx * cam.z) * cam.dpr);
     cam.ty = Math.round((cam.h / 2 + cam.py - wcy * cam.z) * cam.dpr);
   }
   const toScreen = (wx, wy) => [(wx * cam.S + cam.tx) / cam.dpr, (wy * cam.S + cam.ty) / cam.dpr];
@@ -1520,7 +1540,7 @@
   function resetCam() { cam.user = 1; cam.px = 0; cam.py = 0; updateCam(); }
   function centerOn(a) {
     const [sx, sy] = toScreen(...pt(a.x, a.y, 20));
-    cam.px += cam.w / 2 - sx; cam.py += cam.h / 2 - sy;
+    cam.px += camMid() - sx; cam.py += cam.h / 2 - sy;
     updateCam();
   }
 
@@ -1926,68 +1946,226 @@
     if (notice === 'off') msg = ['🔒', t('office_off_title'), t('office_off')];
     else if (notice === 'gone') msg = ['🚪', t('office_gone_title'), t('office_gone')];
     else if (notice === 'expired') msg = ['⌛', '', t('expired')];
+    else if (!v && loaded && allHidden()) msg = ['🙈', t('office_all_hidden_title'), t('office_all_hidden'), 'unhide'];
     else if (!v && loaded) msg = ['🏢', t('office_empty_title'), t('office_empty_body')];
     els.notice.hidden = !msg;
-    if (msg) {
+    // Drawn again only when it says something else: a rebuild under the
+    // pointer would swallow a click on its button.
+    const nk = msg ? msg.join('|') : '';
+    if (msg && nk !== noticeKey) {
       fill(els.notice, h('div', { class: 'of-notice-card' }, h('div', { class: 'of-notice-art', text: msg[0] }),
-        msg[1] ? h('h3', { text: msg[1] }) : null, h('p', { class: 'muted', text: msg[2] })));
+        msg[1] ? h('h3', { text: msg[1] }) : null, h('p', { class: 'muted', text: msg[2] }),
+        msg[3] === 'unhide' ? h('div', { class: 'actions of-notice-act' }, h('button', { class: 'btn primary', type: 'button', text: t('office_unhide_all'), onclick: unhideAll })) : null));
     }
+    noticeKey = nk;
     els.retry.hidden = notice !== 'retry';
   }
+  let noticeKey = '';
+  // ---- what the user hid ----------------------------------------------------------------------
+  // Hidden is a blacklist kept by the server: a new conversation shows by
+  // default, and follow mode skips what is hidden. A floor hidden hides its
+  // new conversations too.
+  const offS = (s) => { const p = pend.get('s:' + s.id); return p ? p.hidden : !!s.hidden; };
+  const offF = (f) => { const p = pend.get('f:' + f.floor); return p ? p.hidden : !!f.hidden; };
+  const sessOn = (f, s) => !offF(f) && !offS(s);
+  // A floor is in the guide while it shows and has a conversation that does.
+  const floorOn = (f) => !offF(f) && (f.sessions || []).some((s) => !offS(s));
+  // hiddenIn: how many of a floor's conversations are hidden one by one,
+  // counting those past the 40 listed as the server does.
+  function hiddenIn(f) {
+    const ss = f.sessions || [];
+    const listedBefore = ss.filter((s) => s.hidden).length;
+    const beyond = Math.max(0, (f.count || ss.length) - (typeof f.shown === 'number' ? f.shown : ss.length) - listedBefore);
+    return beyond + ss.filter((s) => offS(s)).length;
+  }
+  function allHidden() {
+    const fs = (building && building.floors) || [];
+    return fs.length > 0 && !fs.some(floorOn);
+  }
+  // settleHidden drops the changes the building shows now, and old ones.
+  function settleHidden() {
+    if (!pend.size) return;
+    const at = new Map();
+    for (const f of (building && building.floors) || []) {
+      at.set('f:' + f.floor, !!f.hidden);
+      for (const s of f.sessions || []) at.set('s:' + s.id, !!s.hidden);
+    }
+    for (const [k, p] of pend) if (Date.now() - p.at > PEND_MS || at.get(k) === p.hidden) pend.delete(k);
+  }
+  // setHidden sends changes ({key, session or floor, hidden}) to the server,
+  // shown at once; a failure puts them back as they were.
+  function setHidden(changes, body) {
+    const at = Date.now();
+    for (const c of changes) pend.set(c.key, { hidden: c.hidden, at });
+    renderSide(); renderStage();
+    const req = body || { changes: changes.map((c) => (c.session ? { session: c.session, hidden: c.hidden } : { floor: c.floor, hidden: c.hidden })) };
+    Promise.resolve(opts.hide ? opts.hide(req) : null).catch((e) => {
+      for (const c of changes) if (pend.get(c.key) && pend.get(c.key).at === at) pend.delete(c.key);
+      renderSide(); renderStage();
+      if (opts.error) opts.error(e);
+    });
+  }
+  function toggleSession(f, s) {
+    if (sessOn(f, s)) {
+      setHidden([{ key: 's:' + s.id, session: s.id, hidden: true }]);
+      // The one pinned is put away: follow the latest again.
+      if (!follow && view && view.id === s.id) setFollow(true);
+      return;
+    }
+    const ch = [{ key: 's:' + s.id, session: s.id, hidden: false }];
+    if (offF(f)) {
+      // One conversation of a hidden floor: the floor shows again with just it.
+      ch.push({ key: 'f:' + f.floor, floor: f.path, hidden: false });
+      for (const o of f.sessions || []) if (o.id !== s.id && !offS(o)) ch.push({ key: 's:' + o.id, session: o.id, hidden: true });
+    }
+    setHidden(ch);
+  }
+  // toggleFloor: clearing the box hides the project, future conversations
+  // too; ticking it (from clear or mixed) shows the whole floor again.
+  function toggleFloor(f, state) {
+    if (state === 'on') {
+      setHidden([{ key: 'f:' + f.floor, floor: f.path, hidden: true }]);
+      if (!follow && view && view.floor === f.floor) setFollow(true);
+      return;
+    }
+    const ch = [{ key: 'f:' + f.floor, floor: f.path, hidden: false }];
+    for (const s of f.sessions || []) if (offS(s)) ch.push({ key: 's:' + s.id, session: s.id, hidden: false });
+    setHidden(ch);
+  }
+  function unhideAll() {
+    const ch = [];
+    for (const f of (building && building.floors) || []) {
+      if (offF(f)) ch.push({ key: 'f:' + f.floor, hidden: false });
+      for (const s of f.sessions || []) if (offS(s)) ch.push({ key: 's:' + s.id, hidden: false });
+    }
+    hiddenOpen = false;
+    setHidden(ch, { all: true, hidden: false });
+  }
+
+  // ---- the floor guide --------------------------------------------------------------------------
   let sideKey = '';
   function renderSide() {
     const b = building || { floors: [], total: 0 };
     // Only what is drawn counts (the times through their "ago" texts, every
     // 30 s): a busy floor's times change with every poll, and a rebuild
     // loses a click under way and the scroll of a long session list.
-    const drawn = (b.floors || []).map((f) => [f.floor, f.name, f.path, f.live, f.busy, f.count, Date.parse(f.last) > Date.now() - 3 * 86400e3,
-      (f.sessions || []).map((s) => [s.id, s.title, s.live, s.status, s.account])]);
-    const key = JSON.stringify([drawn, b.total, view && view.id, view && view.floor, pinned, follow, [...openFloors], [...closedFloors], quietOpen, langOf(), Math.floor(Date.now() / 30000)]);
+    const drawn = (b.floors || []).map((f) => [f.floor, f.name, f.path, f.live, f.busy, f.count, f.shown, f.hidden, Date.parse(f.last) > Date.now() - 3 * 86400e3,
+      (f.sessions || []).map((s) => [s.id, s.title, s.live, s.status, s.account, s.hidden])]);
+    const key = JSON.stringify([drawn, view && view.id, view && view.floor, pinned, follow, [...openFloors], [...closedFloors], quietOpen, hiddenOpen,
+      [...pend].map(([k, p]) => k + p.hidden), langOf(), Math.floor(Date.now() / 30000)]);
     if (key === sideKey) return;
     sideKey = key;
     const scrolled = new Map([...els.floors.querySelectorAll('.of-sess')].map((el) => [el.dataset.floor, el.scrollTop]));
+    const focus = focusSpot();
     const floors = (b.floors || []).slice().sort((p, q) => q.floor - p.floor);
-    const recent = (f) => f.live || (Date.now() - Date.parse(f.last)) < 3 * 86400e3 || (view && f.floor === view.floor);
-    let shownF = floors.filter(recent);
-    if (!shownF.length) shownF = floors.slice().sort((p, q) => Date.parse(q.last) - Date.parse(p.last)).slice(0, 5).sort((p, q) => q.floor - p.floor);
-    const quiet = floors.filter((f) => !shownF.includes(f));
-    const hiddenN = Math.max(quiet.length, (b.total || 0) - shownF.length);
-    const list = quietOpen ? floors : shownF;
-    const follower = h('label', { class: 'of-follow' },
+    const inView = (f) => view && f.floor === view.floor;
+    // The recent and quiet floors are split among those that show.
+    const on = floors.filter(floorOn);
+    const recent = (f) => f.live || (Date.now() - Date.parse(f.last)) < 3 * 86400e3 || inView(f);
+    let shownF = on.filter(recent);
+    if (!shownF.length) shownF = on.slice().sort((p, q) => Date.parse(q.last) - Date.parse(p.last)).slice(0, 5).sort((p, q) => q.floor - p.floor);
+    const quietN = on.filter((f) => !shownF.includes(f)).length;
+    const off = floors.filter((f) => !floorOn(f));
+    const hiddenN = off.length + on.reduce((n, f) => n + hiddenIn(f), 0);
+    if (!hiddenN) hiddenOpen = false;
+    // While nothing shows the hidden are listed, since the office then
+    // points here to tick something again; they stay listed as the first
+    // comes back, for the next.
+    const allOff = !on.length && floors.length > 0;
+    if (allOff) hiddenOpen = true;
+    // What is hidden is listed (dimmed) only then, when asked for, or when
+    // it is the conversation in view.
+    const list = floors.filter((f) => (quietOpen ? on.includes(f) : shownF.includes(f)) || (hiddenOpen && off.includes(f)) || inView(f));
+    const follower = h('label', { class: 'of-follow', 'data-key': 'follow', title: hiddenN ? t('office_follow') + ' · ' + t('office_follow_tip') : t('office_follow') },
       h('input', { type: 'checkbox', checked: follow, onchange: (e) => setFollow(e.target.checked) }),
       h('span', { text: t('office_follow') }));
     fill(els.floors,
       follower,
       list.length ? null : h('p', { class: 'muted small of-pad', text: t('office_no_floors') }),
       ...list.map((f) => floorCard(f)),
-      hiddenN > 0 ? h('button', { class: 'of-quiet', text: quietOpen ? t('office_quiet_less') : t(hiddenN === 1 ? 'office_quiet_more1' : 'office_quiet_more', { n: hiddenN }), onclick: () => { quietOpen = !quietOpen; renderSide(); } }) : null);
+      quietN > 0 ? h('button', { class: 'of-quiet', type: 'button', 'data-key': 'quiet', 'aria-expanded': String(quietOpen), title: t('office_quiet_tip'),
+        text: quietOpen ? t('office_quiet_less') : t(quietN === 1 ? 'office_quiet_more1' : 'office_quiet_more', { n: quietN }), onclick: () => { quietOpen = !quietOpen; renderSide(); } }) : null,
+      // Folding the hidden away means nothing while nothing else shows.
+      hiddenN > 0 ? h('div', { class: 'of-hidden-foot' },
+        allOff ? null : h('button', { class: 'of-quiet', type: 'button', 'data-key': 'hidden', 'aria-expanded': String(hiddenOpen), title: t('office_show_tip'),
+          text: hiddenOpen ? t('office_hidden_less') : t(hiddenN === 1 ? 'office_hidden_more1' : 'office_hidden_more', { n: hiddenN }),
+          onclick: () => { hiddenOpen = !hiddenOpen; renderSide(); } }),
+        hiddenOpen ? h('button', { class: 'of-quiet strong', type: 'button', 'data-key': 'unhide', text: t('office_unhide_all'), onclick: unhideAll }) : null) : null);
     for (const el of els.floors.querySelectorAll('.of-sess')) {
       if (scrolled.has(el.dataset.floor)) el.scrollTop = scrolled.get(el.dataset.floor);
     }
+    restoreFocus(focus);
+  }
+  // focusSpot and restoreFocus keep the keyboard where it was across a
+  // rebuild of the guide: the same control of the same row, or, when that
+  // row went away (hidden), the row that took its place.
+  function focusSpot() {
+    const a = document.activeElement;
+    if (!a || a === els.floors || !els.floors.contains(a)) return null;
+    const row = a.closest('[data-key]');
+    if (!row) return null;
+    return { key: row.dataset.key, sel: a.tagName === 'INPUT' ? 'input' : 'button', at: [...els.floors.querySelectorAll('[data-key]')].indexOf(row) };
+  }
+  function restoreFocus(spot) {
+    if (!spot) return;
+    const rows = [...els.floors.querySelectorAll('[data-key]')];
+    const pick = (row, sel) => (row.matches(sel) ? row : row.querySelector(sel)) || (row.matches('input,button') ? row : row.querySelector('input,button'));
+    let row = rows.find((r) => r.dataset.key === spot.key);
+    let el = row && pick(row, spot.sel);
+    let moved = false;
+    if (!el && rows.length) {
+      row = rows[clamp(spot.at, 0, rows.length - 1)];
+      el = pick(row, 'input');
+      moved = true;
+    }
+    if (!el) return;
+    // The list keeps its scroll: a redraw (every 30 s at least) must not
+    // pull it back to a box clicked long ago. Only a row that took the
+    // place of one gone is brought into sight.
+    el.focus({ preventScroll: true });
+    if (moved) el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
   function floorCard(f) {
     const cur = view && view.floor === f.floor;
     const open = (openFloors.has(f.floor) || cur) && !closedFloors.has(f.floor);
-    const n = (f.sessions || []).length;
-    const sub = t((f.count || n) === 1 ? 'office_floor_session1' : 'office_floor_sessions', { n: f.count || n }) + ' · ' + (f.busy || f.live ? t('office_active_now') : ago(f.last));
-    const card = h('div', { class: 'of-floor' + (cur ? ' cur' : '') + (open ? ' open' : '') },
-      h('button', { class: 'of-floor-btn', title: f.path || '', onclick: () => clickFloor(f, cur, open) },
-        floorBadge(f.floor),
-        h('span', { class: 'of-fname' }, h('b', { text: f.name || baseName(f.path) }), h('span', { class: 'of-fsub', text: sub })),
-        h('span', { class: 'of-dot' + (f.live ? ' on' : '') + (f.busy ? ' busy' : '') })),
-      open ? h('div', { class: 'of-sess', 'data-floor': String(f.floor) }, (f.sessions || []).map((s) => sessionRow(f, s))) : null);
-    return card;
+    const n = f.count || (f.sessions || []).length;
+    const fOff = offF(f), hid = hiddenIn(f);
+    const state = fOff ? 'off' : hid ? 'mixed' : 'on';
+    const parts = [t(n === 1 ? 'office_floor_session1' : 'office_floor_sessions', { n })];
+    if (fOff) parts.push(t('office_floor_off'));
+    else if (hid) parts.push(t('office_hidden_n', { n: hid }));
+    parts.push(f.busy || f.live ? t('office_active_now') : ago(f.last));
+    const name = f.name || baseName(f.path);
+    const chk = h('input', { type: 'checkbox', class: 'of-chk', checked: state === 'on', 'aria-label': t('office_show_floor', { name }),
+      title: t('office_show_tip'), onchange: () => toggleFloor(f, state) });
+    chk.indeterminate = state === 'mixed'; // a property only: h() sets attributes
+    if (state === 'mixed') chk.setAttribute('aria-checked', 'mixed');
+    // The conversations listed: those that show, all of them while the
+    // hidden ones are listed, and the one in view in any case.
+    const ss = (f.sessions || []).filter((s) => hiddenOpen || sessOn(f, s) || (view && view.id === s.id));
+    return h('div', { class: 'of-floor' + (cur ? ' cur' : '') + (open ? ' open' : '') + (floorOn(f) ? '' : ' off') },
+      h('div', { class: 'of-floor-head', 'data-key': 'f:' + f.floor },
+        chk,
+        h('button', { class: 'of-floor-btn', type: 'button', title: f.path || '', 'aria-expanded': String(!!open), onclick: () => clickFloor(f, cur, open) },
+          floorBadge(f.floor),
+          h('span', { class: 'of-fname' }, h('b', { text: name }), h('span', { class: 'of-fsub', text: parts.join(' · '), title: parts.join(' · ') })),
+          h('span', { class: 'of-dot' + (f.live ? ' on' : '') + (f.busy ? ' busy' : '') }))),
+      open && ss.length ? h('div', { class: 'of-sess', 'data-floor': String(f.floor) }, ss.map((s) => sessionRow(f, s))) : null);
   }
   function sessionRow(f, s) {
     const viewing = view && view.id === s.id;
+    const on = sessOn(f, s);
     const title = s.title || t('office_untitled', { id: short(s.id) });
     const acc = s.account ? h('span', { class: 'of-acc', title: s.account }) : null;
     if (acc) acc.style.background = accountColor(s.account);
-    return h('button', { class: 'of-srow' + (viewing ? ' on' : ''), title: title + (s.account ? ' · ' + s.account : ''), onclick: () => pin(s.id) },
-      h('span', { class: 'of-spin', text: viewing ? (follow ? '▶' : '📌') : '' }),
-      h('span', { class: 'of-stitle', text: title }),
-      acc,
-      s.live ? h('span', { class: 'of-dot on' + (s.status === 'busy' ? ' busy' : '') }) : h('span', { class: 'of-sago', text: ago(s.last) }));
+    return h('div', { class: 'of-srow' + (viewing ? ' on' : '') + (on ? '' : ' off'), 'data-key': 's:' + s.id },
+      h('input', { type: 'checkbox', class: 'of-chk', checked: on, 'aria-label': t('office_show_s', { name: title }), title: t('office_show_tip'),
+        onchange: () => toggleSession(f, s) }),
+      h('button', { class: 'of-sbtn', type: 'button', title: title + (s.account ? ' · ' + s.account : ''), 'aria-current': viewing ? 'true' : null, onclick: () => pin(s.id) },
+        h('span', { class: 'of-spin', text: viewing ? (follow ? '▶' : '📌') : '' }),
+        h('span', { class: 'of-stitle', text: title }),
+        acc,
+        s.live ? h('span', { class: 'of-dot on' + (s.status === 'busy' ? ' busy' : '') }) : h('span', { class: 'of-sago', text: ago(s.last) })));
   }
   function clickFloor(f, cur, open) {
     if (cur) {
@@ -1996,7 +2174,10 @@
       return;
     }
     closedFloors.delete(f.floor);
-    const ss = (f.sessions || []).slice();
+    // Among the conversations that show (a hidden floor: any of them).
+    const all = (f.sessions || []).slice();
+    const shown = all.filter((s) => sessOn(f, s));
+    const ss = shown.length ? shown : all;
     const best = ss.find((s) => s.live && s.status === 'busy') || ss.find((s) => s.live) || ss.sort((p, q) => Date.parse(q.last) - Date.parse(p.last))[0];
     if (best) pin(best.id);
   }
@@ -2178,18 +2359,31 @@
     els.title = h('div', { class: 'of-title' });
     els.live = h('span', { class: 'of-live pill off' });
     els.pop = opts.popout && !opts.standalone ? h('button', { class: 'btn of-pop', title: t('office_popout_tip'), onclick: () => opts.popout() }, '↗ ', h('span', { text: t('office_popout') })) : null;
+    // The buttons that open a side column over the stage, when it is out of
+    // the grid (folded, or no room for it).
+    const drawerBtn = (k, icon) => {
+      const b = h('button', { class: 'btn of-tbtn', type: 'button', 'aria-controls': k === 'l' ? 'of-side' : 'of-panel', 'aria-expanded': 'false',
+        onclick: () => openDrawer(k, !lay[k + 'Open']) }, icon + ' ', h('span'));
+      b.hidden = true;
+      return b;
+    };
+    els.guideBtn = drawerBtn('l', '🏢');
+    els.panelBtn = drawerBtn('r', '☰');
     els.lift = h('div', { class: 'of-lift', 'aria-live': 'polite' });
     els.notice = h('div', { class: 'of-notice' }); els.notice.hidden = true;
     els.retry = h('div', { class: 'of-retry pill warn' }); els.retry.hidden = true;
     els.zoom = h('div', { class: 'of-zoom' },
-      btn('+', t('office_zoom_in'), () => zoomAt(1.25, cam.w / 2, cam.h / 2)),
-      btn('−', t('office_zoom_out'), () => zoomAt(0.8, cam.w / 2, cam.h / 2)),
+      btn('+', t('office_zoom_in'), () => zoomAt(1.25, camMid(), cam.h / 2)),
+      btn('−', t('office_zoom_out'), () => zoomAt(0.8, camMid(), cam.h / 2)),
       btn('⟲', t('office_zoom_reset'), () => resetCam()));
     els.hint = h('div', { class: 'of-hint' });
-    els.stage = h('div', { class: 'of-stage' }, canvas, els.layer, els.title, h('div', { class: 'of-topright' }, els.live, els.pop), els.lift, els.zoom, els.hint, els.retry, els.notice);
+    // The bar over the stage: the title gives way to the buttons on the right.
+    const bar = h('div', { class: 'of-bar' }, h('div', { class: 'of-topleft' }, els.guideBtn, els.title),
+      h('div', { class: 'of-topright' }, els.panelBtn, els.live, els.pop));
+    els.stage = h('div', { class: 'of-stage' }, canvas, els.layer, bar, els.lift, els.zoom, els.hint, els.retry, els.notice);
     els.floors = h('div', { class: 'of-floors' });
     els.sideHead = h('div', { class: 'of-side-head' });
-    els.side = h('aside', { class: 'of-side card' }, els.sideHead, els.floors);
+    els.side = h('aside', { class: 'of-side card', id: 'of-side', tabindex: '-1' }, els.sideHead, els.floors);
     els.facts = h('div', { class: 'of-facts' });
     els.todos = h('ul', { class: 'of-todos' });
     els.todoTitle = h('h3');
@@ -2201,17 +2395,25 @@
     els.log = h('div', { class: 'of-log' });
     els.legTitle = h('h3');
     els.legend = h('div', { class: 'of-legend' });
-    els.panel = h('div', { class: 'of-panel' },
+    els.panel = h('div', { class: 'of-panel', id: 'of-panel', tabindex: '-1' },
       h('section', { class: 'card of-card' }, els.facts),
       els.todoCard,
       h('section', { class: 'card of-card' }, h('div', { class: 'of-card-head' }, els.peopleTitle, els.peopleN), els.people),
       h('section', { class: 'card of-card of-logcard' }, els.logTitle, els.log),
       h('section', { class: 'card of-card' }, els.legTitle, els.legend));
-    root = h('div', { class: 'office' + (opts.standalone ? ' standalone' : '') }, els.side, els.stage, els.panel);
+    const split = (k) => h('div', { class: 'of-split ' + k, role: 'separator', tabindex: '0', 'aria-orientation': 'vertical',
+      'aria-controls': k === 'l' ? 'of-side' : 'of-panel', 'aria-valuemin': '0' });
+    els.splitL = split('l');
+    els.splitR = split('r');
+    root = h('div', { class: 'office' + (opts.standalone ? ' standalone' : '') }, els.side, els.splitL, els.stage, els.splitR, els.panel);
     container.append(root);
     texts();
     wire();
+    wireSplit(els.splitL, 'l');
+    wireSplit(els.splitR, 'r');
+    root.addEventListener('keydown', onKey);
     new ResizeObserver(() => resize()).observe(els.stage);
+    new ResizeObserver(() => place()).observe(root);
   }
   // texts fills in what depends only on the language.
   let textLang = '';
@@ -2226,10 +2428,219 @@
     els.legend.replaceChildren(...legend());
     els.retry.textContent = t('office_reconnect');
     if (els.pop) { els.pop.title = t('office_popout_tip'); els.pop.lastChild.textContent = t('office_popout'); }
+    els.guideBtn.lastChild.textContent = t('office_guide_btn');
+    els.guideBtn.title = t('office_guide_tip');
+    els.panelBtn.lastChild.textContent = t('office_panel_btn');
+    els.panelBtn.title = t('office_panel_tip');
+    for (const [el, k] of [[els.splitL, 'office_resize_side'], [els.splitR, 'office_resize_panel']]) {
+      el.setAttribute('aria-label', t(k));
+      el.title = t('office_resize_tip');
+    }
     const [zi, zo, zr] = els.zoom.children;
     for (const [b, k] of [[zi, 'office_zoom_in'], [zo, 'office_zoom_out'], [zr, 'office_zoom_reset']]) { b.title = t(k); b.setAttribute('aria-label', t(k)); }
     for (const a of actors.values()) if (a.dom) a.dom.nameKey = '';
-    sprites.clear(); sideKey = ''; panelKey = ''; peopleKey = ''; logKey = '';
+    sprites.clear(); sideKey = ''; panelKey = ''; peopleKey = ''; logKey = ''; noticeKey = '';
+  }
+
+  // ---- the layout: floor guide | stage | panel --------------------------------------------------
+  // The side columns sit beside the stage, each behind a splitter in a 12 px
+  // gutter. When the window narrows they give way toward their minimum
+  // first; only then does the panel (and in a very narrow window the floor
+  // guide too) leave the grid, to open over the stage from a button. Nothing
+  // ever stacks under the stage, so the page never scrolls. A folded column
+  // is out of the grid by choice; its splitter stays at the edge to bring it
+  // back. Widths and folds are kept per kind of window in config.json: the
+  // page's own storage is new every launch (its address changes).
+  const GUT = 12;
+  // The floor guide's default leaves room beside a floor's show-in-the-office
+  // box for its longest second line ("5 sessions · active now", and the
+  // Korean, which is wider).
+  const PANES = { l: { min: 190, def: 244, max: 420 }, r: { min: 240, def: 304, max: 560 } };
+  const STAGE_MIN = 460; // with both columns beside it
+  const STAGE_MIN_ALONE = 360; // with one: below this it goes too
+  const FOLD_AT = 60; // dragged this far under its minimum, a column folds
+  // last is the column the user sized last ('l', 'r' or ''): when the two
+  // do not fit, the other one gives way, so the width just set stays.
+  const pref = { l: 0, r: 0, lFold: false, rFold: false, last: '' }; // widths 0: the default
+  const lay = { W: 0, l: PANES.l.def, r: PANES.r.def, lIn: true, rIn: true, lOpen: false, rOpen: false };
+  let splitDrag = null;
+  const prefW = (k) => clamp(pref[k] || PANES[k].def, PANES[k].min, PANES[k].max);
+  const edge = (k, inGrid) => (inGrid ? lay[k] + GUT : pref[k + 'Fold'] ? GUT : 0); // what a side takes of the width
+  function loadLayout() {
+    const p = (opts.layout && opts.layout()) || {};
+    pref.l = Math.max(0, Math.round(+p.left || 0));
+    pref.r = Math.max(0, Math.round(+p.right || 0));
+    pref.lFold = !!p.left_folded;
+    pref.rFold = !!p.right_folded;
+    pref.last = p.last === 'l' || p.last === 'r' ? p.last : '';
+  }
+  // place fits the columns to the office's width. active is the column
+  // being resized: the other gives way first. Without one (the window
+  // changed, or a redraw), the column being dragged, else the one sized
+  // last, keeps its width; before any is, the floor guide does, as the
+  // panel is also the first to leave the grid.
+  function place(active) {
+    if (!root) return;
+    const W = root.clientWidth;
+    if (!W) return; // not on screen
+    const lead = active || (splitDrag && splitDrag.k) || pref.last || 'l';
+    let l = prefW('l'), r = prefW('r');
+    let lIn = !pref.lFold, rIn = !pref.rFold;
+    const stageW = () => W - (lIn ? l + GUT : pref.lFold ? GUT : 0) - (rIn ? r + GUT : pref.rFold ? GUT : 0);
+    const shrink = (want) => {
+      let need = want - stageW();
+      if (need <= 0) return true;
+      const room = { l: lIn ? l - PANES.l.min : 0, r: rIn ? r - PANES.r.min : 0 };
+      for (const k of lead === 'l' ? ['r', 'l'] : ['l', 'r']) {
+        const give = Math.min(need, room[k]);
+        if (k === 'l') l -= give; else r -= give;
+        need -= give;
+      }
+      return need < 0.5;
+    };
+    if (lIn && rIn && !shrink(STAGE_MIN)) { rIn = false; l = prefW('l'); r = prefW('r'); } // the panel goes first
+    if (lIn !== rIn && !shrink(STAGE_MIN) && stageW() < STAGE_MIN_ALONE) {
+      if (lIn) lIn = false; else rIn = false;
+    }
+    lay.W = W; lay.l = Math.round(l); lay.r = Math.round(r); lay.lIn = lIn; lay.rIn = rIn;
+    if (lIn) lay.lOpen = false;
+    if (rIn) lay.rOpen = false;
+    const cols = [], areas = [];
+    if (lIn) { cols.push(lay.l + 'px', GUT + 'px'); areas.push('side', 'ls'); } else if (pref.lFold) { cols.push(GUT + 'px'); areas.push('ls'); }
+    cols.push('minmax(0, 1fr)'); areas.push('stage');
+    if (rIn) { cols.push(GUT + 'px', lay.r + 'px'); areas.push('rs', 'panel'); } else if (pref.rFold) { cols.push(GUT + 'px'); areas.push('rs'); }
+    root.style.gridTemplateColumns = cols.join(' ');
+    root.style.gridTemplateAreas = '"' + areas.join(' ') + '"';
+    // A drawer is as wide as the column would be.
+    root.style.setProperty('--of-l', prefW('l') + 'px');
+    root.style.setProperty('--of-r', prefW('r') + 'px');
+    for (const k of ['l', 'r']) {
+      const inGrid = lay[k + 'In'];
+      root.classList.toggle(k + '-out', !inGrid);
+      root.classList.toggle(k + '-fold', !!pref[k + 'Fold']);
+      root.classList.toggle(k + '-open', !inGrid && lay[k + 'Open']);
+      const b = k === 'l' ? els.guideBtn : els.panelBtn;
+      b.hidden = inGrid;
+      b.setAttribute('aria-expanded', String(!inGrid && lay[k + 'Open']));
+      const sp = k === 'l' ? els.splitL : els.splitR;
+      sp.setAttribute('aria-valuemax', String(maxFit(k)));
+      sp.setAttribute('aria-valuenow', String(inGrid ? lay[k] : 0));
+      sp.setAttribute('aria-valuetext', inGrid ? lay[k] + 'px' : t('office_folded'));
+    }
+    // An open drawer covers part of the stage: the building moves aside.
+    const sw = W - edge('l', lIn) - edge('r', rIn);
+    const covers = (k) => (!lay[k + 'In'] && lay[k + 'Open'] ? Math.min(prefW(k), sw - 56) + 16 : 0);
+    const il = covers('l'), ir = covers('r');
+    if (il !== cam.insetL || ir !== cam.insetR) {
+      cam.insetL = il; cam.insetR = ir;
+      updateCam();
+      cam.zoomingUntil = performance.now() + 200;
+      if (running()) draw(performance.now());
+    }
+  }
+  // maxFit is the widest a column can be with the stage still STAGE_MIN wide
+  // (and the other column at its minimum).
+  function maxFit(k) {
+    const o = k === 'l' ? 'r' : 'l';
+    const other = lay[o + 'In'] ? PANES[o].min + GUT : pref[o + 'Fold'] ? GUT : 0;
+    return clamp(lay.W - STAGE_MIN - GUT - other, PANES[k].min, PANES[k].max);
+  }
+  function setWidth(k, w) {
+    pref.last = k;
+    if (w < PANES[k].min - FOLD_AT) pref[k + 'Fold'] = true;
+    else { pref[k + 'Fold'] = false; pref[k] = clamp(Math.round(w), PANES[k].min, maxFit(k)); }
+    place(k);
+  }
+  function setFold(k, on) {
+    pref[k + 'Fold'] = on;
+    place();
+    saveLayout();
+  }
+  let saveTimer = 0;
+  function saveLayout() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      if (!opts.saveLayout) return;
+      Promise.resolve(opts.saveLayout({ left: pref.l, right: pref.r, left_folded: pref.lFold, right_folded: pref.rFold, last: pref.last })).catch(() => { /* kept for this window */ });
+    }, 400);
+  }
+  function openDrawer(k, on) {
+    if (on) lay[(k === 'l' ? 'r' : 'l') + 'Open'] = false; // one at a time
+    lay[k + 'Open'] = on;
+    place();
+    if (on) (k === 'l' ? els.side : els.panel).focus({ preventScroll: true });
+  }
+  // wireSplit: a splitter drags (the pointer), steps (←/→, Shift for more,
+  // Home/End), resets (double-click) and folds (Enter), as the WAI-ARIA
+  // window splitter does.
+  function wireSplit(el, k) {
+    const sign = k === 'l' ? 1 : -1; // the panel grows as its splitter goes left
+    let raf2 = 0, want = 0;
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      el.focus({ preventScroll: true });
+      el.setPointerCapture(e.pointerId);
+      splitDrag = { k, x: e.clientX, start: lay[k + 'In'] ? lay[k] : 0, was: Object.assign({}, pref), id: e.pointerId };
+      root.classList.add('resizing');
+      el.classList.add('on');
+    });
+    el.addEventListener('pointermove', (e) => {
+      if (!splitDrag || splitDrag.k !== k) return;
+      want = splitDrag.start + (e.clientX - splitDrag.x) * sign;
+      if (!raf2) raf2 = requestAnimationFrame(() => { raf2 = 0; if (splitDrag && splitDrag.k === k) setWidth(k, want); });
+    });
+    const end = () => {
+      if (!splitDrag || splitDrag.k !== k) return;
+      splitDrag = null;
+      root.classList.remove('resizing');
+      el.classList.remove('on');
+      saveLayout();
+    };
+    el.addEventListener('pointerup', end);
+    el.addEventListener('lostpointercapture', end);
+    // Back to its default width, which the other column then makes room for.
+    el.addEventListener('dblclick', () => { pref[k] = 0; pref[k + 'Fold'] = false; pref.last = k; place(); saveLayout(); });
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); setFold(k, !pref[k + 'Fold']); return; }
+      const cur = lay[k + 'In'] ? lay[k] : 0;
+      const step = e.shiftKey ? 64 : 16;
+      let w;
+      if (e.key === 'ArrowRight') w = cur + step * sign;
+      else if (e.key === 'ArrowLeft') w = cur - step * sign;
+      else if (e.key === 'Home') w = PANES[k].min;
+      else if (e.key === 'End') w = maxFit(k);
+      else return;
+      e.preventDefault();
+      pref[k + 'Fold'] = false;
+      pref[k] = clamp(Math.round(w), PANES[k].min, maxFit(k));
+      pref.last = k;
+      place(k);
+      saveLayout();
+    });
+  }
+  // Esc puts back a drag under way, or closes the drawer it was pressed in.
+  function onKey(e) {
+    if (e.key !== 'Escape') return;
+    if (splitDrag) {
+      const d = splitDrag;
+      Object.assign(pref, d.was);
+      splitDrag = null;
+      root.classList.remove('resizing');
+      for (const sp of [els.splitL, els.splitR]) { sp.classList.remove('on'); try { sp.releasePointerCapture(d.id); } catch (_) { /* released */ } }
+      place();
+      e.preventDefault();
+      return;
+    }
+    for (const k of ['l', 'r']) {
+      const pane = k === 'l' ? els.side : els.panel, b = k === 'l' ? els.guideBtn : els.panelBtn;
+      if (lay[k + 'Open'] && !lay[k + 'In'] && (pane.contains(e.target) || e.target === b)) {
+        openDrawer(k, false);
+        b.focus();
+        e.preventDefault();
+        return;
+      }
+    }
   }
   function wire() {
     let drag = null;
@@ -2299,11 +2710,12 @@
     fitHeight();
     if (running()) draw(performance.now());
   }
-  // fitHeight: in the tab, the office fills the window below the tabs.
+  // fitHeight: in the tab, the office fills the window below the tabs, and
+  // no more: the page never scrolls (the columns scroll inside).
   function fitHeight() {
     if (!root || opts.standalone) return;
     const top = root.getBoundingClientRect().top + window.scrollY;
-    const hgt = Math.max(440, Math.round(window.innerHeight - top - 14));
+    const hgt = Math.max(260, Math.round(window.innerHeight - top - 14));
     root.style.setProperty('--of-h', hgt + 'px');
   }
   function ride(from, to) {
@@ -2331,6 +2743,7 @@
       if (!opts.api && typeof window.api === 'function') opts.api = window.api;
       destroyed = false;
       theme();
+      loadLayout();
       build(container);
       window.addEventListener('resize', fitHeight);
     },
@@ -2339,7 +2752,10 @@
       const was = shown;
       shown = true;
       if (textLang !== langOf()) { texts(); renderAll(); }
-      if (!was) { fitHeight(); resize(); }
+      // Banners above may have come or gone since the last redraw.
+      fitHeight();
+      place();
+      if (!was) resize();
       if (running()) start();
     },
     hide() {

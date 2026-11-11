@@ -40,10 +40,13 @@ func loadFloors(path string) *floors {
 // of is a project's floor (0: not numbered yet).
 func (f *floors) of(key string) int { return f.m[key] }
 
-// number gives each new project folder a floor on top of the building, the
-// one with the oldest activity first. On the very first run every project
-// known is new, so the oldest becomes 1F. It reports whether any was added.
-func (f *floors) number(oldest map[string]time.Time) bool {
+// number gives each new project folder a floor, the one with the oldest
+// activity first: the lowest number left vacant (a project gone from the
+// building whose conversations are all gone too, as vacant says), else one
+// on top of the building. A floor still in the building never moves. On the
+// very first run every project known is new, so the oldest becomes 1F. It
+// reports whether any was added. vacant may be nil: always on top.
+func (f *floors) number(oldest map[string]time.Time, vacant func(key string) bool) bool {
 	var add []string
 	for k := range oldest {
 		if k != "" && f.m[k] == 0 {
@@ -60,12 +63,34 @@ func (f *floors) number(oldest map[string]time.Time) bool {
 		return add[i] < add[j]
 	})
 	top := 0
-	for _, n := range f.m {
-		top = max(top, n)
+	type held struct {
+		key string
+		n   int
 	}
+	var gone []held // numbered projects not in the building now, lowest first
+	for k, n := range f.m {
+		top = max(top, n)
+		if _, here := oldest[k]; !here {
+			gone = append(gone, held{k, n})
+		}
+	}
+	sort.Slice(gone, func(i, j int) bool { return gone[i].n < gone[j].n })
+	next := 0 // each one is asked about once
 	for _, k := range add {
-		top++
-		f.m[k] = top
+		n := 0
+		for vacant != nil && n == 0 && next < len(gone) {
+			g := gone[next]
+			next++
+			if vacant(g.key) {
+				delete(f.m, g.key)
+				n = g.n
+			}
+		}
+		if n == 0 {
+			top++
+			n = top
+		}
+		f.m[k] = n
 	}
 	return true
 }

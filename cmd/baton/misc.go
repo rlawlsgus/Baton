@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -78,6 +79,12 @@ func cmdSwitch(args []string) error {
 	if target != "" && !rule.Allows(target) {
 		return fmt.Errorf(say("the rule for %s lets its sessions use only %s, so this one cannot move to %q (see: baton rules)",
 			"%s 폴더의 규칙은 %s 계정만 허용하므로 이 세션을 %q 계정으로 옮길 수 없습니다"), rule.Folder, strings.Join(rule.Accounts, ", "), target)
+	}
+	// Another Claude Code opened its conversation, so it moves to a copy on
+	// its account first; a named account can still be where it goes.
+	if chosen.Moving && (chosen.State == run.StateSwitching || chosen.State == run.StateStopping && target == "") {
+		return errors.New(say("that session is moving to a copy of its conversation right now (it was opened elsewhere too); try again in a few seconds",
+			"그 세션은 지금 대화의 사본으로 옮기는 중입니다(다른 곳에서도 대화가 열렸습니다). 몇 초 뒤에 다시 시도하세요"))
 	}
 	switch chosen.State {
 	case run.StateSwitching:
@@ -182,7 +189,11 @@ func cmdStatus(args []string) error {
 		fmt.Println("No running sessions.")
 	}
 	for _, j := range active {
-		fmt.Printf("run %s  account=%s  state=%s  session=%s\n  cwd: %s\n", j.RunID, j.Account, j.State, orDash(j.SessionID), j.Cwd)
+		state := j.State
+		if j.Moving && (state == run.StateStopping || state == run.StateSwitching) {
+			state = "moving" // to a copy on its own account, not to another account
+		}
+		fmt.Printf("run %s  account=%s  state=%s  session=%s\n  cwd: %s\n", j.RunID, j.Account, state, orDash(j.SessionID), j.Cwd)
 	}
 	alive := func(j run.Journal) bool { return supervisorAlive(j.SupervisorPID, j.SupervisorCreated) }
 	if cut := run.Unfinished(run.All(e.paths.RunsDir()), alive, time.Now()); len(cut) > 0 {
@@ -262,23 +273,49 @@ func cmdDoctor(args []string) error {
 	}
 	ok := true
 	fmt.Printf("data folder:  %s\n", e.paths.Root)
-	inst, skipped, err := e.resolveClaudeAll()
+	inst, all, fb, err := e.findClaude()
+	var after []string // what the message says after its list of copies
 	if err != nil {
-		fmt.Printf("claude:       PROBLEM: %v\n", err)
+		msg := err.Error()
+		if len(all) > 0 {
+			// Each copy, with its fix, is listed below; what else the message
+			// says (the desktop app's Code tab, claude_path) comes after it.
+			lines := strings.Split(msg, "\n")
+			msg = lines[0]
+			for _, l := range lines[1:] {
+				if !strings.HasPrefix(l, "  ") {
+					after = append(after, l)
+				}
+			}
+		}
+		fmt.Printf("claude:       PROBLEM: %s\n", msg)
 		ok = false
 		inst = claude.Install{}
 	} else {
 		fmt.Printf("claude:       %s (%s, found via %s)\n", inst.Version, inst.Path, inst.Source)
 	}
-	for _, s := range skipped {
-		v := s.Version
-		if v == "" {
-			v = "does not run"
-		} else {
-			v += ", too old"
+	// Every Claude Code on this PC; * is the one sessions use.
+	for _, i := range all {
+		mark, note, v := " ", "", i.Version
+		if inst.Path != "" && strings.EqualFold(i.Path, inst.Path) {
+			mark, note = "*", "(in use) "
 		}
-		fmt.Printf("              not used: %s (%s, %s)\n", s.Path, s.Source, v)
+		if i.Problem != "" {
+			note += i.Fix()
+		}
+		if v == "" {
+			v = "?"
+		}
+		line := fmt.Sprintf("              %s %-9s %-8s %s  %s", mark, v, i.Source, i.Path, note)
+		fmt.Println(strings.TrimRight(line, " "))
 	}
+	for _, l := range after {
+		fmt.Println("              " + l)
+	}
+	if fb != nil {
+		fmt.Println("              " + strings.TrimPrefix(fallbackLine(fb, inst), "baton: "))
+	}
+	fmt.Printf("              newest version tested with this baton: %s\n", claude.TestedWith)
 	switch {
 	case consoleUsable():
 		fmt.Println("console:      ok")
@@ -287,6 +324,13 @@ func cmdDoctor(args []string) error {
 		ok = false
 	default:
 		fmt.Println("console:      stdin is not a console here; `baton run` will open a new console window")
+	}
+	// Claude Code reads a picture from the clipboard (Alt+V) with Windows
+	// PowerShell, found on PATH; it skips a match in the working folder.
+	if p, err := exec.LookPath("powershell"); err == nil && p != "" {
+		fmt.Println("image paste:  ok (Alt+V in the session window)")
+	} else {
+		fmt.Println(`image paste:  Windows PowerShell is not on PATH, so Alt+V cannot paste pictures in Claude Code; put C:\Windows\System32\WindowsPowerShell\v1.0 back on PATH`)
 	}
 	fmt.Printf("switch mode:  %s\n", orDash(e.cfg.SwitchMode))
 	if inst.Path != "" {

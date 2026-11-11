@@ -80,6 +80,13 @@ func LastPermissionMode(transcript string) string {
 // LastPermissionModeFrom is LastPermissionMode over the rows written after
 // byte offset from (a row cut by the offset does not parse and is skipped).
 func LastPermissionModeFrom(transcript string, from int64) string {
+	return LastPermissionModeIn(transcript, from, -1)
+}
+
+// LastPermissionModeIn is LastPermissionMode over the rows between byte
+// offsets from and to (to < 0: the end). Rows after to may be another
+// Claude Code's, which opened the conversation since and wrote its own mode.
+func LastPermissionModeIn(transcript string, from, to int64) string {
 	f, err := os.Open(transcript)
 	if err != nil {
 		return ""
@@ -88,8 +95,15 @@ func LastPermissionModeFrom(transcript string, from int64) string {
 	if _, err := f.Seek(from, io.SeekStart); err != nil {
 		return ""
 	}
+	var r io.Reader = f
+	if to >= 0 {
+		if to <= from {
+			return ""
+		}
+		r = io.LimitReader(f, to-from)
+	}
 	mode := ""
-	sc := bufio.NewScanner(f)
+	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64*1024), 64*1024*1024)
 	marker := []byte(`"permission-mode"`)
 	for sc.Scan() {

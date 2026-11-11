@@ -103,26 +103,6 @@ func TestReplaceResume(t *testing.T) {
 	}
 }
 
-func TestResolveRejectsShimsAndFollowsScoop(t *testing.T) {
-	dir := t.TempDir()
-	cmdShim := filepath.Join(dir, "claude.cmd")
-	_ = os.WriteFile(cmdShim, []byte("@echo off"), 0o600)
-	if _, err := Resolve(cmdShim, false); err == nil {
-		t.Fatal("a .cmd claude_path must be refused")
-	}
-	real := filepath.Join(dir, "app", "claude.exe")
-	_ = os.MkdirAll(filepath.Dir(real), 0o700)
-	_ = os.WriteFile(real, []byte("MZ"), 0o700)
-	shim := filepath.Join(dir, "shims", "claude.exe")
-	_ = os.MkdirAll(filepath.Dir(shim), 0o700)
-	_ = os.WriteFile(shim, []byte("MZ"), 0o700)
-	_ = os.WriteFile(filepath.Join(dir, "shims", "claude.shim"), []byte("path = \""+real+"\"\n"), 0o600)
-	inst, err := Resolve(shim, false)
-	if err != nil || inst.Path != real {
-		t.Fatalf("got %+v %v, want %s", inst, err, real)
-	}
-}
-
 func TestLatestTranscriptFor(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
 	old := filepath.Join(a, "projects", "x", "old.jsonl")

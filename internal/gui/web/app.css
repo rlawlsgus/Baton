@@ -230,3 +230,40 @@ button.fact.link:hover .muted { color: var(--text); text-decoration: underline; 
 .details .actions { margin-top: 2px; }
 button.btn.details-btn { font-size: 12.5px; }
 .err-inline { color: var(--bad); }
+
+/* Choosing which Claude Code to use (Settings → Advanced). A row is a box
+   with its radio and text in a label, and a button of its own beside it. */
+.choice > label.grow { display: flex; gap: 10px; align-items: flex-start; flex: 1; min-width: 0; cursor: pointer; }
+.choice > label.grow > span { min-width: 0; }
+.choice > .btn { align-self: center; flex: none; }
+.choice b .pill { margin-left: 8px; vertical-align: 1px; }
+.choice.off { cursor: default; }
+.choice.off > label.grow { cursor: default; }
+.choice.off:hover { border-color: var(--line); }
+.choice.off b { color: var(--muted); }
+.choice-sub { margin: -2px 0 10px 34px; }
+.warn-text { color: var(--warn); }
+.prewrap { white-space: pre-line; }
+.mb8 { margin-bottom: 8px; }
+
+/* In a narrow window a banner's buttons go under its text, which would
+   otherwise be squeezed into a thin column beside them. */
+@media (max-width: 560px) { .banner { flex-wrap: wrap; } .banner .grow { flex-basis: 100%; } }
+
+/* Showing a session in the Claude desktop app: one box per account's list,
+   with what it is and, for one baton leaves alone, why. */
+.dk-session { font-weight: 600; margin: 2px 0 10px; overflow-wrap: anywhere; }
+.dk-places { margin-top: 10px; }
+.dk-running { margin: 10px 0 0; }
+.choice.dk > .grow { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.choice.dk b { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; overflow-wrap: anywhere; }
+.dk-email { font-weight: 400; font-size: 12.5px; color: var(--muted); overflow-wrap: anywhere; }
+.dk-note { color: var(--text); }
+.dk-note.warn-text { color: var(--warn); }
+.dk-tips { margin: 12px 0 0; padding-left: 18px; }
+.dk-tips li { margin-bottom: 4px; }
+/* Korean breaks between words here, not inside them. */
+html[lang="ko"] .dk-intro, html[lang="ko"] .choice.dk, html[lang="ko"] .dk-tips, html[lang="ko"] .dk-running,
+html[lang="ko"] #dialog .tip.warn-tip { word-break: keep-all; overflow-wrap: anywhere; }
+/* A recent session's buttons go under its name in a narrow window. */
+@media (max-width: 560px) { .row.recent { flex-wrap: wrap; } .row.recent > .grow { flex-basis: 100%; } .row.recent > .actions { margin-left: auto; } }

@@ -71,6 +71,9 @@ type Payload struct {
 	Reason               string `json:"reason"` // SessionEnd
 	Error                string `json:"error"`  // StopFailure
 	LastAssistantMessage string `json:"last_assistant_message"`
+	// PermissionMode: the mode the claude was in at the end of its turn (a
+	// Stop says it; StopFailure and SessionStart do not).
+	PermissionMode string `json:"permission_mode"`
 }
 
 func (e Event) Decode() Payload {
@@ -155,22 +158,30 @@ type Journal struct {
 	RemoteControl     bool      `json:"remote_control,omitempty"` // claude runs with --remote-control
 	// ConsoleWindow is the session's console window (a window handle), which
 	// the baton window and a click on a notification bring to the front.
-	ConsoleWindow  uint64    `json:"console_window,omitempty"`
-	SessionID      string    `json:"session_id,omitempty"`
-	TranscriptPath string    `json:"transcript_path,omitempty"`
-	Cwd            string    `json:"cwd"`
-	Started        time.Time `json:"started"`
-	Updated        time.Time `json:"updated"`
+	ConsoleWindow  uint64 `json:"console_window,omitempty"`
+	SessionID      string `json:"session_id,omitempty"`
+	TranscriptPath string `json:"transcript_path,omitempty"`
+	// Moving: the switch under way (State stopping or switching) is a move to
+	// a copy on the same account, because another Claude Code opened the
+	// conversation, not a switch to another account.
+	Moving  bool      `json:"moving,omitempty"`
+	Cwd     string    `json:"cwd"`
+	Started time.Time `json:"started"`
+	Updated time.Time `json:"updated"`
 
 	// For reopening a session that was cut off (restore.go): the Claude Code
 	// options it keeps across relaunches, whether it had work going (a
 	// response, or the continue prompt a switch owes), how it ended, and
 	// whether it was reopened since or the user chose not to.
-	Args       []string `json:"args,omitempty"`
-	Owed       bool     `json:"owed,omitempty"`
-	EndedBy    string   `json:"ended_by,omitempty"`
-	RestoredBy string   `json:"restored_by,omitempty"`
-	Dismissed  bool     `json:"dismissed,omitempty"`
+	Args []string `json:"args,omitempty"`
+	Owed bool     `json:"owed,omitempty"`
+	// PermissionMode: the mode the session was in, from its own claude's
+	// reports. The transcript can have another Claude Code's mode rows by the
+	// time it is reopened, from a claude that opened the conversation since.
+	PermissionMode string `json:"permission_mode,omitempty"`
+	EndedBy        string `json:"ended_by,omitempty"`
+	RestoredBy     string `json:"restored_by,omitempty"`
+	Dismissed      bool   `json:"dismissed,omitempty"`
 }
 
 func SaveJournal(dir string, j Journal) error {

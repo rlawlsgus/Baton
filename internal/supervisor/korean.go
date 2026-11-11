@@ -46,11 +46,17 @@ var koreanNotices = map[string]string{
 	"folder rule: sessions in %s use only %s": "폴더 규칙: %s 폴더의 세션은 %s 계정만 씁니다",
 	"no usable account among the ones this folder's rule allows (%s): each is disabled, signed out or blocked": "이 폴더의 규칙이 허용하는 계정(%s)을 쓸 수 없습니다. 모두 꺼졌거나, 로그인이 필요하거나, 차단되었습니다",
 	"this folder's rule allows only %s, not %q (change it with: baton rules)":                                  "이 폴더의 규칙은 %s 계정만 허용합니다. %q 계정으로는 시작하지 않습니다 (baton 창의 설정에서 바꿀 수 있습니다)",
-	"this session is open in another claude window (pid %d); close it and run the command below":               "이 대화가 다른 Claude Code 창(pid %d)에서 열려 있습니다. 그 창을 닫고 아래 방법으로 이어 가세요",
 	"%s -> continuing on %q": "%s → %q 계정에서 이어 갑니다",
 	"claude may ask whether you trust this folder on %q; choose \"Yes, I trust this folder\" to continue": "%q 계정에서 Claude Code가 이 폴더를 신뢰하는지 물을 수 있습니다. " +
 		"계속하려면 \"Yes, I trust this folder\"를 고르세요",
 	"stopped while waiting": "기다리는 중에 멈췄습니다",
+	// the conversation open in another Claude Code too
+	"This conversation is already running in baton; its window is in front now.": "이 대화는 이미 baton에서 실행 중입니다. 그 창을 앞으로 가져왔습니다.",
+	"This conversation is already running in baton (session %s).":                "이 대화는 이미 baton에서 실행 중입니다 (세션 %s).",
+	"It is open in %s, so it continues in a copy: everything said so far, going on separately from the original.": "%s에서 열려 있어 사본으로 이어 갑니다. " +
+		"지금까지의 내용이 모두 들어 있고, 원래 대화와는 따로 진행됩니다.",
+	"this conversation was also opened in %s, so this session goes on in a copy; the original stays there": "이 대화가 %s에서도 열려서 이 세션은 사본으로 이어 갑니다. 원래 대화는 그쪽에 그대로 있습니다",
+	"the conversation is also open in %s, so it goes on in a copy on %q; the original stays there":         "대화가 %s에서도 열려 있어 %q 계정에서 사본으로 이어 갑니다. 원래 대화는 그쪽에 그대로 있습니다",
 	"%q was marked blocked (on hold, billing problem or revoked login); " +
 		"baton will not use it until you fix that and run: baton enable %s": "%q 계정이 차단으로 표시되었습니다 (계정 정지·결제 문제·로그인 취소). " +
 		"해결한 뒤 baton 창에서 다시 켜기 전까지는 쓰지 않습니다: %s",

@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.7.3-dev"
+var version = "0.8.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -35,8 +35,11 @@ Usage:
                                      start Claude Code under supervision
   baton sessions                     list your conversations in every folder, including
                                      the Claude desktop app's
-  baton resume <id> [--copy]         continue one of them in its folder (--copy leaves
-                                     the original as it is, for one open elsewhere)
+  baton resume <id> [--copy]         continue one of them in its folder (in a copy when it
+                                     is open elsewhere; --copy always leaves the original)
+  baton desktop <id> [--show <accounts>] [--hide <accounts>]
+                                     list a session in these accounts' Claude desktop app
+                                     (Code tab), or take it off; without options, say where
   baton switch [<name>] [--run <id>] move a running session to another account
                                      (once its current turn ends)
   baton stop [--run <id>]            end a running session (it can be continued later)
@@ -112,7 +115,7 @@ func main() {
 		os.Exit(2)
 	}
 	cmd, args := os.Args[1], os.Args[2:]
-	if os.Getenv(newConsoleEnv) == "1" && (cmd == "run" || cmd == "add" || cmd == "login" || cmd == "uninstall") {
+	if os.Getenv(newConsoleEnv) == "1" && (cmd == "run" || cmd == "add" || cmd == "login" || cmd == "uninstall" || cmd == "claude-update") {
 		// Started in a console window of its own (by reopenInNewConsole or the
 		// GUI): talk to that window, not NUL. Never for `baton hook`, which
 		// must keep reading its payload from stdin.
@@ -126,6 +129,8 @@ func main() {
 			winui.SetConsoleTitle("baton - " + filepath.Base(cwd))
 		case cmd == "uninstall":
 			winui.SetConsoleTitle("baton - uninstall")
+		case cmd == "claude-update":
+			winui.SetConsoleTitle("baton - Claude Code update")
 		case len(args) > 0:
 			winui.SetConsoleTitle("baton - sign in: " + args[0])
 		}
@@ -153,6 +158,8 @@ func main() {
 		code, err = cmdResume(args)
 	case "sessions":
 		err = cmdSessions(args)
+	case "desktop":
+		err = cmdDesktop(args)
 	case "update":
 		err = cmdUpdate(args)
 	case "add":
@@ -175,6 +182,8 @@ func main() {
 		err = cmdUninstall(args)
 	case "uninstall-finish":
 		err = cmdUninstallFinish(args)
+	case "claude-update":
+		err = cmdClaudeUpdate(args) // the window's Update button for an old Claude Code CLI
 	case "status":
 		err = cmdStatus(args)
 	case "sync":

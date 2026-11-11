@@ -66,7 +66,10 @@ func newCLI(t *testing.T) *cli {
 func (c *cli) run(extraEnv []string, args ...string) (string, int) {
 	c.t.Helper()
 	cmd := exec.Command(batonExe, args...)
-	env := []string{"BATON_HOME=" + c.home, "BATON_NOTIFY_FILE=" + notesFile}
+	// The Claude desktop app's data folder is never the real one in a test:
+	// by default there is none (a test can name one in extraEnv).
+	env := []string{"BATON_HOME=" + c.home, "BATON_NOTIFY_FILE=" + notesFile,
+		"BATON_DESKTOP_DATA=" + filepath.Join(c.home, "no-desktop-app"), "BATON_DESKTOP_RUNNING=0"}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(strings.ToUpper(kv), "BATON_") {
 			env = append(env, kv)
@@ -366,7 +369,12 @@ func TestRound5CLI(t *testing.T) {
 	}
 
 	// claude_path is stored as a full path.
-	if out, code := c.run(nil, "config", "claude_path", "cli_test.go"); code != 0 {
+	cwd, _ := os.Getwd()
+	rel, err := filepath.Rel(cwd, fakeClaude)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, code := c.run(nil, "config", "claude_path", rel); code != 0 {
 		t.Errorf("relative claude_path: %d %s", code, out)
 	}
 	if out, _ := c.run(nil, "config", "claude_path"); !filepath.IsAbs(strings.TrimSpace(out)) {
@@ -478,7 +486,8 @@ func TestStopAndReleaseFlags(t *testing.T) {
 }
 
 // baton sessions lists the conversations of every folder, the desktop app's
-// included; baton resume refuses what it cannot continue as asked.
+// included; baton resume refuses what it cannot continue, goes on in a copy
+// of one open elsewhere, and brings forward the baton session that runs one.
 func TestSessionsAndResume(t *testing.T) {
 	c := newCLI(t)
 	home := t.TempDir()
@@ -503,7 +512,7 @@ func TestSessionsAndResume(t *testing.T) {
 
 	out, code := c.run(env, "sessions")
 	if code != 0 || !strings.Contains(out, open) || !strings.Contains(out, "desk work") || !strings.Contains(out, proj) ||
-		!strings.Contains(out, "Claude desktop app") || !strings.Contains(out, lost) {
+		!strings.Contains(out, "Claude desktop app") || !strings.Contains(out, lost) || !strings.Contains(out, "it continues in a copy]") {
 		t.Fatalf("sessions: %d %s", code, out)
 	}
 	for _, tc := range []struct {
@@ -515,12 +524,38 @@ func TestSessionsAndResume(t *testing.T) {
 		{[]string{"resume"}, 2, "usage"},
 		{[]string{"resume", "11111111-2222-4333-8444-000000000000"}, 1, "no conversation"},
 		{[]string{"resume", lost, "--copy"}, 1, "is gone"},
-		{[]string{"resume", open}, 1, "--copy"},
-		{[]string{"resume", strings.ToUpper(open)}, 1, "--copy"}, // ids are not case-sensitive
+		{[]string{"resume", lost}, 1, "is gone"},
 	} {
 		if out, code := c.run(env, tc.args...); code != tc.code || !strings.Contains(out, tc.want) {
 			t.Errorf("%q: %d %s", tc.args, code, out)
 		}
+	}
+	// Open elsewhere: it goes on in a copy (decided here, so no session
+	// window opens), in its own folder; ids are not case-sensitive.
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	t.Setenv("BATON_RUN", "")
+	e := envAt(c.home)
+	for _, id := range []string{open, strings.ToUpper(open)} {
+		plan, code, err := planResume(e, id, false)
+		if err != nil || code != 0 || !plan.copied || plan.inBaton != nil || !strings.EqualFold(plan.cwd, proj) ||
+			filepath.Base(plan.transcript) != open+".jsonl" {
+			t.Errorf("%s: %+v %d %v", id, plan, code, err)
+		}
+	}
+	// A baton session runs it: its window comes forward (it has none here)
+	// and nothing starts.
+	runID := "20261109-101500-abc123"
+	dir := e.paths.Run(runID)
+	_ = os.MkdirAll(dir, 0o700)
+	if err := run.SaveJournal(dir, run.Journal{RunID: runID, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+		State: run.StateRunning, Account: "a", ChildPID: pid, SessionID: open}); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := c.run(env, "resume", open); code != 0 || !strings.Contains(out, "already running in baton") || strings.Contains(out, "continuing in") {
+		t.Errorf("resume of one baton runs: %d %s", code, out)
+	}
+	if out, _ := c.run(env, "sessions"); !strings.Contains(out, "[running in baton]") {
+		t.Errorf("sessions: %s", out)
 	}
 	// Inside a session it refuses before saying where it would continue.
 	if out, code := c.run(append(env, "BATON_RUN=x"), "resume", open, "--copy"); code != 1 || !strings.Contains(out, "inside a baton session") ||
@@ -529,46 +564,307 @@ func TestSessionsAndResume(t *testing.T) {
 	}
 }
 
-// A Claude Code CLI installed long ago is passed over for the desktop app's
-// copy, and doctor and the window say so.
-func TestOldCLIPassedOverForTheDesktopCopy(t *testing.T) {
+// A session moving to a copy of its conversation (it was opened elsewhere
+// too) is not switching accounts: `baton switch` and `baton status` say what
+// it is doing.
+func TestSwitchWhileMovingToACopy(t *testing.T) {
 	c := newCLI(t)
-	c.run(nil, "config", "claude_path", "auto")
+	pid := os.Getpid()
+	runID := "20261109-101500-abc123"
+	dir := envAt(c.home).paths.Run(runID)
+	_ = os.MkdirAll(dir, 0o700)
+	for _, state := range []string{run.StateStopping, run.StateSwitching} {
+		if err := run.SaveJournal(dir, run.Journal{RunID: runID, SupervisorPID: pid, SupervisorCreated: winproc.ProcessCreated(pid),
+			State: state, Moving: true, Account: "a", Cwd: t.TempDir()}); err != nil {
+			t.Fatal(err)
+		}
+		if out, code := c.run(nil, "switch"); code == 0 || !strings.Contains(out, "moving to a copy") || strings.Contains(out, "switching") {
+			t.Errorf("%s: %d %s", state, code, out)
+		}
+		if out, _ := c.run(nil, "status"); !strings.Contains(out, "state=moving") {
+			t.Errorf("status while %s: %s", state, out)
+		}
+	}
+}
+
+// envAt is the env of a baton data folder with no accounts.
+func envAt(root string) *env { return &env{paths: app.Paths{Root: root}} }
+
+// fakeInstalls is a PC of its own (home, AppData, PATH) holding copies of
+// test/fakeclaude as Claude Code CLIs and as the desktop app's copies.
+type fakeInstalls struct {
+	t    *testing.T
+	root string
+	exe  []byte
+	env  []string
+}
+
+func newFakeInstalls(t *testing.T) *fakeInstalls {
+	t.Helper()
 	exe, err := os.ReadFile(fakeClaude)
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	place := func(p string) string {
-		_ = os.MkdirAll(filepath.Dir(p), 0o700)
-		if err := os.WriteFile(p, exe, 0o700); err != nil {
-			t.Fatal(err)
-		}
-		old := time.Now().Add(-time.Hour)
-		_ = os.Chtimes(p, old, old)
-		return p
-	}
-	cli := place(filepath.Join(root, ".local", "bin", "claude.exe"))
-	bundle := place(filepath.Join(root, "local", "Claude-Data", "x", "claude-code", "2.1.308", "abc", "claude.exe"))
-	env := []string{"USERPROFILE=" + root, "APPDATA=" + filepath.Join(root, "roaming"), "LOCALAPPDATA=" + filepath.Join(root, "local"),
-		"PATH=" + filepath.Join(root, "empty"), "FAKE_OLD_CLI=1"}
-	out, _ := c.run(env, "doctor")
-	if !strings.Contains(out, "found via desktop") || !strings.Contains(out, "not used: "+cli+" (native, 2.0.9, too old)") {
-		t.Fatalf("doctor:\n%s", out)
-	}
-	for _, kv := range env {
+	return &fakeInstalls{t: t, root: root, exe: exe, env: []string{"USERPROFILE=" + root, "APPDATA=" + filepath.Join(root, "roaming"),
+		"LOCALAPPDATA=" + filepath.Join(root, "local"), "PATH=" + filepath.Join(root, "empty"), "SCOOP="}}
+}
+
+// setenv puts this PC's folders in the test's own environment too, for
+// claudeInfo called here.
+func (f *fakeInstalls) setenv() {
+	for _, kv := range f.env {
 		k, v, _ := strings.Cut(kv, "=")
-		t.Setenv(k, v)
+		f.t.Setenv(k, v)
 	}
+}
+
+func (f *fakeInstalls) place(p string) string {
+	f.t.Helper()
+	_ = os.MkdirAll(filepath.Dir(p), 0o700)
+	if err := os.WriteFile(p, f.exe, 0o700); err != nil {
+		f.t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(p, old, old)
+	return p
+}
+
+// cli places a Claude Code CLI that says it is version v.
+func (f *fakeInstalls) cli(p, v string) string {
+	f.place(p)
+	_ = os.WriteFile(p+".ver", []byte(v), 0o600)
+	return p
+}
+
+func (f *fakeInstalls) native(v string) string {
+	return f.cli(filepath.Join(f.root, ".local", "bin", "claude.exe"), v)
+}
+
+// desktop places the desktop app's copy of version v, finished as the app
+// marks it.
+func (f *fakeInstalls) desktop(v string) string {
+	p := f.place(filepath.Join(f.root, "local", "Claude-Data", "claude_x", "claude-code", v, "abc123", "claude.exe"))
+	_ = os.WriteFile(filepath.Join(filepath.Dir(p), ".payload"), []byte(`{"sha256":"abc123","size":`+strconv.Itoa(len(f.exe))+`}`), 0o600)
+	_ = os.WriteFile(filepath.Join(filepath.Dir(p), ".verified"), []byte("abc123"), 0o600)
+	return p
+}
+
+// A Claude Code CLI installed long ago is passed over for the desktop app's
+// newer copy; doctor lists every copy with what to do about it, and the
+// window gets the same list.
+func TestOldCLIPassedOverForTheDesktopCopy(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "config", "claude_path", "auto")
+	f := newFakeInstalls(t)
+	cli := f.native("2.1.200")
+	bundle := f.desktop("2.1.317")
+	older := f.desktop("2.1.309")
+	out, code := c.run(f.env, "doctor")
+	for _, want := range []string{
+		"claude:       2.1.317 (" + bundle + ", found via desktop)",
+		"* 2.1.317   desktop  " + bundle + "  (in use)",
+		"  2.1.309   desktop  " + older + "\n",
+		"  2.1.200   native   " + cli + "  too old (needs " + claude.MinVersion + "+): run \"" + cli + "\" update",
+		"newest version tested with this baton: " + claude.TestedWith,
+	} {
+		if !strings.Contains(strings.ReplaceAll(out, "\r\n", "\n"), want) {
+			t.Errorf("doctor lacks %q", want)
+		}
+	}
+	if code != 0 || t.Failed() {
+		t.Fatalf("doctor: %d\n%s", code, out)
+	}
+	f.setenv()
 	info := claudeInfo(filepath.Join(c.home, "config.json"))
-	if !info.Found || info.Source != "desktop" || !strings.EqualFold(info.Path, bundle) || info.OldCLI != "2.0.9" {
+	if !info.Found || info.Source != "desktop" || !strings.EqualFold(info.Path, bundle) || len(info.Installs) != 3 ||
+		info.Auto != info.Path || info.Min != claude.MinVersion || info.Fallback != nil {
 		t.Fatalf("window: %+v", info)
 	}
-	// The desktop copy turned off: the old CLI is reported as too old.
+	for _, i := range info.Installs {
+		if i.InUse != strings.EqualFold(i.Path, bundle) || (i.Path == cli) != (i.Problem == claude.ProblemTooOld) {
+			t.Errorf("install %+v", i)
+		}
+	}
+	// The desktop copy turned off: only the old CLI is left.
 	c.run(nil, "config", "allow_desktop_bundle", "false")
 	info = claudeInfo(filepath.Join(c.home, "config.json"))
-	if info.Found || !info.TooOld || info.Source != "native" || !info.BundleOff {
+	if info.Found || !info.TooOld || !info.BundleOff || len(info.Installs) != 3 || info.Auto != "" {
 		t.Fatalf("window without the desktop copy: %+v", info)
+	}
+	out, code = c.run(f.env, "doctor")
+	if code == 0 || !strings.Contains(out, "PROBLEM: the only Claude Code baton can use is the Claude desktop app's own") {
+		t.Fatalf("doctor without the desktop copy: %d\n%s", code, out)
+	}
+}
+
+// A chosen Claude Code that is gone (an app update removed it) does not stop
+// baton: another copy is used, with one line saying so, until it is back.
+func TestChosenClaudeGoneFallsBack(t *testing.T) {
+	c := newCLI(t)
+	f := newFakeInstalls(t)
+	pinned := f.cli(filepath.Join(f.root, "tools", "claude.exe"), "2.1.300")
+	f.desktop("2.1.317")
+	if out, code := c.run(f.env, "config", "claude_path", pinned); code != 0 {
+		t.Fatalf("config: %d %s", code, out)
+	}
+	if out, code := c.run(f.env, "add", "personal"); code != 0 || strings.Contains(out, "not available") {
+		t.Fatalf("add with the chosen copy: %d\n%s", code, out)
+	}
+	_ = os.Remove(pinned)
+	out, code := c.run(f.env, "add", "work")
+	want := "baton: the Claude Code you chose (" + pinned + ") is not available (it is no longer there); " +
+		"using Claude Code 2.1.317 from the Claude desktop app for now"
+	if code != 0 || strings.Count(out, want) != 1 || !strings.Contains(out, `"work" signed in`) {
+		t.Fatalf("add without the chosen copy: %d\n%s", code, out)
+	}
+	out, _ = c.run(append(f.env, "BATON_LANG=ko"), "doctor")
+	if !strings.Contains(out, "선택한 Claude Code("+pinned+")를 쓸 수 없어(더 이상 없음) 지금은 Claude 데스크톱 앱의 Claude Code 2.1.317 버전을 씁니다") {
+		t.Fatalf("doctor in Korean:\n%s", out)
+	}
+	// Back, and newer than any version tested: used, with nothing to say.
+	f.cli(pinned, "9.9.9")
+	out, code = c.run(f.env, "add", "third")
+	if code != 0 || strings.Contains(out, "not available") || strings.Contains(out, "tested") || strings.Contains(out, "warning") {
+		t.Fatalf("back again: %d\n%s", code, out)
+	}
+	// claude_path "desktop" while the desktop app has no copy that works.
+	_ = os.RemoveAll(filepath.Join(f.root, "local", "Claude-Data"))
+	c.run(f.env, "config", "claude_path", "desktop")
+	f.native("2.1.301")
+	out, code = c.run(f.env, "login", "work")
+	if code != 0 || !strings.Contains(out, "you chose (the Claude desktop app's) is not available "+
+		"(the Claude desktop app has not set up its Claude Code yet (open its Code tab once)); using Claude Code 2.1.301 from the native installer") {
+		t.Fatalf("desktop chosen, none there: %d\n%s", code, out)
+	}
+	// A path to a .cmd is refused when it is set.
+	cmd := filepath.Join(f.root, "claude.cmd")
+	_ = os.WriteFile(cmd, []byte("@echo off"), 0o600)
+	if out, code := c.run(f.env, "config", "claude_path", cmd); code == 0 || !strings.Contains(out, "claude.exe") {
+		t.Fatalf("a .cmd claude_path: %d %s", code, out)
+	}
+}
+
+// The window's Update button runs a too-old CLI's own `claude update`, and
+// only for such a copy.
+func TestClaudeUpdateRunsTheCLIsOwnUpdate(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "config", "claude_path", "auto")
+	f := newFakeInstalls(t)
+	cli := f.native("2.1.200")
+	_ = os.WriteFile(cli+".update", []byte("2.1.320"), 0o600)
+	bundle := f.desktop("2.1.317")
+	current := f.cli(filepath.Join(f.root, "local", "Microsoft", "WinGet", "Links", "claude.exe"), "2.1.300")
+	for _, p := range []string{bundle, current, filepath.Join(f.root, "elsewhere", "claude.exe")} {
+		if out, code := c.run(f.env, "claude-update", p); code == 0 || !strings.Contains(out, "not a Claude Code CLI that baton found too old") {
+			t.Errorf("%s: %d %s", p, code, out)
+		}
+	}
+	if out, code := c.run(append(f.env, "BATON_RUN=x"), "claude-update", cli); code == 0 || !strings.Contains(out, "inside a baton session") {
+		t.Errorf("inside a session: %d %s", code, out)
+	}
+	out, code := c.run(f.env, "claude-update", cli)
+	if code != 0 || !strings.Contains(out, "Successfully updated to version 2.1.320") || !strings.Contains(out, "Claude Code is now 2.1.320.") {
+		t.Fatalf("update: %d\n%s", code, out)
+	}
+	// Updated in place (the same file): its version is not taken from before.
+	if out, _ := c.run(f.env, "doctor"); !strings.Contains(out, "claude:       2.1.320 ("+cli) {
+		t.Fatalf("after the update:\n%s", out)
+	}
+
+	// `claude update` that ends well and changes nothing (a copy a package
+	// manager updates): the console window waits, saying what does update it.
+	pkg := f.cli(filepath.Join(f.root, "local", "Microsoft", "WinGet", "Packages", "Anthropic.ClaudeCode_x", "claude.exe"), "2.1.210")
+	out, code = c.run(f.env, "claude-update", pkg)
+	if code == 0 || !strings.Contains(out, "Claude Code is up to date") || strings.Contains(out, "is now") ||
+		!strings.Contains(out, "Claude Code is still 2.1.210, too old for baton (needs "+claude.MinVersion+" or newer). Update it with: winget upgrade Anthropic.ClaudeCode") {
+		t.Fatalf("update that changed nothing: %d\n%s", code, out)
+	}
+	if out, _ := c.run(f.env, "doctor"); !strings.Contains(out, pkg+"  too old (needs "+claude.MinVersion+"+): run winget upgrade Anthropic.ClaudeCode") {
+		t.Fatalf("doctor names WinGet's update:\n%s", out)
+	}
+	// The native installer's copy: installing it again.
+	_ = os.Remove(cli + ".update")
+	f.native("2.1.200") // a new file, so its version is asked again
+	out, code = c.run(append(f.env, "BATON_LANG=ko"), "claude-update", cli)
+	if code == 0 || !strings.Contains(out, `Claude Code가 아직 2.1.200 버전이라 baton에 쓰기에는 낮습니다 (`+claude.MinVersion+` 이상 필요). 다음으로 업데이트하세요: powershell -c "irm https://claude.ai/install.ps1 | iex"`) {
+		t.Fatalf("native update that changed nothing: %d\n%s", code, out)
+	}
+}
+
+// A Claude Code CLI too old for baton, and the Claude desktop app whose Code
+// tab was never opened: baton says that opening it is enough.
+func TestOldCLIPointsToTheDesktopApp(t *testing.T) {
+	c := newCLI(t)
+	c.run(nil, "config", "claude_path", "auto")
+	f := newFakeInstalls(t)
+	cli := f.native("2.1.200")
+	_ = os.MkdirAll(filepath.Join(f.root, "local", "Claude-Data", "claude_x"), 0o700)
+	const hint = "or open the Claude desktop app's Code tab once: baton then uses the Claude Code that comes with it"
+	out, code := c.run(f.env, "add", "x")
+	if code == 0 || !strings.Contains(out, `run "`+cli+`" update`) || !strings.Contains(out, hint) {
+		t.Fatalf("add: %d\n%s", code, out)
+	}
+	// doctor: the copies, then what else there is to do.
+	out, _ = c.run(f.env, "doctor")
+	out = strings.ReplaceAll(out, "\r\n", "\n")
+	want := "  2.1.200   native   " + cli + "  too old (needs " + claude.MinVersion + "+): run \"" + cli + "\" update\n              " + hint + "\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("doctor:\n%s", out)
+	}
+	f.setenv()
+	info := claudeInfo(filepath.Join(c.home, "config.json"))
+	if info.Found || !info.DesktopApp || len(info.Installs) != 1 || info.Installs[0].Problem != claude.ProblemTooOld {
+		t.Fatalf("window: %+v", info)
+	}
+}
+
+// The window is told which row claude_path is: a Scoop shim's real
+// claude.exe, and the desktop app's copies for a version of the app's that it
+// removed; Automatic names what it would use, not a path set by hand.
+func TestClaudeInfoSelectedRow(t *testing.T) {
+	c := newCLI(t)
+	f := newFakeInstalls(t)
+	f.setenv()
+	bundle := f.desktop("2.1.317")
+	real := f.cli(filepath.Join(f.root, "scoop", "apps", "claude-code", "current", "claude.exe"), "2.1.320")
+	shims := filepath.Join(f.root, "scoop", "shims")
+	shim := f.place(filepath.Join(shims, "claude.exe"))
+	_ = os.WriteFile(filepath.Join(shims, "claude.shim"), []byte("path = \""+real+"\"\n"), 0o600)
+	t.Setenv("PATH", shims)
+	cfg := filepath.Join(c.home, "config.json")
+	set := func(v string) {
+		t.Helper()
+		if out, code := c.run(f.env, "config", "claude_path", v); code != 0 {
+			t.Fatalf("config %s: %d %s", v, code, out)
+		}
+	}
+	set(shim)
+	info := claudeInfo(cfg)
+	if !info.Found || info.Fallback != nil || !strings.EqualFold(info.Path, real) || !strings.EqualFold(info.Selected, real) || len(info.Installs) != 2 {
+		t.Fatalf("shim: %+v", info)
+	}
+	// A copy somewhere else, newer than all: used when chosen, not by Automatic.
+	other := f.cli(filepath.Join(f.root, "tools", "claude.exe"), "2.1.330")
+	set(other)
+	info = claudeInfo(cfg)
+	if !strings.EqualFold(info.Path, other) || !strings.EqualFold(info.Selected, other) || !strings.EqualFold(info.Auto, real) {
+		t.Fatalf("elsewhere: %+v", info)
+	}
+	// A desktop version chosen, then removed by the app.
+	older := f.desktop("2.1.309")
+	set(older)
+	if info = claudeInfo(cfg); !strings.EqualFold(info.Selected, older) || !strings.EqualFold(info.Path, older) {
+		t.Fatalf("desktop version: %+v", info)
+	}
+	_ = os.RemoveAll(filepath.Dir(filepath.Dir(older)))
+	info = claudeInfo(cfg)
+	if info.Selected != claude.DesktopChoice || !strings.EqualFold(info.Path, bundle) || info.Fallback != nil || len(info.Installs) != 2 {
+		t.Fatalf("removed desktop version: %+v", info)
+	}
+	set("auto")
+	if info = claudeInfo(cfg); info.Selected != "" || !strings.EqualFold(info.Auto, real) {
+		t.Fatalf("auto: %+v", info)
 	}
 }
 

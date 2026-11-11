@@ -29,12 +29,21 @@ func cmdFocus(args []string) error {
 			return err
 		}
 		if j, err := run.LoadJournal(p.Run(id)); err == nil && j.ConsoleWindow != 0 && supervisorAlive(j.SupervisorPID, j.SupervisorCreated) {
-			if err = winui.FocusWindow(uintptr(j.ConsoleWindow)); err == nil {
+			how, err := winui.FocusWindowHow(uintptr(j.ConsoleWindow))
+			if err == nil {
+				guiLog("focus %s: %s", id, how)
 				return nil
 			}
 			guiLog("focus %s: %v", id, err)
+			if errors.Is(err, winui.ErrFocusRefused) {
+				// The session's window flashes on the taskbar; baton's own
+				// window is not the one the user asked for.
+				return nil
+			}
 		}
 	}
+	// This answers the user's click: let baton's window come to the front.
+	winui.Nudge()
 	if guiBuild == "1" {
 		return cmdGUI(nil)
 	}

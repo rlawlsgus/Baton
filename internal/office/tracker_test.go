@@ -23,13 +23,17 @@ type world struct {
 	prof string // the "work" account's profile
 	tr   *Tracker
 	runs []Run
+	// What the user hid, and whether a config folder is out of sight.
+	hiddenS, hiddenF []string
+	partial          bool
 }
 
 func newWorld(t *testing.T) *world {
 	root := t.TempDir()
 	w := &world{t: t, root: root, home: filepath.Join(root, "home", ".claude"), prof: filepath.Join(root, "profiles", "work")}
 	w.tr = newTracker(Options{Root: root, Me: "jh", Sources: func() Sources {
-		return Sources{Dirs: []Dir{{Path: w.prof, Account: "work"}, {Path: w.home}}, Accounts: []string{"other", "work"}, Runs: w.runs}
+		return Sources{Dirs: []Dir{{Path: w.prof, Account: "work"}, {Path: w.home}}, Accounts: []string{"other", "work"}, Runs: w.runs,
+			HiddenSessions: w.hiddenS, HiddenFloors: w.hiddenF, Partial: w.partial}
 	}})
 	t.Cleanup(w.tr.Close)
 	return w

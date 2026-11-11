@@ -79,26 +79,53 @@ type Options struct {
 	// OpenApp opens a page of this server in a window of its own (the
 	// office popped out onto another screen).
 	OpenApp func(url string) error
+	// Log notes what the window did in the background (gui.log).
+	Log func(format string, a ...any)
 }
 
 type ClaudeInfo struct {
 	Found   bool   `json:"found"`
 	Path    string `json:"path,omitempty"`
 	Version string `json:"version,omitempty"`
-	Source  string `json:"source,omitempty"` // config | native | path | npm | winget | desktop
-	Warning string `json:"warning,omitempty"`
+	Source  string `json:"source,omitempty"` // native | path | scoop | npm | winget | desktop | config
 	Error   string `json:"error,omitempty"`
-	// When Claude Code was not found or cannot be used: whether the desktop
-	// app is installed (then its Code tab sets it up), and whether the copy
-	// found is too old.
+	// When no Claude Code can be used: whether the desktop app is installed
+	// (then its Code tab sets it up), and whether a copy found is too old.
 	DesktopApp bool `json:"desktop_app"`
 	TooOld     bool `json:"too_old"`
-	// BundleOff: the desktop app's Claude Code exists, and using it is
+	// BundleOff: the desktop app's Claude Code would do, and using it is
 	// turned off in the settings.
 	BundleOff bool `json:"bundle_off"`
-	// OldCLI: the version of a Claude Code CLI too old to use, passed over
-	// for the one found.
-	OldCLI string `json:"old_cli,omitempty"`
+	// Installs is every Claude Code on this PC, for the settings to choose
+	// from; Choice is claude_path as it was when they were looked for, Auto
+	// the copy finding it automatically picks, and Fallback says that the
+	// copy chosen cannot be used now. Min is the oldest version baton uses.
+	// Selected is Choice as the settings show it: "", "desktop" or the path
+	// of the row that claude_path names (a Scoop shim is listed as the
+	// claude.exe it leads to).
+	Installs []ClaudeInstall `json:"installs"`
+	Choice   string          `json:"choice"`
+	Selected string          `json:"selected"`
+	Auto     string          `json:"auto,omitempty"`
+	Fallback *ClaudeFallback `json:"fallback,omitempty"`
+	Min      string          `json:"min"`
+}
+
+// ClaudeInstall is one copy of Claude Code; Problem says why it cannot be
+// used (see claude.Install).
+type ClaudeInstall struct {
+	Path    string `json:"path"`
+	Version string `json:"version,omitempty"`
+	Source  string `json:"source"`
+	Problem string `json:"problem,omitempty"`
+	InUse   bool   `json:"in_use"`
+}
+
+// ClaudeFallback: the Claude Code chosen (claude_path) cannot be used now,
+// for why (a claude.Problem*), so another one is used until it can.
+type ClaudeFallback struct {
+	Wanted string `json:"wanted"`
+	Why    string `json:"why"`
 }
 
 type Server struct {
@@ -117,10 +144,13 @@ type Server struct {
 	claude     ClaudeInfo
 	claudeAt   time.Time
 	claudeBusy bool
+	claudeGen  int                      // counts claudeAgainLocked calls: an answer from before one is stale
 	changes    map[string]*changesEntry // git changes of running sessions, by run id
 	upd        updateState
 	office     *office.Tracker // made when the office is first looked at
 	closed     bool
+	deskSt     deskState  // the desktop app feature, for the state poll
+	deskMu     sync.Mutex // one pass over the desktop app's lists at a time
 }
 
 // page is one load of the page in a window or browser tab. A reload, or a
@@ -365,6 +395,12 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 // ---- helpers -----------------------------------------------------------------
+
+func (s *Server) logf(format string, a ...any) {
+	if s.opt.Log != nil {
+		s.opt.Log(format, a...)
+	}
+}
 
 func randomHex(n int) string {
 	b := make([]byte, n)

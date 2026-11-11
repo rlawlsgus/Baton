@@ -2,6 +2,7 @@ package claude
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -162,6 +163,74 @@ func TestOpenSessions(t *testing.T) {
 	}
 	if got["gone"] != "" || len(got) > 1 {
 		t.Fatalf("a dead claude's session reported: %v", got)
+	}
+}
+
+// Another live claude with the same conversation, in any config folder, is
+// reported with its folder; the caller's own claude, other conversations and
+// dead claudes are not.
+func TestOpenElsewhere(t *testing.T) {
+	acct, home := t.TempDir(), t.TempDir()
+	pid := os.Getpid()
+	entry := func(dir string, pid int, sid string, started int64) {
+		_ = os.MkdirAll(filepath.Join(dir, "sessions"), 0o700)
+		_ = os.WriteFile(filepath.Join(dir, "sessions", strconv.Itoa(pid)+".json"),
+			[]byte(`{"pid":`+strconv.Itoa(pid)+`,"sessionId":"`+sid+`","entrypoint":"claude-desktop","startedAt":`+strconv.FormatInt(started, 10)+`}`), 0o600)
+	}
+	entry(home, pid, "conv", winproc.ProcessCreated(pid).UnixMilli())
+	entry(acct, 999999, "conv", time.Now().UnixMilli()) // no such process
+	if !BusyProfile(home) {
+		t.Skip("cannot fake a running claude here")
+	}
+	got := OpenElsewhere([]string{acct, home}, "conv", 4242)
+	if len(got) != 1 || got[0].PID != pid || got[0].Entrypoint != "claude-desktop" || got[0].ConfigDir() != home {
+		t.Fatalf("got %+v", got)
+	}
+	if got := OpenElsewhere([]string{acct, home}, "conv", 4242, pid); len(got) != 0 {
+		t.Fatalf("its own claude reported: %+v", got)
+	}
+	if got := OpenElsewhere([]string{acct, home}, "other"); len(got) != 0 {
+		t.Fatalf("another conversation reported: %+v", got)
+	}
+	if got := OpenElsewhere([]string{acct, home}, ""); len(got) != 0 {
+		t.Fatalf("no conversation yet, still reported: %+v", got)
+	}
+
+	// A claude the session's own claude started (as when it relaunches
+	// itself) is the session too: here a child of this test process.
+	child := exec.Command("cmd", "/c", "ping -n 30 127.0.0.1 >nul")
+	if err := child.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Process.Kill(); _ = child.Wait() }()
+	cpid := child.Process.Pid
+	for i := 0; i < 50 && winproc.ProcessCreated(cpid).IsZero(); i++ {
+		time.Sleep(20 * time.Millisecond)
+	}
+	entry(acct, cpid, "conv", winproc.ProcessCreated(cpid).UnixMilli())
+	if got := OpenElsewhere([]string{acct}, "conv", 4242); len(got) != 1 || got[0].PID != cpid {
+		t.Fatalf("an unrelated claude: %+v", got)
+	}
+	if got := OpenElsewhere([]string{acct}, "conv", pid); len(got) != 0 {
+		t.Fatalf("a claude started by the session's own claude reported: %+v", got)
+	}
+}
+
+// procStart (the creation FILETIME) decides when present: the desktop app
+// registers a claude it kept ready long after it started.
+func TestAliveByProcStart(t *testing.T) {
+	pid := os.Getpid()
+	created := winproc.ProcessCreated(pid)
+	ft := created.UnixNano()/100 + 116444736000000000
+	late := created.Add(10 * time.Minute).UnixMilli()
+	if !(LiveSession{PID: pid, StartedAt: late, ProcStart: strconv.FormatInt(ft, 10)}).Alive() {
+		t.Fatal("registered late, with its procStart: not alive")
+	}
+	if (LiveSession{PID: pid, StartedAt: created.UnixMilli(), ProcStart: strconv.FormatInt(ft-10_000_000, 10)}).Alive() {
+		t.Fatal("another process's procStart (a reused pid): alive")
+	}
+	if (LiveSession{PID: pid, StartedAt: late}).Alive() {
+		t.Fatal("no procStart and registered 10 minutes late: alive (the old rule)")
 	}
 }
 

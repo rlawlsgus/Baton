@@ -90,10 +90,10 @@ func cmdUninstall(args []string) error {
 	if moved > 0 {
 		fmt.Fprintf(os.Stderr, say("baton: moved %d conversation(s) to %s\n", "baton: 대화 %d개를 %s 폴더로 옮겼습니다\n"), moved, filepath.Join(home, "projects"))
 	}
-	if inst, err := e.resolveClaude(); err == nil {
+	if exe, ok := e.claudeForLogout(); ok {
 		for _, a := range e.reg.Accounts {
 			pe, _ := envx.ForProfile(a.ProfileDir, nil)
-			if _, err := claude.RunInteractive(inst.Path, []string{"auth", "logout"}, pe, a.ProfileDir); err != nil {
+			if _, err := claude.RunInteractive(exe, []string{"auth", "logout"}, pe, a.ProfileDir); err != nil {
 				fmt.Fprintf(os.Stderr, "baton: warning: logout of %q failed: %v\n", a.ID, err)
 			}
 		}

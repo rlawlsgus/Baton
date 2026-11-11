@@ -1,9 +1,8 @@
 package supervisor
 
 import (
-	"fmt"
+	"strings"
 
-	"baton/internal/claude"
 	"baton/internal/run"
 )
 
@@ -17,14 +16,30 @@ func (s *Supervisor) owed() bool {
 // restoreArgs reopens a session that was cut off: its conversation, in the
 // permission mode it was last in, with the options it kept across
 // relaunches, and, if it was working, the prompt to go on with the task.
+// When another Claude Code has the conversation open by now, it goes on in a
+// copy of it; when a baton session does, nothing starts (errInBaton).
 func (s *Supervisor) restoreArgs(r *run.Journal) ([]string, error) {
-	s.transcr, s.session = r.TranscriptPath, r.SessionID
-	if h := claude.Holders(s.holderDirs(), s.session); len(h) > 0 {
-		return nil, fmt.Errorf("this session is already open in another claude window (pid %d); close it first", h[0].PID)
+	s.transcr, s.session = r.TranscriptPath, strings.ToLower(r.SessionID)
+	copyIt, err := s.startHeld(r.TranscriptPath, s.session)
+	if err != nil {
+		return nil, err
+	}
+	// The mode the run saved as its own: the transcript's last mode row can
+	// be another Claude Code's by now (a terminal's claude writes one even
+	// when it only opens the conversation and quits). A run from before baton
+	// kept it has only the transcript.
+	mode := r.PermissionMode
+	if mode == "" {
+		mode = s.permissionMode(r.TranscriptPath)
 	}
 	args := append([]string{}, s.opt.ClaudeArgs.Persistent...)
-	args = s.withMode(args, s.permissionMode(r.TranscriptPath))
+	args = s.withMode(args, mode)
 	args = append(args, "--resume", r.TranscriptPath)
+	if copyIt {
+		args = append(args, "--fork-session")
+		s.forkSource = r.TranscriptPath
+		s.transcr, s.session = "", ""
+	}
 	if r.Owed {
 		args = append(args, restartPrompt)
 	}
@@ -36,6 +51,6 @@ func (s *Supervisor) restoreArgs(r *run.Journal) ([]string, error) {
 			s.logf("restore: %v", err)
 		}
 	}
-	s.logf("restoring run %s (owed %v)", r.RunID, r.Owed)
+	s.logf("restoring run %s (owed %v, copy %v)", r.RunID, r.Owed, copyIt)
 	return args, nil
 }

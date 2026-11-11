@@ -47,11 +47,16 @@ func cmdRun(args []string) (int, error) {
 	fs := newFlags("run", "baton run [--account <name>] [--restore <run>] [-- <claude arguments>]")
 	account := fs.String("account", "", "account to start on (default: best available)")
 	restore := fs.String("restore", "", "reopen a session that was cut off (its run id, from baton status)")
+	autoCopy := fs.String("auto-copy-of", "", "(set by baton) the conversation this start copies only because it is open elsewhere; "+
+		"where it shows in the Claude desktop app moves to the copy")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0, nil
 		}
 		return 2, nil
+	}
+	if *autoCopy != "" && !sessionIDRx.MatchString(*autoCopy) {
+		return 2, errors.New("--auto-copy-of takes a session id")
 	}
 	// Claude Code arguments must follow "--", so `baton run work` (meant as
 	// an account name) is not silently sent to the model as the first prompt.
@@ -137,6 +142,7 @@ func cmdRun(args []string) (int, error) {
 		Attention:  &runNeedsAttention,
 		Restore:    cut,
 		Prefer:     preferred(cut),
+		AutoCopyOf: *autoCopy,
 	})
 }
 

@@ -4,25 +4,65 @@
 
 /* The office tab uses the whole width of the window. */
 .app.wide { max-width: none; padding-bottom: 12px; }
-.office-host { container-type: inline-size; }
-.office { --of-h: 620px; display: grid; grid-template-columns: minmax(212px, 232px) minmax(0, 1fr) minmax(256px, 304px); gap: 12px; height: var(--of-h); }
+/* Three columns with a splitter in each 12 px gutter. office.js sets the
+   tracks (place()): a column with no room leaves the grid and opens over the
+   stage as a drawer, so nothing ever stacks and the page never scrolls. */
+.office { --of-h: 620px; --of-l: 244px; --of-r: 304px; position: relative; display: grid; height: var(--of-h);
+  grid-template-columns: var(--of-l) 12px minmax(0, 1fr) 12px var(--of-r); grid-template-areas: "side ls stage rs panel"; }
 .office > * { min-height: 0; }
 .office button { font: inherit; }
+.of-side { grid-area: side; }
+.of-stage { grid-area: stage; }
+.of-panel { grid-area: panel; }
+
+/* ---- splitters ---- */
+.of-split { position: relative; cursor: col-resize; touch-action: none; border-radius: 6px; }
+.of-split.l { grid-area: ls; }
+.of-split.r { grid-area: rs; }
+.of-split::after { content: ""; position: absolute; left: 50%; top: 50%; width: 4px; height: 44px; margin: -22px 0 0 -2px; border-radius: 2px;
+  background: color-mix(in srgb, var(--muted) 38%, transparent); transition: background .15s, height .15s, margin .15s; }
+.of-split:hover::after, .of-split.on::after, .of-split:focus-visible::after { background: var(--accent); height: 64px; margin-top: -32px; }
+.of-split:focus-visible { outline: none; background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.office.l-out:not(.l-fold) .of-split.l, .office.r-out:not(.r-fold) .of-split.r { display: none; }
+.office.resizing, .office.resizing * { cursor: col-resize !important; user-select: none; }
+.office.resizing .of-stage, .office.resizing .of-side, .office.resizing .of-panel { pointer-events: none; }
+
+/* ---- drawers: a side column out of the grid, opened over the stage ---- */
+.office.l-out .of-side, .office.r-out .of-panel { position: absolute; grid-area: stage; top: 70px; bottom: 8px; z-index: 5; }
+.office.l-out .of-side { left: 8px; width: min(var(--of-l), calc(100% - 56px)); box-shadow: 10px 0 30px rgba(0, 0, 0, .18); }
+.office.r-out .of-panel { right: 8px; width: min(var(--of-r), calc(100% - 56px)); padding: 10px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 14px; box-shadow: -10px 0 30px rgba(0, 0, 0, .18); }
+.office.l-out:not(.l-open) .of-side, .office.r-out:not(.r-open) .of-panel { display: none; }
+.of-side:focus, .of-panel:focus { outline: none; }
+.office.l-open .of-zoom { left: calc(min(var(--of-l), 100% - 56px) + 20px); }
+.office.r-open .of-hint { display: none; }
 
 /* ---- floor guide ---- */
-.of-side { margin: 0; padding: 12px 10px 8px; display: flex; flex-direction: column; overflow: hidden; }
-.of-side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px 10px; }
+.of-side { margin: 0; padding: 12px 10px 8px; display: flex; flex-direction: column; overflow: hidden; container-type: inline-size; }
+.of-side-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 4px 10px; white-space: nowrap; }
 .of-side-title b { font-size: 14.5px; }
 .of-side-en { font-size: 10px; letter-spacing: .14em; color: var(--muted); font-weight: 700; white-space: nowrap; }
+/* The English label goes when the heading would not fit (it needs about
+   182 px of the column's content box, 222 px at the default width). */
+@container (max-width: 194px) { .of-side-en { display: none; } }
 .of-floors { overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 2px 2px 6px; }
 .of-follow { display: flex; gap: 7px; align-items: center; font-size: 12px; line-height: 1.35; color: var(--muted); padding: 6px 9px; border-radius: 9px;
-  background: var(--off-soft); cursor: pointer; flex: none; }
-.of-follow input { margin: 0; accent-color: var(--accent); }
+  background: var(--off-soft); cursor: pointer; flex: none; min-width: 0; }
+.of-follow input { margin: 0; accent-color: var(--accent); flex: none; }
+.of-follow span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .of-floor { border: 1px solid var(--line); border-radius: 12px; background: var(--card); overflow: hidden; flex: none; transition: border-color .15s, box-shadow .15s; }
 .of-floor.cur { border-color: var(--fbc, var(--accent)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--fbc, var(--accent)) 18%, transparent); }
-.of-floor-btn { all: unset; box-sizing: border-box; display: flex; gap: 10px; align-items: center; width: 100%; padding: 9px 10px; cursor: pointer; }
-.of-floor-btn:hover { background: var(--off-soft); }
-.of-floor-btn:focus-visible, .of-srow:focus-visible, .of-quiet:focus-visible, .of-zbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.of-floor-head { display: flex; align-items: center; }
+.of-floor-head:hover { background: var(--off-soft); }
+/* Spaced tightly enough that a floor's second line (how many sessions, and
+   when) fits beside the box at the default width, in both languages. */
+.of-floor-btn { all: unset; box-sizing: border-box; display: flex; gap: 7px; align-items: center; flex: 1; min-width: 0; padding: 9px 8px 9px 6px; cursor: pointer; }
+/* Show-in-the-office boxes: ticked shows, cleared hides (here only). */
+.of-chk { flex: none; width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--fbc, var(--accent)); }
+.of-floor-head > .of-chk { margin-left: 9px; }
+.of-floor.off .of-floor-btn, .of-srow.off .of-sbtn { opacity: .55; }
+.of-floor-btn:focus-visible, .of-sbtn:focus-visible, .of-quiet:focus-visible, .of-zbtn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.of-chk:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .of-fname { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.3; }
 .of-fname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; }
 .of-fsub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -30,16 +70,18 @@
 .of-dot.on { background: #22c55e; box-shadow: 0 0 0 3px rgba(34, 197, 94, .18); }
 .of-dot.on.busy { animation: of-pulse 1.4s ease-in-out infinite; }
 .of-sess { border-top: 1px solid var(--line); max-height: 268px; overflow: auto; padding: 4px; }
-.of-srow { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; width: 100%; padding: 5px 6px; border-radius: 7px;
-  cursor: pointer; font-size: 12.5px; }
+.of-srow { display: flex; align-items: center; gap: 2px; padding-left: 6px; border-radius: 7px; font-size: 12.5px; }
 .of-srow:hover { background: var(--off-soft); }
 .of-srow.on { background: color-mix(in srgb, var(--fbc, var(--accent)) 12%, var(--card)); font-weight: 600; }
+.of-sbtn { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0; padding: 5px 6px 5px 4px; border-radius: 7px; cursor: pointer; }
 .of-spin { width: 14px; flex: none; font-size: 10.5px; text-align: center; color: var(--muted); }
 .of-stitle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .of-sago { font-size: 11px; color: var(--muted); white-space: nowrap; flex: none; }
 .of-acc { width: 8px; height: 8px; border-radius: 3px; flex: none; display: inline-block; }
 .of-quiet { all: unset; box-sizing: border-box; text-align: center; color: var(--muted); font-size: 12.5px; padding: 8px; cursor: pointer; border-radius: 9px; flex: none; }
 .of-quiet:hover { color: var(--text); background: var(--off-soft); }
+.of-quiet.strong { color: var(--accent); font-weight: 600; }
+.of-hidden-foot { display: flex; flex-direction: column; flex: none; border-top: 1px dashed var(--line); padding-top: 4px; }
 .of-pad { padding: 6px 8px; }
 
 /* Floor numbers: one hue per floor, mixed with the theme's own colors. */
@@ -54,7 +96,7 @@
 
 /* ---- the stage ---- */
 .of-stage { position: relative; overflow: hidden; border-radius: 16px; border: 1px solid var(--line); touch-action: none; user-select: none;
-  background: radial-gradient(ellipse 80% 70% at 50% 42%, var(--card), var(--bg)); }
+  background: radial-gradient(ellipse 80% 70% at 50% 42%, var(--card), var(--bg)); container-type: inline-size; }
 .of-canvas { position: absolute; left: 0; top: 0; display: block; cursor: grab; }
 .of-stage.dragging .of-canvas { cursor: grabbing; }
 .of-canvas.pointer { cursor: pointer; }
@@ -108,20 +150,32 @@
   font-size: 11px; font-weight: 700; white-space: nowrap; }
 .of-more-tag[hidden] { display: none; }
 
-/* Things over the stage: title, LIVE, zoom, hints, the elevator ride. */
-.of-title, .of-topright, .of-zoom, .of-hint, .of-lift, .of-retry { z-index: 2; }
-.of-title { position: absolute; left: 12px; top: 12px; display: flex; gap: 10px; align-items: center; padding: 7px 14px 7px 7px; border-radius: 14px;
-  background: color-mix(in srgb, var(--card) 92%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow); max-width: min(62%, 440px); }
+/* Things over the stage: title, LIVE, zoom, hints, the elevator ride. The
+   corner buttons stay above a notice, to open a drawer from it. */
+.of-zoom, .of-hint, .of-retry { z-index: 2; }
+/* The elevator banner is level with the bar and after it, so it shows over
+   the title (as it did before the bar), yet under an open drawer. */
+.of-lift { z-index: 4; }
+.of-bar { position: absolute; left: 12px; right: 12px; top: 12px; z-index: 4; display: flex; gap: 8px; align-items: flex-start; justify-content: space-between;
+  pointer-events: none; }
+.of-bar > * { pointer-events: auto; }
+.of-topleft { display: flex; gap: 8px; align-items: center; flex: 0 1 auto; min-width: 0; max-width: 520px; }
+.of-title { display: flex; gap: 10px; align-items: center; padding: 7px 14px 7px 7px; border-radius: 14px; min-width: 0;
+  background: color-mix(in srgb, var(--card) 92%, transparent); border: 1px solid var(--line); box-shadow: var(--shadow); }
 .of-title[hidden] { display: none; }
 .of-title-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
 .of-title-text b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .of-title-text span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.of-topright { position: absolute; right: 12px; top: 12px; display: flex; gap: 8px; align-items: center; }
+.of-topright { display: flex; gap: 8px; align-items: center; flex: none; margin-left: auto; }
 .of-live { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px; font-size: 11.5px; letter-spacing: .05em; box-shadow: var(--shadow); }
 .of-live[hidden] { display: none; }
 .of-live i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .of-live.ok i { animation: of-pulse 1.6s ease-in-out infinite; }
-button.btn.of-pop { font-size: 12.5px; padding: 3px 11px; box-shadow: var(--shadow); }
+button.btn.of-pop, button.btn.of-tbtn { font-size: 12.5px; padding: 3px 11px; box-shadow: var(--shadow); white-space: nowrap; flex: none; }
+button.btn.of-tbtn { padding: 6px 11px; }
+button.btn.of-tbtn[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+button.btn.of-tbtn[hidden] { display: none; }
+@container (max-width: 560px) { .of-hint { display: none; } }
 .of-zoom { position: absolute; left: 12px; bottom: 12px; display: flex; flex-direction: column; border-radius: 12px; background: var(--card);
   border: 1px solid var(--line); box-shadow: var(--shadow); overflow: hidden; }
 .of-zbtn { all: unset; box-sizing: border-box; width: 34px; height: 32px; display: grid; place-items: center; cursor: pointer; font-size: 16px; color: var(--text); }
@@ -138,10 +192,11 @@ button.btn.of-pop { font-size: 12.5px; padding: 3px 11px; box-shadow: var(--shad
 .of-notice-card { max-width: 360px; text-align: center; padding: 22px 26px; border-radius: 16px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, .12); }
 .of-notice-art { font-size: 34px; line-height: 1; margin-bottom: 10px; }
 .of-notice-card h3 { margin: 0 0 6px; }
-.of-notice-card p { margin: 0; }
+.of-notice-card p { margin: 0; word-break: keep-all; } /* Korean wraps between words, not inside one */
+.of-notice-act { justify-content: center; margin-top: 14px; }
 
 /* ---- the panel ---- */
-.of-panel { display: flex; flex-direction: column; gap: 12px; overflow: auto; min-height: 0; padding: 0 2px 2px 0; }
+.of-panel { display: flex; flex-direction: column; gap: 12px; overflow: auto; min-height: 0; }
 .of-card { margin: 0; padding: 12px 14px; flex: none; }
 .of-card[hidden] { display: none; }
 .of-card h3 { margin: 0 0 8px; font-size: 13.5px; }
@@ -192,18 +247,6 @@ button.btn.of-pop { font-size: 12.5px; padding: 3px 11px; box-shadow: var(--shad
 :root[data-theme="dark"] .pill.violet { background: #2f2847; color: #bba6f7; }
 :root[data-theme="dark"] .of-bubble.ask { background: #3d3415; color: #f6dc8a; border-color: #6b5a22; }
 :root[data-theme="dark"] .of-lift { background: #0f1115; }
-
-/* Narrower windows: the panel moves under the office. */
-@container (max-width: 1120px) {
-  .office { grid-template-columns: minmax(204px, 220px) minmax(0, 1fr); grid-template-rows: var(--of-h) auto; height: auto; }
-  .of-panel { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); overflow: visible; align-items: start; }
-  .of-log { max-height: 260px; }
-}
-@container (max-width: 680px) {
-  .office { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto var(--of-h) auto; }
-  .of-side { max-height: 210px; }
-  .of-hint { display: none; }
-}
 
 /* The office in a window of its own (opened with #office). */
 body.office-only .top, body.office-only .tabs, body.office-only #banners { display: none; }

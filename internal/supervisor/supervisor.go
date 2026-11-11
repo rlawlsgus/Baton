@@ -57,6 +57,11 @@ type Options struct {
 	// the account to start on if it can be used now.
 	Restore *run.Journal
 	Prefer  string
+	// AutoCopyOf: the start goes on in a copy (--fork-session) of this
+	// conversation only because it is open somewhere else, not because the
+	// user asked for a copy. Where the conversation shows in the Claude
+	// desktop app then follows the session into the copy.
+	AutoCopyOf string
 }
 
 type reason string
@@ -66,6 +71,10 @@ const (
 	reasonAuth   reason = "authentication_failed"
 	reasonManual reason = "manual"
 	reasonStop   reason = "stop" // `baton stop` / the GUI: end the session, no switch
+	// reasonElsewhere: another Claude Code opened the conversation too. Not a
+	// switch: the session goes on on its account, in a copy of the
+	// conversation (no question, not counted, nothing in the ledger).
+	reasonElsewhere reason = "open_elsewhere"
 )
 
 type pending struct {
@@ -73,6 +82,7 @@ type pending struct {
 	target string // a specific account the user asked for
 	detail string // message claude showed
 	reset  time.Time
+	holder *claude.LiveSession // reasonElsewhere: the other claude
 }
 
 type Supervisor struct {
@@ -124,6 +134,42 @@ type Supervisor struct {
 	confirmed  bool          // the user said yes to this switch in the session window
 	endNoted   bool          // a notification already said why the session ended
 	owedSwitch bool          // the switch under way owes the next account the task
+
+	// Another claude that has this conversation open too (lookElsewhere):
+	// when baton last looked, which claude, whether the user was told the
+	// move waits for a response, since when Claude is idle, and missed reads
+	// of this session's own status meanwhile. cleanFile and cleanSize are the
+	// transcript and its size at the last look that found nobody else;
+	// yieldedTo is another baton session's claude that moves instead of this
+	// one.
+	elsewhereAt time.Time
+	held        *claude.LiveSession
+	heldTold    bool
+	heldIdle    time.Time
+	heldMisses  int
+	cleanFile   string
+	cleanSize   int64
+	yieldedTo   int
+	// copyOf: the next launch goes on in a copy of this transcript, in mode
+	// copyMode, because another Claude Code has it open.
+	copyOf   string
+	copyMode string
+	// followFrom: the conversation the session left for a copy it went on
+	// in by itself; once the copy has its id, where the session shows in the
+	// Claude desktop app moves to it (desktop.go).
+	followFrom string
+	desk       *deskWork
+
+	// The permission mode this session's claude reported itself (ownMode):
+	// the mode its last Stop hook gave, and the transcript and its size then.
+	// From offset foreignAt of transcript foreignFile on, mode rows can be
+	// another Claude Code's: a claude in a terminal writes its own mode into
+	// the conversation, even one that only opens it and quits.
+	stopMode    string
+	stopFile    string
+	stopAt      int64
+	foreignFile string
+	foreignAt   int64
 }
 
 // Run supervises until the user quits claude (returning claude's exit code)
@@ -253,6 +299,7 @@ func (s *Supervisor) finish() {
 	}
 	s.journal.State = run.StateDone
 	s.saveJournal()
+	s.desk.wait(3 * time.Second) // the desktop app's records catch up with the last turn
 }
 
 func (s *Supervisor) saveJournal() {
@@ -260,6 +307,7 @@ func (s *Supervisor) saveJournal() {
 	s.journal.SwitchMode = s.opt.Config.SwitchMode // this run's own: it only ever gets stricter
 	s.journal.SessionID = s.session
 	s.journal.TranscriptPath = s.transcr
+	s.journal.PermissionMode = s.permissionMode(s.transcr) // for a restore: see restoreArgs
 	s.journal.Owed = s.owed()
 	if s.child != nil {
 		s.journal.ChildPID = s.child.PID
@@ -287,6 +335,10 @@ func (s *Supervisor) loop() (int, error) {
 	s.warnBeforeStart()
 	s.copyTrustForFirstLaunch()
 	args, err := s.firstArgs()
+	if errors.Is(err, errInBaton) {
+		s.userEnded = true // nothing went wrong: that session goes on in its own window
+		return 0, nil
+	}
 	if err != nil {
 		return 1, err
 	}
@@ -318,10 +370,7 @@ func (s *Supervisor) loop() (int, error) {
 			s.printResumeHint()
 			return 0, nil
 		}
-		if !s.prepareSwitch(p, next) {
-			s.printResumeHint()
-			return 1, nil
-		}
+		s.prepareSwitch(p, next)
 		args, withPrompt = s.relaunchArgs(p)
 		// Preparing can take seconds (a holder check): a stop that came in
 		// meanwhile must not start the next account.
@@ -384,14 +433,29 @@ func (s *Supervisor) firstArgs() ([]string, error) {
 		if p := a.ResumeArg; p != "" && fileExists(p) && strings.EqualFold(filepath.Ext(p), ".jsonl") {
 			if claude.HasFlag(a.FirstOnly, "--fork-session") {
 				s.forkSource = p
+				// A copy the user asked for starts afresh; one made because
+				// the conversation is open elsewhere takes it along.
+				if id := strings.ToLower(s.opt.AutoCopyOf); id != "" &&
+					strings.EqualFold(id, strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))) {
+					s.followFrom = id
+				}
 				return args, nil
 			}
 			// Track the user's transcript from the start: on a resume-by-path
 			// claude's SessionStart reports a path that does not exist.
 			s.transcr = p
-			s.session = strings.TrimSuffix(filepath.Base(p), filepath.Ext(p))
-			if h := claude.Holders(s.holderDirs(), s.session); len(h) > 0 {
-				return nil, fmt.Errorf("this session is already open in another claude window (pid %d); close it first", h[0].PID)
+			// Claude Code names the files in lower case (and its registry has
+			// the id so); a path typed by hand can be in any case.
+			s.session = strings.ToLower(strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))
+			copyIt, err := s.startHeld(p, s.session)
+			if err != nil {
+				return nil, err
+			}
+			if copyIt {
+				s.forkSource = p
+				s.followFrom = s.session
+				s.transcr, s.session = "", ""
+				return claude.AsCopy(args), nil
 			}
 		}
 		return args, nil
@@ -414,27 +478,20 @@ func (s *Supervisor) firstArgs() ([]string, error) {
 // continue prompt.
 func (s *Supervisor) relaunchArgs(p *pending) ([]string, bool) {
 	args := append([]string{}, s.opt.ClaudeArgs.Persistent...)
+	if src := s.copyOf; src != "" {
+		// Another Claude Code has the conversation open: go on in a copy, in
+		// the mode the session was in, with what a relaunch in place gets.
+		args = s.withMode(args, s.copyMode)
+		args = append(args, "--resume", src, "--fork-session")
+		return s.withPrompt(args, p)
+	}
 	if t := s.currentTranscript(); t != "" {
 		// claude does not restore the permission mode on a resume; without this
 		// the next account would fall back to its default mode (and an
 		// unattended continue could stop at the first approval prompt).
 		args = s.withMode(args, s.permissionMode(t))
 		args = append(args, "--resume", t)
-		var cp string
-		switch {
-		case (p.reason == reasonLimit || p.reason == reasonAuth) && !s.declined, p.reason == reasonManual && s.contOwed:
-			cp = s.opt.Config.ContinuePrompt
-		case s.broke:
-			cp = restartPrompt // a manual switch had to interrupt a running turn
-		}
-		if cp != "" {
-			if strings.HasPrefix(cp, "-") {
-				args = append(args, "--", cp) // never let the prompt be read as an option
-			} else {
-				args = append(args, cp)
-			}
-		}
-		return args, cp != ""
+		return s.withPrompt(args, p)
 	}
 	if s.forkSource != "" && fileExists(s.forkSource) {
 		// A fork that has no turn yet has no file: fork the source again here,
@@ -451,15 +508,37 @@ func (s *Supervisor) relaunchArgs(p *pending) ([]string, bool) {
 	return args, false
 }
 
+// withPrompt adds the prompt a relaunch owes: the continue prompt after a
+// limit or a failed login (or one the stopped claude had not finished), or
+// the restart prompt when the stop interrupted a running turn.
+func (s *Supervisor) withPrompt(args []string, p *pending) ([]string, bool) {
+	var cp string
+	switch {
+	case (p.reason == reasonLimit || p.reason == reasonAuth) && !s.declined,
+		(p.reason == reasonManual || p.reason == reasonElsewhere) && s.contOwed:
+		cp = s.opt.Config.ContinuePrompt
+	case s.broke:
+		cp = restartPrompt // the stop had to interrupt a running turn
+	}
+	if cp != "" {
+		if strings.HasPrefix(cp, "-") {
+			args = append(args, "--", cp) // never let the prompt be read as an option
+		} else {
+			args = append(args, cp)
+		}
+	}
+	return args, cp != ""
+}
+
 const restartPrompt = "The session was restarted while you were working. " +
 	"Continue the task you were working on; do not repeat work that is already complete."
 
-// permissionMode is the mode the session is in as far as baton can tell: the
-// last permission-mode row claude wrote since this launch (it writes one per
-// prompt), else the mode baton last knew (from a relaunch, or from before a
-// /clear), else the --permission-mode the user started with.
+// permissionMode is the mode the session is in as far as baton can tell: what
+// its claude reported since this launch (ownMode), else the mode baton last
+// knew (from a relaunch, or from before a /clear), else the --permission-mode
+// the user started with.
 func (s *Supervisor) permissionMode(transcript string) string {
-	if m := s.modeSinceLaunch(transcript); m != "" {
+	if m := s.ownMode(transcript); m != "" {
 		return m
 	}
 	if s.knownMode != "" {
@@ -488,17 +567,63 @@ func (s *Supervisor) noteModeOffset() {
 	}
 }
 
-// modeSinceLaunch reads the transcript's permission-mode rows, skipping those
-// written before the current child started: claude did not restore that mode.
-func (s *Supervisor) modeSinceLaunch(transcript string) string {
+// ownMode is the permission mode the current claude last reported: a
+// permission-mode row it wrote in the transcript since its last Stop (it
+// writes one per prompt), else the mode that Stop hook gave (the mode at the
+// end of the turn, so also one changed while Claude worked), else a row since
+// the launch. Rows written before the launch are skipped (claude did not
+// restore that mode), and so are rows from where another Claude Code could
+// write too (foreignAt): it may be in another mode. "" when it reported none.
+func (s *Supervisor) ownMode(transcript string) string {
 	if transcript == "" {
-		return ""
+		return s.stopMode
 	}
 	var from int64
 	if strings.EqualFold(transcript, s.modeFile) {
 		from = s.modeFrom
 	}
-	return claude.LastPermissionModeFrom(transcript, from)
+	to := int64(-1)
+	if s.foreignFile != "" && strings.EqualFold(transcript, s.foreignFile) {
+		to = s.foreignAt
+	}
+	if s.stopMode == "" {
+		return claude.LastPermissionModeIn(transcript, from, to)
+	}
+	if strings.EqualFold(transcript, s.stopFile) && s.stopAt > from {
+		from = s.stopAt // the rows before it were written before that Stop
+	}
+	if m := claude.LastPermissionModeIn(transcript, from, to); m != "" {
+		return m
+	}
+	return s.stopMode
+}
+
+// noteStopMode keeps the mode a Stop hook reports: the session's own word
+// for its mode, which no other Claude Code can write over.
+func (s *Supervisor) noteStopMode(p run.Payload) {
+	if p.PermissionMode == "" {
+		return
+	}
+	s.stopMode, s.stopFile, s.stopAt = p.PermissionMode, s.transcr, 0
+	if fi, err := os.Stat(s.transcr); s.transcr != "" && err == nil {
+		s.stopAt = fi.Size()
+	}
+}
+
+// markForeign notes that from now on another Claude Code can write into the
+// transcript, from its size at the last look that found nobody else (rows
+// of this session's own after that are lost to ownMode, but the next Stop
+// says the mode again). Only the first mark counts, so a hold that comes and
+// goes cannot move it past the other side's rows.
+func (s *Supervisor) markForeign() {
+	t := s.transcr
+	if t == "" || (s.foreignFile != "" && strings.EqualFold(t, s.foreignFile)) {
+		return
+	}
+	s.foreignFile, s.foreignAt = t, 0
+	if strings.EqualFold(t, s.cleanFile) {
+		s.foreignAt = s.cleanSize
+	}
 }
 
 // withMode adds the permission mode the session continues in. A
@@ -553,17 +678,40 @@ func (s *Supervisor) currentTranscript() string {
 	return ""
 }
 
+// findClaudeAgain looks for Claude Code again when the claude.exe in use is
+// gone, and reports whether it found another. The desktop app keeps its
+// Claude Code in a folder named after the version and removes the old one
+// when it updates, which can happen between two launches.
+func (s *Supervisor) findClaudeAgain() bool {
+	if fileExists(s.opt.ClaudeExe) {
+		return false
+	}
+	base, _ := envx.Build(os.Environ(), nil)
+	inst, _, _, err := claude.ResolveUsable(s.opt.Config.ClaudePath, s.opt.Config.DesktopBundleAllowed(), base)
+	if err != nil || strings.EqualFold(inst.Path, s.opt.ClaudeExe) {
+		return false
+	}
+	s.notice("Claude Code moved (app update?); now using %s", inst.Path)
+	s.opt.ClaudeExe = inst.Path
+	return true
+}
+
+// startProcess is winproc.Start; tests replace it.
+var startProcess = winproc.Start
+
+// startClaude starts claude.exe, and once more with the copy found instead
+// when it was removed between launch's check and the start.
+func (s *Supervisor) startClaude(args, env []string) (*winproc.Child, error) {
+	child, err := startProcess(s.opt.ClaudeExe, args, claude.ExeEnv(s.opt.ClaudeExe, env), s.opt.Cwd)
+	if err != nil && s.findClaudeAgain() {
+		child, err = startProcess(s.opt.ClaudeExe, args, claude.ExeEnv(s.opt.ClaudeExe, env), s.opt.Cwd)
+	}
+	return child, err
+}
+
 func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	s.reloadConfig()
-	if !fileExists(s.opt.ClaudeExe) {
-		// The desktop app keeps its Claude Code in a folder named after the
-		// version; an app update can remove the old one between two launches.
-		base, _ := envx.Build(os.Environ(), nil)
-		if inst, _, err := claude.ResolveUsable(s.opt.Config.ClaudePath, s.opt.Config.DesktopBundleAllowed(), base); err == nil {
-			s.notice("Claude Code moved (app update?); now using %s", inst.Path)
-			s.opt.ClaudeExe = inst.Path
-		}
-	}
+	s.findClaudeAgain()
 	if s.opt.Config.ShareEnabled() && !claude.BusyProfile(s.acct.ProfileDir) {
 		if res, err := share.Sync(share.UserHome(s.opt.Paths.ProfilesDir()), s.acct.ProfileDir); err != nil {
 			s.logf("share %s: %v", s.acct.ID, err)
@@ -601,7 +749,7 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	full := append([]string{"--settings", run.SettingsPath(s.runDir)}, args...)
 	s.logf("launch account=%s args=%q", s.acct.ID, full)
 	s.launchedAt = time.Now()
-	child, err := winproc.Start(s.opt.ClaudeExe, full, env, s.opt.Cwd)
+	child, err := s.startClaude(full, env)
 	if err != nil {
 		return fmt.Errorf("start claude: %w", err)
 	}
@@ -609,8 +757,13 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	s.claudePID, s.started, s.userQuit = 0, false, false
 	s.watch, s.waited, s.confirmed, s.owedSwitch = claudeWatch{}, false, false, false
 	s.declined, s.broke, s.pend = false, false, nil
+	s.copyOf, s.cleanFile, s.cleanSize, s.yieldedTo = "", "", 0, 0
+	s.setHeld(nil)
+	// This claude has reported nothing yet, and nobody else has written into
+	// what it resumes since it started.
+	s.stopMode, s.stopFile, s.stopAt, s.foreignFile, s.foreignAt = "", "", 0, "", 0
 	s.contOwed = withPrompt
-	s.journal.State = run.StateRunning
+	s.journal.State, s.journal.Moving = run.StateRunning, false
 	s.saveJournal()
 	_ = ledger.Update(s.opt.Paths.State(), s.opt.Paths.StateLock(), func(st *ledger.State) error {
 		a := st.Account(s.acct.ID)
@@ -647,6 +800,11 @@ func (s *Supervisor) supervise() bool {
 			}
 			if req := s.takeSwitch(); req != nil {
 				switch {
+				case s.pend != nil && s.pend.reason == reasonElsewhere:
+					// The move to a copy becomes this switch (still into a copy).
+					if s.manualTargetUsable(req.Target) {
+						s.pend = &pending{reason: reasonManual, target: req.Target}
+					}
 				case s.pend != nil:
 					if req.Target != "" {
 						s.pend.target = req.Target // the user's choice beats the automatic pick
@@ -738,6 +896,9 @@ func (s *Supervisor) handleEvents() {
 		case "Stop":
 			s.contOwed = false
 			s.adoptTranscript(p)
+			s.noteStopMode(p)
+			s.followCopy()
+			s.deskTouch()
 		case "StopFailure":
 			s.contOwed = false
 			s.onStopFailure(p)
@@ -765,9 +926,22 @@ func (s *Supervisor) adoptTranscript(p run.Payload) {
 func (s *Supervisor) onSessionStart(p run.Payload) {
 	s.started, s.anyStart = true, true
 	changed := p.SessionID != "" && p.SessionID != s.session
+	left := s.session
 	if p.SessionID != "" {
 		s.session = p.SessionID
 	}
+	defer func() {
+		// Where the session shows in the desktop app goes along when it goes
+		// on in another conversation: after /clear, and in a copy it moved
+		// to by itself. Not after /resume: that is another conversation the
+		// user picked.
+		switch {
+		case s.followFrom != "":
+			s.followCopy()
+		case p.Source == "clear" && changed && left != "":
+			s.deskFollow(left, p.SessionID, p.TranscriptPath)
+		}
+	}()
 	switch {
 	case p.Source != "resume" && p.TranscriptPath != "":
 		// startup / clear / compact: the path is in the current profile
@@ -800,7 +974,7 @@ func (s *Supervisor) onSessionStart(p run.Payload) {
 // row for it yet.
 func (s *Supervisor) leaveTranscript(next string) {
 	if s.transcr != "" && !strings.EqualFold(s.transcr, next) {
-		if m := s.modeSinceLaunch(s.transcr); m != "" {
+		if m := s.ownMode(s.transcr); m != "" {
 			s.knownMode = m
 		}
 	}
@@ -819,12 +993,12 @@ func (s *Supervisor) onStopFailure(p run.Payload) {
 			reset = now.Add(time.Duration(s.opt.Config.ExhaustedRetryMinutes) * time.Minute)
 		}
 		s.markAccount(ledger.StatusExhausted, reset, p.LastAssistantMessage)
-		if s.opt.Config.SwitchMode != config.ModeOff && s.pend == nil {
+		if s.opt.Config.SwitchMode != config.ModeOff && (s.pend == nil || s.pend.reason == reasonElsewhere) {
 			s.pend = &pending{reason: reasonLimit, detail: p.LastAssistantMessage, reset: reset}
 		}
 	case classify.NeedsLogin:
 		s.markAccount(ledger.StatusNeedsLogin, time.Time{}, p.LastAssistantMessage)
-		if s.opt.Config.SwitchMode != config.ModeOff && s.pend == nil {
+		if s.opt.Config.SwitchMode != config.ModeOff && (s.pend == nil || s.pend.reason == reasonElsewhere) {
 			s.pend = &pending{reason: reasonAuth, detail: p.LastAssistantMessage}
 		}
 	case classify.Blocked:
@@ -878,6 +1052,7 @@ func (s *Supervisor) stopChild(p *pending) bool {
 	if p.reason == reasonStop {
 		s.journal.State = run.StateEnding
 	}
+	s.journal.Moving = moving(p)
 	s.saveJournal()
 	s.reloadConfig() // e.g. switched to confirm mode since this claude started
 	c := s.child
@@ -887,6 +1062,8 @@ func (s *Supervisor) stopChild(p *pending) bool {
 		wait = 30 * time.Minute // the user will be asked anyway; never cut a turn short for it
 	case p.reason == reasonManual:
 		wait = 60 * time.Second // let the current turn finish
+	case p.reason == reasonElsewhere:
+		wait = 30 * time.Minute // it waited for idle already; never cut a turn short for it
 	}
 	start := time.Now()
 	deadline := start.Add(wait)
@@ -898,19 +1075,24 @@ func (s *Supervisor) stopChild(p *pending) bool {
 		s.handleEvents()
 		if req := s.takeSwitch(); req != nil && req.Target != "" {
 			p.target = req.Target // a later `baton switch <name>` changes where to go
+			if s.journal.Moving {
+				s.journal.Moving = false // a switch now, still into a copy
+				s.saveJournal()
+			}
 		}
 		if p.reason != reasonStop && run.TakeStop(s.runDir) {
 			// `baton stop` during a switch: end instead, after at most the
 			// wait a stop gets.
 			s.logf("stop requested while stopping for %s", p.reason)
 			p.reason = reasonStop
-			s.journal.State = run.StateEnding
+			s.journal.State, s.journal.Moving = run.StateEnding, false
 			s.saveJournal()
 			if d := time.Now().Add(10 * time.Second); d.Before(deadline) {
 				deadline = d
 			}
 		}
 		if s.started {
+			s.lookElsewhere(time.Now()) // the turn being waited for still writes
 			pid := s.claudePID
 			if pid == 0 {
 				pid = c.PID
@@ -941,6 +1123,7 @@ func (s *Supervisor) stopChild(p *pending) bool {
 	if p.reason == reasonStop {
 		s.journal.State = run.StateEnding
 	}
+	s.journal.Moving = moving(p)
 	s.saveJournal()
 	if req := s.takeSwitch(); req != nil && req.Target != "" {
 		p.target = req.Target
@@ -967,8 +1150,11 @@ func (s *Supervisor) stopChild(p *pending) bool {
 	s.console.FlushInput()
 	// A limit (or login failure) that arrived while a manual switch waited for
 	// the turn to finish still owes the new account the continue prompt.
-	if s.pend != nil && p.reason == reasonManual && (s.pend.reason == reasonLimit || s.pend.reason == reasonAuth) {
+	// So does one that came while a move to a copy waited (the switch then
+	// goes on in a copy: the other claude still has the conversation open).
+	if s.pend != nil && (p.reason == reasonManual || p.reason == reasonElsewhere) && (s.pend.reason == reasonLimit || s.pend.reason == reasonAuth) {
 		p.reason, p.detail, p.reset = s.pend.reason, s.pend.detail, s.pend.reset
+		s.journal.Moving = false // a switch to another account now (into a copy)
 	}
 	s.pend = nil
 	if p.reason != reasonStop && run.TakeStop(s.runDir) {
@@ -976,6 +1162,12 @@ func (s *Supervisor) stopChild(p *pending) bool {
 		p.reason = reasonStop
 	}
 	return false
+}
+
+// moving reports whether p is a move to a copy on the same account (the
+// window and `baton switch` call it that), not a switch of accounts.
+func moving(p *pending) bool {
+	return p.reason == reasonElsewhere && p.target == ""
 }
 
 // stopRequested takes a `baton stop` that arrived after claude was stopped
@@ -1033,6 +1225,15 @@ func (s *Supervisor) initialAccount() (*accounts.Account, bool) {
 
 // chooseNext decides where the session continues after claude was stopped.
 func (s *Supervisor) chooseNext(p *pending) (*accounts.Account, bool) {
+	if moving(p) {
+		// Not a switch: the session stays on its account (no question in
+		// confirm mode, and the switch rate guard does not count it).
+		return &s.acct, true
+	}
+	if p.reason == reasonElsewhere {
+		p.reason = reasonManual // a `baton switch <name>` came while it stopped
+	}
+	s.journal.Moving = false
 	userAsked := false // a `baton switch` ended a rate-limit wait: the user decided
 	for {
 		s.reloadRegistry()
@@ -1190,44 +1391,134 @@ func (s *Supervisor) pickWithWait(exclude, why string) (acct *accounts.Account, 
 }
 
 // prepareSwitch readies the target profile and checks nobody else is writing
-// the session. It returns false if the session cannot continue safely.
-func (s *Supervisor) prepareSwitch(p *pending, next *accounts.Account) bool {
-	from := s.acct.ID
+// the session: if another Claude Code still has the conversation open, the
+// session goes on in a copy of it instead (it never ends over that).
+func (s *Supervisor) prepareSwitch(p *pending, next *accounts.Account) {
+	if p.reason == reasonElsewhere {
+		// Moving to a copy on the same account: no switch to record.
+		if p.holder != nil && s.goOnInCopy(*p.holder) {
+			s.notice("this conversation was also opened in %s, so this session goes on in a copy; the original stays there", s.placeIn(*p.holder, korean))
+			s.notify(noteElsewhere, s.say(
+				"This conversation was also opened in %s, so baton moved this session to a copy so neither side overwrites the other. The original stays there; the copy has everything said so far.",
+				"이 대화가 %s에서도 열려서, 서로 덮어쓰지 않도록 baton 세션을 사본으로 옮겼습니다. 원래 대화는 그쪽에 그대로 있고, 사본에는 지금까지의 내용이 모두 들어 있습니다.",
+				s.placeOf(*p.holder)))
+		}
+		return
+	}
+	from, session := s.acct.ID, s.session
 	if next.ID != from {
 		s.prepareProfile(next)
 	}
-	if s.session != "" {
-		deadline := time.Now().Add(5 * time.Second)
-		for {
-			holders := claude.Holders(s.holderDirs(), s.session)
-			if len(holders) == 0 {
-				break
-			}
-			if time.Now().After(deadline) {
-				s.notice("this session is open in another claude window (pid %d); close it and run the command below", holders[0].PID)
-				return false
-			}
-			time.Sleep(200 * time.Millisecond)
-		}
-	}
+	o, held := s.openAfterStop()
+	copied := held && s.goOnInCopy(o)
 	now := time.Now()
 	if p.reason != reasonManual && !s.declined {
 		s.guard.Record(now) // a declined switch moved nothing, so it does not count
 	}
 	if next.ID != from {
 		_ = ledger.Update(s.opt.Paths.State(), s.opt.Paths.StateLock(), func(st *ledger.State) error {
-			st.LogSwitch(ledger.Switch{At: now, From: from, To: next.ID, Session: s.session, Reason: string(p.reason)})
+			st.LogSwitch(ledger.Switch{At: now, From: from, To: next.ID, Session: session, Reason: string(p.reason)})
 			return nil
 		})
 		s.notice("%s -> continuing on %q", describe(p, from), next.ID)
-		if p.reason != reasonManual && !s.confirmed {
-			s.notify(noteSwitched, s.why(p, from)+" "+s.say("Continuing on %s.", "%s 계정에서 이어 갑니다.", next.ID))
-		}
-	} else if s.waited {
+	}
+	switch {
+	case copied:
+		s.notice("the conversation is also open in %s, so it goes on in a copy on %q; the original stays there", s.placeIn(o, korean), next.ID)
+		// News even when the user asked for the switch: where the work goes on.
+		s.notify(noteSwitched, s.why(p, from)+" "+s.say(
+			"The conversation is also open in %s, so it goes on in a copy on %s; the original stays there.",
+			"대화가 %s에서도 열려 있어 %s 계정에서 사본으로 이어 갑니다. 원래 대화는 그쪽에 그대로 있습니다.",
+			s.placeOf(o), next.ID))
+	case next.ID != from && p.reason != reasonManual && !s.confirmed:
+		s.notify(noteSwitched, s.why(p, from)+" "+s.say("Continuing on %s.", "%s 계정에서 이어 갑니다.", next.ID))
+	case next.ID == from && s.waited:
 		s.notify(noteSwitched, s.say("%s is free again; the session continues.", "%s 계정의 한도가 풀려 세션을 이어 갑니다.", next.ID))
 	}
 	s.acct = *next
+}
+
+// openAfterStop names another claude that still has the conversation open
+// once this session's claude has stopped. It waits a few seconds for the
+// registry to drop the stopped claude (it, or the child Claude Code
+// relaunched itself as, can stay listed for a moment); after that only an
+// entry that names the conversation counts, not one caught mid-rewrite.
+func (s *Supervisor) openAfterStop() (claude.LiveSession, bool) {
+	if s.session == "" {
+		return claude.LiveSession{}, false
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for len(claude.Holders(s.holderDirs(), s.session)) > 0 && time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	others := claude.OpenElsewhere(s.holderDirs(), s.session)
+	if len(others) == 0 {
+		return claude.LiveSession{}, false
+	}
+	o := others[0]
+	s.logf("the conversation is still open in pid %d (entrypoint %q, %s) after the stop", o.PID, o.Entrypoint, o.ConfigDir())
+	return o, true
+}
+
+// goOnInCopy makes the next launch go on in a copy of the conversation
+// (--resume <it> --fork-session, adopted like any fork once it has a file):
+// the claude in o has it open, and two writers would split it. The original
+// is not written again. The copy goes on in the mode this session's claude
+// was in as it said itself, never in one the other side wrote. It reports
+// false when there is no file to copy yet.
+func (s *Supervisor) goOnInCopy(o claude.LiveSession) bool {
+	src := s.currentTranscript()
+	if src == "" {
+		s.logf("the conversation is open in pid %d but has no file yet: nothing to copy", o.PID)
+		return false
+	}
+	s.markForeign() // in case it came while claude was stopping
+	mode := s.permissionMode(src)
+	s.logf("going on in a copy of %s, in mode %q", src, mode)
+	s.copyOf, s.copyMode = src, mode
+	// Until the copy has a file of its own: FindTranscript must not land
+	// on the original again, and a relaunch before then forks it again.
+	s.forkSource = src
+	if s.followFrom == "" {
+		s.followFrom = s.session // the desktop app's records follow into the copy
+	}
+	s.transcr, s.session = "", ""
+	s.setHeld(nil)
 	return true
+}
+
+// errInBaton: the conversation a start would open is running in another
+// baton session; that session's window was brought forward instead.
+var errInBaton = errors.New("the conversation is running in another baton session")
+
+// startHeld checks the conversation a start would open in place. When
+// another Claude Code has it open, the start goes on in a copy (copyIt), and
+// says so; when that is a baton session, nothing starts (errInBaton) and its
+// window comes to the front. s.transcr must be set: its folder is checked.
+func (s *Supervisor) startHeld(transcript, sessionID string) (copyIt bool, err error) {
+	h := run.HeldBy(s.holderDirs(), s.opt.Paths.RunsDir(), sessionID, supervisorAlive)
+	switch {
+	case h.Run != nil:
+		s.logf("%s is running in baton's run %s", transcript, h.Run.RunID)
+		if h.Run.ConsoleWindow != 0 && winui.FocusShown(uintptr(h.Run.ConsoleWindow)) == nil {
+			s.notice("This conversation is already running in baton; its window is in front now.")
+		} else {
+			s.notice("This conversation is already running in baton (session %s).", h.Run.RunID)
+		}
+		return false, errInBaton
+	case len(h.Holders) > 0:
+		o := h.Holders[0]
+		for _, x := range h.Holders {
+			if strings.EqualFold(x.SessionID, sessionID) {
+				o = x // one that names it says best where it is open
+				break
+			}
+		}
+		s.logf("%s is open in pid %d (entrypoint %q, %s): going on in a copy", transcript, o.PID, o.Entrypoint, o.ConfigDir())
+		s.notice("It is open in %s, so it continues in a copy: everything said so far, going on separately from the original.", s.placeIn(o, korean))
+		return true, nil
+	}
+	return false, nil
 }
 
 // prepareProfile lets an unattended relaunch start without first-run
@@ -1376,7 +1667,11 @@ func (s *Supervisor) printResumeHint() {
 			"baton will not use it until you fix that and run: baton enable %s", id, id)
 	}
 	s.blocked = nil
-	if t := s.currentTranscript(); t != "" {
+	t := s.currentTranscript()
+	if t == "" {
+		t = s.copyOf // it was to go on in a copy of this, which never started
+	}
+	if t != "" {
 		fmt.Fprintf(s.opt.Out, "baton: "+tr("continue later with:  baton run -- --resume \"%s\"")+"\n", t)
 	}
 }

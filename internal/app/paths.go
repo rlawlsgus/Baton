@@ -4,7 +4,8 @@
 //	  config.json, config.lock       user settings
 //	  accounts.json, accounts.lock   account registry (no secrets)
 //	  state.json, state.lock         per-account health ledger
-//	  profiles\<id>\                 one CLAUDE_CONFIG_DIR per account, owned by claude.exe
+//	  desktop.json, desktop.lock     the sessions baton shows in the Claude desktop app
+//	  profiles\<id>\                one CLAUDE_CONFIG_DIR per account, owned by claude.exe
 //	  runs\<runId>\                  one supervised session: settings, hook events, journal
 package app
 
@@ -46,6 +47,11 @@ func (p Paths) Profile(id string) string { return filepath.Join(p.ProfilesDir(),
 func (p Paths) RunsDir() string          { return filepath.Join(p.Root, "runs") }
 func (p Paths) Run(id string) string     { return filepath.Join(p.RunsDir(), id) }
 func (p Paths) UsageDir() string         { return filepath.Join(p.Root, "usage") }
+
+// Desktop is baton's own list of the sessions it shows in the Claude desktop
+// app (the window and every session write it, under DesktopLock).
+func (p Paths) Desktop() string     { return filepath.Join(p.Root, "desktop.json") }
+func (p Paths) DesktopLock() string { return filepath.Join(p.Root, "desktop.lock") }
 
 func (p Paths) Ensure() error {
 	for _, d := range []string{p.Root, p.ProfilesDir(), p.RunsDir()} {

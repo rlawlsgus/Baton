@@ -5,7 +5,7 @@
 const T = {
   ko: {
     tab_sessions: '세션', tab_accounts: '계정', tab_settings: '설정', tab_help: '도움말', tab_office: '사무실',
-    claude_desktop: 'Claude 데스크톱 앱의 Claude Code {v}', claude_cli: 'Claude Code {v}', claude_checking: 'Claude Code 확인 중…',
+    claude_desktop: 'Claude Code {v} (데스크톱 앱)', claude_cli: 'Claude Code {v} (CLI)', claude_checking: 'Claude Code 확인 중…',
     claude_missing: 'Claude Code 없음',
     mode_auto: '자동 전환', mode_confirm: '전환 전 확인', mode_off: '자동 전환 꺼짐', mode_unset: '전환 방식 미설정',
     lang_label: '언어',
@@ -39,6 +39,8 @@ const T = {
     ch_norepo: 'git 저장소가 아닌 폴더라 변경사항을 볼 수 없습니다.', ch_nogit: 'git을 찾지 못했습니다. Git for Windows를 설치하면 변경사항을 볼 수 있습니다.',
     ch_note: '마지막 커밋 이후 이 폴더에서 바뀐 파일입니다(커밋하지 않은 것, 새 파일 포함).', ch_loading: '변경사항을 읽는 중…', ch_error: 'git이 변경사항을 읽지 못했습니다: {e}',
     gs_modified: '수정', gs_added: '추가', gs_deleted: '삭제', gs_renamed: '이름 바뀜', gs_untracked: '새 파일', gs_conflict: '충돌',
+    also_open_hint: '이 대화가 {w}에서도 열려 있습니다. Claude가 지금 응답을 마치면 baton이 이 세션을 사본으로 옮깁니다.',
+    ao_desktop: 'Claude 데스크톱 앱', ao_terminal: '터미널', ao_vscode: 'VS Code', ao_account: '{a} 계정의 다른 세션', ao_other: '다른 Claude Code 창',
     rc_on: '리모트 컨트롤', details_more: '자세히', details_less: '접기', d_path: '폴더', d_started: '시작', d_changes: '변경', ctx_short: '컨텍스트', rc_where: '휴대폰의 Claude 앱이나 claude.ai/code에서 {a} 계정으로 로그인하면 이 세션이 보입니다. 계정이 바뀌면 바뀐 계정에서 보입니다.',
     start_rc: '리모트 컨트롤 켜기', start_rc_hint: '휴대폰의 Claude 앱이나 claude.ai/code에서 이 세션을 보고 이어서 쓸 수 있습니다. 세션이 실행 중인 계정으로 로그인해야 보이고, 계정이 바뀌면 그 계정에서 다시 켜집니다.',
     set_rc: '새 세션에서 리모트 컨트롤 켜기를 기본으로',
@@ -64,16 +66,31 @@ const T = {
     trust_ok: '이 폴더를 신뢰합니다', trust_needed: '신뢰하는 폴더에서만 시작할 수 있습니다. 체크한 뒤 다시 누르세요.',
     folder_bad: '있는 폴더를 고르세요 (내 PC의 폴더, 예: C:\\Users\\…).', folder_long: '경로가 너무 깁니다. 더 짧은 경로의 폴더를 고르세요.',
     first_start: '처음 쓰는 계정은 준비에 1~2분 걸릴 수 있습니다.',
-    open_elsewhere: '이 대화는 다른 창(데스크톱 앱 등)에서 열려 있습니다. 그쪽을 닫고 다시 시도하세요.',
     claude_app_setup: 'Claude 데스크톱 앱이 아직 Claude Code를 준비하지 않았습니다. 데스크톱 앱에서 Code 탭을 한 번 열면 준비됩니다.',
-    claude_too_old: 'Claude Code 버전이 너무 낮습니다. Claude 데스크톱 앱을 업데이트하세요 (도움말 → 업데이트 확인).',
-    claude_cli_old: '설치된 Claude Code CLI가 너무 오래되었습니다. PowerShell에서 claude update를 실행하세요.',
-    claude_cli_old_app: 'CLI를 따로 쓰지 않는다면 Claude 데스크톱 앱을 최신으로 업데이트하고 Code 탭을 한 번 여는 것으로도 됩니다. 그러면 baton이 앱에 들어 있는 Claude Code를 씁니다.',
-    claude_path_old: '설정한 claude_path의 Claude Code가 너무 오래되었습니다. 그 Claude Code를 업데이트하거나, 명령줄에서 baton config claude_path auto로 자동 찾기로 돌아가세요.',
-    claude_old_cli_skipped: '설치된 Claude Code CLI {v}는 너무 오래되어 쓰지 않고, Claude 데스크톱 앱의 Claude Code를 씁니다. CLI를 업데이트하려면 PowerShell에서 claude update를 실행하세요.',
+    claude_cli_old: '이 PC의 Claude Code CLI({v})는 baton에 쓰기에는 버전이 낮습니다 ({min} 이상 필요).',
     claude_bundle_off: 'Claude 데스크톱 앱에 들어 있는 Claude Code 사용이 꺼져 있습니다. 설정 → 고급 설정에서 다시 켜세요.',
+    // choosing which Claude Code to use (Settings → Advanced)
+    claude_app_old: 'Claude 데스크톱 앱의 Claude Code({v}) 버전이 너무 낮습니다. 데스크톱 앱을 업데이트하고(도움말 → 업데이트 확인) Code 탭을 한 번 여세요.',
+    claude_none_old: 'Claude Code는 있지만 모두 baton에 쓰기에는 버전이 낮습니다 ({min} 이상 필요). 설정 → 고급 설정 → 사용할 Claude Code에서 업데이트하거나 Claude 데스크톱 앱을 업데이트하세요.',
+    claude_app_installing: 'Claude 데스크톱 앱이 Claude Code를 설치하는 중입니다. 잠시 뒤 다시 확인하세요.',
+    cc_auto: '자동 (권장)', cc_auto_now: '이 PC의 Claude Code 중 baton과 쓸 수 있는 가장 새 버전 (지금: {src}의 {v})', cc_auto_none: '이 PC의 Claude Code 중 baton과 쓸 수 있는 가장 새 버전 (지금은 없음)',
+    cc_desktop: 'Claude 데스크톱 앱에 들어 있는 것', cc_desktop_now: '앱 업데이트를 따라감 (지금: {v})', cc_desktop_none: '앱 업데이트를 따라감 (지금은 쓸 수 있는 것이 없음)',
+    cc_other: '다른 위치 (claude.exe 전체 경로)', cc_other_hint: '예: C:\\Users\\…\\claude.exe', cc_in_use: '사용 중', cc_update: '업데이트', cc_updating: '업데이트 중…',
+    cc_update_started: 'Claude Code를 업데이트하는 창이 열렸습니다. 끝나면 여기에 새 버전이 나옵니다.',
+    cc_why_too_old: 'baton에 쓰기에는 오래됨 ({min} 이상 필요)', cc_why_too_old_app: 'baton에 쓰기에는 오래됨 ({min} 이상 필요). Claude 데스크톱 앱을 업데이트하세요', cc_why_not_runnable: '실행되지 않음',
+    cc_why_installing: 'Claude 앱이 설치하는 중', cc_why_wrapper: '.cmd 래퍼라 쓸 수 없음 (claude.exe 필요)', cc_why_known_bad: 'baton과 맞지 않는 알려진 문제가 있음',
+    cc_why_missing: '더 이상 없음', cc_why_old: '버전이 너무 낮음',
+    cc_src_desktop: 'Claude 데스크톱 앱', cc_src_native: '기본 설치 프로그램', cc_src_npm: 'npm', cc_src_winget: 'WinGet', cc_src_scoop: 'Scoop', cc_src_path: 'PATH', cc_src_config: '직접 지정한 경로',
+    cc_fallback: '선택한 Claude Code를 지금 쓸 수 없습니다: {why}. 다시 쓸 수 있게 되면 다시 그것을 쓰고, 그동안은 {src}의 Claude Code {v} 버전을 씁니다.',
+    need_claude_old: '이 PC의 Claude Code 중 baton과 쓸 수 있는 것이 없어 세션을 시작할 수 없습니다.', claude_unusable: '쓸 수 있는 Claude Code 없음', cc_update_cli: 'CLI 업데이트',
+    cc_note: '이미 실행 중인 세션은 쓰던 Claude Code를 그대로 씁니다. 앞으로 시작하는 세션부터 적용됩니다.',
+    err_not_updatable: '이 Claude Code는 여기서 업데이트할 수 없습니다. 다시 확인을 누른 뒤 다시 시도하세요.', err_claude_updating: 'Claude Code를 이미 업데이트하고 있습니다. 그 창이 끝날 때까지 기다리세요.',
+    // what to do about a Claude Code CLI too old for baton (the banner, the first-run screen)
+    claude_cli_old_btn: 'CLI 업데이트를 누르면 그 CLI가 스스로 업데이트합니다 (claude update).',
+    claude_cli_old_later: '이 안내를 마친 뒤 창 위쪽의 CLI 업데이트를 누르거나, PowerShell에서 claude update를 실행하세요.',
+    claude_cli_old_app: 'CLI를 따로 쓰지 않는다면 Claude 데스크톱 앱에서 Code 탭을 한 번 여는 것으로도 됩니다. 그러면 baton이 앱에 들어 있는 Claude Code를 씁니다.',
+    cc_why_not_set_up: 'Claude 데스크톱 앱이 아직 Claude Code를 준비하지 않음 (Code 탭을 한 번 여세요)',
     recheck: '다시 확인', elevated: 'baton이 관리자 권한으로 실행 중입니다. 세션도 관리자 권한으로 실행되니, 창을 닫고 일반 권한으로 다시 여세요.',
-    claude_custom_cli: '다른 위치의 claude.exe를 쓰려면 명령줄에서: baton config claude_path <경로>',
     // start dialog
     start_title: '새 세션 시작', start_folder: '작업할 폴더', browse: '찾아보기…', recent_folders: '최근 폴더',
     start_account: '시작할 계정', account_auto: '자동 (사용 가능한 계정 중 우선순위대로)',
@@ -90,14 +107,17 @@ const T = {
     import_no_match: '찾는 대화가 없습니다.', import_go: '이 대화 이어 가기',
     src_desktop: 'Claude 데스크톱 앱', src_cli: '터미널', src_vscode: 'VS Code', src_other: 'Claude Code',
     conv_open: '다른 곳에서 열려 있음', conv_gone: '폴더 없음',
-    conv_open_hint: '이 대화는 다른 Claude Code 창에서 열려 있어 사본으로만 이어 갈 수 있습니다. 사본은 지금까지의 내용을 이어받은 새 대화로, 원래 대화와 따로 진행됩니다.',
     held_desktop: 'Claude 데스크톱 앱', held_cli: '터미널의 Claude Code(CLI)', held_vscode: 'VS Code', held_other: '다른 Claude Code 창',
-    held_title: '이 대화는 지금 {app}에서 열려 있습니다',
-    held_close_desktop: '같은 대화로 이어 가려면 먼저 Claude 데스크톱 앱을 완전히 종료하세요(작업 표시줄 트레이 아이콘에서도 종료). 그다음 아래의 다시 확인을 누르세요.',
-    held_close_cli: '같은 대화로 이어 가려면 먼저 그 터미널에서 Claude Code를 종료하세요(/exit, 또는 Ctrl+C 두 번). 그다음 아래의 다시 확인을 누르세요.',
-    held_close_other: '같은 대화로 이어 가려면 먼저 그 창에서 이 대화를 닫으세요. 그다음 아래의 다시 확인을 누르세요.',
-    held_copy: '그대로 계속하면 사본으로 가져옵니다. 사본은 지금까지의 내용을 이어받은 새 대화이고, 원래 대화와 따로 진행되어 서로 동기화되지 않습니다.',
     held_recheck: '다시 확인', import_go_copy: '사본으로 이어 가기', held_still: '아직 열려 있습니다.', held_free: '이제 닫혔습니다. 같은 대화로 이어 갈 수 있습니다.',
+    // a conversation open elsewhere goes on in a copy; one baton runs comes to the front
+    copy_auto: '{app}에서 열려 있어 사본으로 이어 갑니다. 지금까지의 내용이 모두 들어 있고, 원래 대화와는 따로 진행됩니다.',
+    held_recheck_hint: '{app} 쪽을 먼저 종료하면 같은 대화로 이어 갈 수 있습니다.',
+    conv_in_baton: '이 대화는 이미 baton에서 실행 중입니다. 시작을 누르면 그 창을 앞으로 가져옵니다.',
+    in_baton_front: '이 대화는 이미 baton에서 실행 중입니다. 그 창을 앞으로 가져왔습니다.',
+    err_in_baton: '이 대화는 이미 baton에서 실행 중입니다. 세션 목록에서 확인하세요.',
+    // a session moving to a copy, a conversation running in baton, quitting the desktop app to go on in it
+    run_moving: '사본으로 옮기는 중', conv_running: 'baton에서 실행 중',
+    held_recheck_hint_desktop: 'Claude 데스크톱 앱을 먼저 완전히 종료하면(트레이 아이콘에서도 종료) 같은 대화로 이어 갈 수 있습니다.',
     conv_gone_hint: '이 대화를 하던 폴더가 없어져서 이어 갈 수 없습니다.',
     conv_unusable: '쓸 수 없는 폴더',
     conv_bad_hint: 'baton은 내 PC의 폴더(C:\\… 등)이면서 경로가 248자보다 짧은 곳에서만 세션을 시작하므로, 이 대화는 여기서 이어 갈 수 없습니다.',
@@ -177,11 +197,9 @@ const T = {
     set_exhausted: '모든 계정이 한도에 걸리면', ex_wait: '가장 먼저 풀리는 계정을 기다렸다가 이어 가기', ex_stop: '멈추고 이어 하는 방법 알려 주기',
     set_advanced: '고급 설정', set_cooldown: '전환 사이 최소 간격(초)', set_max: '시간당 최대 전환 횟수', set_retry: '해제 시각을 모를 때 다시 시도할 때까지(분)',
     set_prompt: '다음 계정에 보낼 이어 가기 안내 문장', set_share: '평소 Claude Code 설정(skills·CLAUDE.md 등)을 모든 계정에 공유',
-    set_claude: 'Claude Code 위치', set_claude_auto: '자동으로 찾기',
-    set_claude_which: '사용할 Claude Code', claude_which_auto: '자동 (설치된 CLI가 있으면 CLI, 없거나 오래되었으면 데스크톱 앱의 것)',
-    claude_which_desktop: '항상 Claude 데스크톱 앱에 들어 있는 것',
+    set_claude_which: '사용할 Claude Code',
     claude_which_note: '어느 쪽이든 세션은 별도의 Claude Code 창(터미널 화면)에서 열립니다. 데스크톱 앱 화면 안에서 열 수는 없습니다.', set_claude_bundle: 'Claude 데스크톱 앱에 들어 있는 Claude Code도 사용',
-    set_claude_custom: '직접 지정 (claude.exe 전체 경로)', saved: '저장했습니다.', set_lang: '화면 언어', lang_auto: 'Windows 설정 따르기',
+    saved: '저장했습니다.', set_lang: '화면 언어', lang_auto: 'Windows 설정 따르기',
     // help
     help_title: 'baton은 이렇게 동작합니다',
     help_points: [
@@ -190,6 +208,7 @@ const T = {
       '사용 중인 계정이 한도에 걸리면 baton이 Claude Code를 안전하게 멈추고, 같은 대화를 다음 계정에서 다시 엽니다(약 5~10초).',
       '전환되어도 대화 내용과 작업 폴더는 그대로입니다. 실행 중이던 백그라운드 명령은 끝나고, 다시 실행되지 않습니다.',
       'Claude 데스크톱 앱의 로그인은 바뀌지 않습니다. baton 계정들은 데스크톱 앱과 따로 로그인되어 있습니다.',
+      '세션 창에서 그림(스크린샷 등)을 붙여 넣으려면 왼쪽 Alt+V를 누르세요. Ctrl+V 등 터미널의 붙여 넣기는 글자만 붙여 넣습니다. 이미지 파일은 창으로 끌어다 놓거나 전체 경로를 붙여 넣으면 첨부되고, 폴더 안의 파일은 @와 이름 일부를 입력해 가리킬 수 있습니다.',
     ],
     notice_short: '사용 전 주의 사항', diag_title: '진단', diag_run: '진단 실행', diag_running: '진단 중…',
     open_data: '데이터 폴더 열기', cli_title: '명령줄(CLI)', cli_body: '같은 폴더의 baton.exe로 모든 기능을 PowerShell에서도 쓸 수 있습니다. 그 폴더에서 예: .\\baton.exe list, .\\baton.exe run',
@@ -238,6 +257,13 @@ const T = {
     office_room_library_d: '파일 읽기 · 검색', office_room_dev_d: '코드 작성 · 수정', office_room_server_d: '명령 실행 · git', office_room_search_d: '웹 · 외부 도구',
     office_room_meeting_d: '계획 · 할 일 · 스킬', office_room_desk_d: '질문 · 확인 요청', office_room_seat_d: '생각 · 대화 · 에이전트 호출',
     office_room_lounge_d: '차례가 끝나면 커피 한잔', office_room_elevator_d: '출근 · 퇴근 · 교대',
+    // office: side columns, and what is hidden from it
+    office_resize_side: '층별 안내 너비', office_resize_panel: '오른쪽 패널 너비', office_resize_tip: '드래그해서 너비 조절 · 더블클릭하면 원래대로 · Enter로 접기/펼치기', office_folded: '접힘',
+    office_guide_btn: '층별 안내', office_guide_tip: '층별 안내를 사무실 위에 펼칩니다', office_panel_btn: '패널', office_panel_tip: '세션 정보, 사람들, 활동 로그를 펼칩니다',
+    office_show_s: '사무실에 표시: {name}', office_show_floor: '이 층(프로젝트)을 사무실에 표시: {name}', office_show_tip: '체크를 풀면 사무실에서만 숨깁니다. 세션 자체는 그대로입니다.',
+    office_hidden_more: '숨긴 항목 {n}개 보기', office_hidden_more1: '숨긴 항목 1개 보기', office_hidden_less: '숨긴 항목 접기', office_unhide_all: '모두 다시 보이기',
+    office_hidden_n: '{n}개 숨김', office_floor_off: '층 숨김', office_follow_tip: '숨긴 세션은 따라가지 않습니다', office_quiet_tip: '최근 3일 동안 활동이 없는 층',
+    office_all_hidden_title: '모든 세션을 숨겼습니다', office_all_hidden: '층별 안내에서 다시 볼 층이나 세션에 체크하세요.',
     err_office_off: '사무실 보기가 꺼져 있습니다. 설정에서 켜세요.', err_no_popout: '이 baton에서는 사무실을 따로 띄울 수 없습니다.',
     // banners / errors
     problem: '파일을 읽지 못했습니다: {e}', claude_warn: '{w}', need_claude: 'Claude Code를 찾지 못해 세션을 시작할 수 없습니다.',
@@ -255,13 +281,51 @@ const T = {
     err_windows_open: 'baton이 연 창(세션 창이나 로그인 창)이 아직 열려 있습니다. 그 창들을 닫은 뒤 제거하세요.',
     switch_now: '요청했습니다. 곧 {a} 계정에서 시작합니다.', switch_now_any: '요청했습니다. 쓸 수 있는 계정에서 곧 시작합니다.',
     num_bad: '1 이상의 정수를 입력하세요.',
-    err_open_elsewhere: '이 대화는 다른 창(데스크톱 앱 등)에서 열려 있습니다. 그쪽을 닫고 다시 시도하세요.',
     err_bad_folder: '있는 폴더를 고르세요 (내 PC의 폴더, 예: C:\\Users\\…).', err_long_folder: '경로가 너무 깁니다. 더 짧은 경로의 폴더를 고르세요.',
     ago_now: '방금', ago_min: '{n}분 전', ago_hour: '{n}시간 전', ago_day: '{n}일 전',
+    // showing a session in the Claude desktop app
+    dk_btn: '데스크톱 앱 표시…', dk_btn_wait: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.',
+    dk_title: 'Claude 데스크톱 앱에 표시', dk_loading: '데스크톱 앱을 살펴보는 중…', dk_apply: '적용',
+    dk_intro: '이 세션을 Code 탭 목록에 보여 줄 Claude 데스크톱 앱 계정을 고르세요. 체크하지 않은 계정에서는 보이지 않습니다. 아무것도 업로드되지 않으며, 데스크톱 앱이 이 컴퓨터에 있는 같은 대화를 엽니다.',
+    dk_active: '지금 데스크톱 앱에 로그인된 계정', dk_used: '데스크톱 앱에서 이 계정으로 바꾸면 보입니다',
+    dk_unused: '아직 데스크톱 앱에서 쓴 적이 없는 계정입니다. 데스크톱 앱에서 이 계정으로 로그인하면 보입니다',
+    dk_same: '{a}, {b}은(는) 같은 Claude 계정입니다.', dk_app_only: 'Claude 데스크톱 앱에 지금 로그인된 계정', dk_app_only_note: 'baton 계정이 아닙니다.',
+    dk_former: '더 이상 baton 계정이 아닙니다. 체크를 해제하면 이 목록에서 빠집니다.', dk_app_former: '데스크톱 앱의 다른 계정',
+    dk_why_api_key: 'Claude 로그인이 아닌 API 키를 쓰는 계정이라 데스크톱 앱 목록이 없습니다.',
+    dk_why_cloud: 'Claude 로그인이 아닌 {p}을(를) 쓰는 계정이라 데스크톱 앱 목록이 없습니다.',
+    dk_why_unknown: 'baton이 아직 이 계정이 어떤 Claude 계정인지 모릅니다. 계정 탭에서 로그인 상태 확인을 누르세요.',
+    dk_why_token: '장기 토큰으로 로그인하는 계정이라 baton이 어떤 Claude 계정인지 알 수 없습니다.',
+    dk_why_gateway: 'Claude 로그인이 아닌 게이트웨이로 로그인하는 계정이라 데스크톱 앱 목록이 없습니다.',
+    dk_cloud_other: '클라우드 제공자',
+    dk_why_own: '이 계정의 데스크톱 앱에서 만든 대화라 그대로 둡니다. 숨기려면 데스크톱 앱에서 보관하세요.',
+    dk_why_archived: '이 계정의 데스크톱 앱에서 보관한 대화입니다. 다시 보이게 하려면 데스크톱 앱에서 보관을 해제하세요.',
+    dk_why_released: '이 계정의 데스크톱 앱에서 이어 가서 이제 데스크톱 앱의 대화입니다. 숨기려면 데스크톱 앱에서 보관하세요.',
+    dk_why_deleted: '데스크톱 앱에서 삭제했습니다. 다시 보이게 하려면 체크하세요.',
+    dk_copy: '데스크톱 앱에서 연 원래 대화는 그쪽에 남습니다. 이 체크는 baton의 사본(‘{t} (baton)’)에 대한 것입니다.',
+    dk_archived: '데스크톱 앱에서 보관했습니다. 체크를 해제하면 목록에서 빠집니다.',
+    dk_split: 'baton의 대화 파일과 데스크톱 앱의 대화 파일이 더 이상 같은 파일이 아니라서, 한쪽에서 나눈 대화가 다른 쪽에 보이지 않습니다. baton은 데스크톱 앱에서 이 세션을 더는 갱신하지 않습니다. 체크 해제는 할 수 있습니다.',
+    dk_problem_conflict: '평소 Claude Code 폴더에 같은 id의 다른 대화 파일이 이미 있어 표시할 수 없습니다 (baton은 그 파일을 덮어쓰지 않습니다).',
+    dk_problem_other_drive: '이 대화가 평소 Claude Code 폴더와 다른 드라이브에 있어 데스크톱 앱이 열 수 없습니다.',
+    dk_problem_link_failed: 'baton이 데스크톱 앱에서 이 대화를 열 수 있게 만들지 못했습니다.',
+    dk_problem_no_file: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.',
+    dk_running: '데스크톱 앱이 지금 열려 있습니다. 로그인된 계정에서는 앱을 완전히 종료(트레이 아이콘에서도)했다가 다시 열어야 바뀐 내용이 보입니다.',
+    dk_tip_copy: 'baton이 실행 중일 때 데스크톱 앱에서 열면, 서로 덮어쓰지 않도록 baton은 사본으로 이어 갑니다. 데스크톱 앱에는 원래 대화가 남고 사본이 옆에 보입니다.',
+    dk_tip_hide: '숨기려면 데스크톱 앱에서 삭제하지 말고 여기서 체크를 해제하세요. 그쪽에서 삭제하면 대화 파일이 나중에 정리될 수 있습니다.',
+    dk_tip_limits: '데스크톱 앱에서 이어 가면 데스크톱 앱에 로그인된 계정의 사용 한도를 씁니다.',
+    dk_done: '완료했습니다.', dk_next_open: '다음에 Claude 데스크톱 앱을 열면 보입니다.',
+    dk_restart: '바뀐 내용을 보려면 Claude 데스크톱 앱을 완전히 종료(트레이 아이콘에서도)했다가 다시 여세요.',
+    dk_switch: '데스크톱 앱에서 그 계정으로 바꾸면 보입니다.', dk_gone_quit: '데스크톱 앱을 종료하면 목록에서 사라집니다. 그때까지 이 창을 열어 두세요.',
+    dk_gone: '체크를 해제한 계정에서는 더 이상 보이지 않습니다.', dk_none: '바뀐 것이 없습니다.',
+    dk_pill: '데스크톱: {a}', dk_pill_split: '⚠ 데스크톱: 파일 갈라짐', dk_app_account: '데스크톱 앱 계정',
+    err_no_file: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.', err_unknown_place: '지금은 고를 수 없는 계정입니다. 창을 다시 여세요.',
+    err_split: 'baton의 대화 파일과 데스크톱 앱의 대화 파일이 갈라져 새로 체크할 수 없습니다.', err_no_desktop: '이 PC에서 Claude 데스크톱 앱을 찾지 못했습니다.',
+    err_conflict: '평소 Claude Code 폴더에 같은 id의 다른 대화 파일이 이미 있어 표시할 수 없습니다.',
+    err_other_drive: '이 대화가 평소 Claude Code 폴더와 다른 드라이브에 있어 데스크톱 앱이 열 수 없습니다.',
+    err_link_failed: 'baton이 데스크톱 앱에서 이 대화를 열 수 있게 만들지 못했습니다.',
   },
   en: {
     tab_sessions: 'Sessions', tab_accounts: 'Accounts', tab_settings: 'Settings', tab_help: 'Help', tab_office: 'Office',
-    claude_desktop: 'Claude Code {v} from the Claude desktop app', claude_cli: 'Claude Code {v}', claude_checking: 'Checking Claude Code…',
+    claude_desktop: 'Claude Code {v} (desktop app)', claude_cli: 'Claude Code {v} (CLI)', claude_checking: 'Checking Claude Code…',
     claude_missing: 'Claude Code not found',
     mode_auto: 'Auto switch', mode_confirm: 'Ask before switching', mode_off: 'Switching off', mode_unset: 'Switch mode not set',
     lang_label: 'Language',
@@ -293,6 +357,8 @@ const T = {
     ch_norepo: 'This folder is not a git repository, so there are no changes to show.', ch_nogit: 'git was not found. Install Git for Windows to see changes.',
     ch_note: 'Files changed in this folder since the last commit (uncommitted work, new files included).', ch_loading: 'Reading changes…', ch_error: 'git could not read the changes: {e}',
     gs_modified: 'modified', gs_added: 'added', gs_deleted: 'deleted', gs_renamed: 'renamed', gs_untracked: 'new', gs_conflict: 'conflict',
+    also_open_hint: 'This conversation is also open in {w}. baton moves this session to a copy as soon as Claude finishes its current response.',
+    ao_desktop: 'the Claude desktop app', ao_terminal: 'a terminal', ao_vscode: 'VS Code', ao_account: 'another session on {a}', ao_other: 'another Claude Code window',
     rc_on: 'Remote Control', details_more: 'Details', details_less: 'Less', d_path: 'Folder', d_started: 'Started', d_changes: 'Changes', ctx_short: 'Context', rc_where: 'Sign in to the Claude app on your phone or to claude.ai/code with the account {a} to see this session. After a switch it shows on the new account.',
     start_rc: 'Turn on Remote Control', start_rc_hint: 'See and continue this session from the Claude app on your phone or claude.ai/code. It shows for the account the session runs on, and comes back on for the next account after a switch.',
     set_rc: 'Turn on Remote Control for new sessions by default',
@@ -318,16 +384,31 @@ const T = {
     trust_ok: 'I trust this folder', trust_needed: 'Sessions start only in a trusted folder. Tick the box and press Start again.',
     folder_bad: 'Choose an existing folder on this PC (e.g. C:\\Users\\…).', folder_long: 'That path is too long. Choose a folder with a shorter path.',
     first_start: 'An account used for the first time can take a minute or two to get ready.',
-    open_elsewhere: 'This conversation is open in another window (the desktop app or another session). Close it there and try again.',
     claude_app_setup: 'The Claude desktop app has not set up Claude Code yet. Open its Code tab once.',
-    claude_too_old: 'Claude Code is too old. Update the Claude desktop app (Help → Check for updates).',
-    claude_cli_old: 'The installed Claude Code CLI is too old. Run claude update in PowerShell.',
-    claude_cli_old_app: 'If you do not use the CLI itself, you can instead update the Claude desktop app and open its Code tab once. baton then uses the Claude Code that comes with the app.',
-    claude_path_old: 'The Claude Code that claude_path points to is too old. Update it, or go back to finding it automatically with: baton config claude_path auto',
-    claude_old_cli_skipped: 'The installed Claude Code CLI {v} is too old, so baton uses the Claude Code from the Claude desktop app instead. To update the CLI, run claude update in PowerShell.',
+    claude_cli_old: 'The Claude Code CLI on this PC ({v}) is too old for baton (needs {min} or newer).',
     claude_bundle_off: 'Using the Claude Code inside the Claude desktop app is turned off. Turn it on again in Settings → Advanced.',
+    // choosing which Claude Code to use (Settings → Advanced)
+    claude_app_old: 'The Claude desktop app\'s Claude Code ({v}) is too old. Update the Claude desktop app (Help → Check for updates) and open its Code tab once.',
+    claude_none_old: 'Claude Code was found, but every copy is too old for baton (needs {min} or newer). Update one in Settings → Advanced → Claude Code to use, or update the Claude desktop app.',
+    claude_app_installing: 'The Claude desktop app is still installing its Claude Code. Wait a moment, then check again.',
+    cc_auto: 'Automatic (recommended)', cc_auto_now: 'The newest Claude Code on this PC that works with baton (now: {v}, {src})', cc_auto_none: 'The newest Claude Code on this PC that works with baton (none right now)',
+    cc_desktop: 'The Claude desktop app\'s', cc_desktop_now: 'Follows the app\'s updates (now: {v})', cc_desktop_none: 'Follows the app\'s updates (none that works right now)',
+    cc_other: 'Other (full path to claude.exe)', cc_other_hint: 'e.g. C:\\Users\\…\\claude.exe', cc_in_use: 'in use', cc_update: 'Update', cc_updating: 'Updating…',
+    cc_update_started: 'Claude Code is updating in a window of its own. The new version shows here when it is done.',
+    cc_why_too_old: 'too old for baton (needs {min} or newer)', cc_why_too_old_app: 'too old for baton (needs {min} or newer): update the Claude desktop app', cc_why_not_runnable: 'does not start',
+    cc_why_installing: 'being installed by the Claude app', cc_why_wrapper: '.cmd wrapper; baton needs claude.exe', cc_why_known_bad: 'has a known problem with baton',
+    cc_why_missing: 'no longer there', cc_why_old: 'it is too old',
+    cc_src_desktop: 'Claude desktop app', cc_src_native: 'native installer', cc_src_npm: 'npm', cc_src_winget: 'WinGet', cc_src_scoop: 'Scoop', cc_src_path: 'PATH', cc_src_config: 'path you set',
+    cc_fallback: 'The Claude Code you chose is not available right now: {why}. baton uses Claude Code {v} ({src}) until it can be used again.',
+    need_claude_old: 'No Claude Code on this PC works with baton, so sessions cannot start.', claude_unusable: 'No usable Claude Code', cc_update_cli: 'Update the CLI',
+    cc_note: 'Sessions already running keep their Claude Code; this applies to sessions started from now on.',
+    err_not_updatable: 'This Claude Code cannot be updated from here. Press Check again, then try again.', err_claude_updating: 'Claude Code is already being updated. Wait for that window to finish.',
+    // what to do about a Claude Code CLI too old for baton (the banner, the first-run screen)
+    claude_cli_old_btn: 'Press Update the CLI to have it update itself (claude update).',
+    claude_cli_old_later: 'After this setup, press Update the CLI at the top of the window, or run claude update in PowerShell.',
+    claude_cli_old_app: 'If you do not use the CLI itself, opening the Code tab of the Claude desktop app once also works: baton then uses the Claude Code that comes with the app.',
+    cc_why_not_set_up: 'the Claude desktop app has not set up its Claude Code yet (open its Code tab once)',
     recheck: 'Check again', elevated: 'baton is running as administrator, so sessions would too. Close it and open it again normally.',
-    claude_custom_cli: 'To use claude.exe from another place, run: baton config claude_path <path>',
     start_title: 'Start a session', start_folder: 'Project folder', browse: 'Browse…', recent_folders: 'Recent folders',
     start_account: 'Account', account_auto: 'Automatic (first available, in order)',
     start_conv: 'Conversation', conv_new: 'New conversation', conv_continue: 'Continue the last conversation in this folder', conv_pick: 'Choose from the list',
@@ -342,14 +423,17 @@ const T = {
     import_no_match: 'No conversation matches.', import_go: 'Continue this conversation',
     src_desktop: 'Claude desktop app', src_cli: 'Terminal', src_vscode: 'VS Code', src_other: 'Claude Code',
     conv_open: 'Open elsewhere', conv_gone: 'Folder gone',
-    conv_open_hint: 'This conversation is open in another Claude Code window, so it can only continue in a copy: a new conversation that carries everything said so far and goes on apart from the original.',
     held_desktop: 'the Claude desktop app', held_cli: 'Claude Code in a terminal (CLI)', held_vscode: 'VS Code', held_other: 'another Claude Code window',
-    held_title: 'This conversation is open in {app} right now',
-    held_close_desktop: 'To go on with the same conversation, quit the Claude desktop app completely first (also from its tray icon), then press Check again below.',
-    held_close_cli: 'To go on with the same conversation, end Claude Code in that terminal first (/exit, or Ctrl+C twice), then press Check again below.',
-    held_close_other: 'To go on with the same conversation, close it in that window first, then press Check again below.',
-    held_copy: 'If you go on anyway, baton brings it in as a copy: a new conversation that carries everything said so far, goes on apart from the original and does not sync with it.',
     held_recheck: 'Check again', import_go_copy: 'Continue in a copy', held_still: 'Still open.', held_free: 'Closed now: it can go on as the same conversation.',
+    // a conversation open elsewhere goes on in a copy; one baton runs comes to the front
+    copy_auto: 'It is open in {app}, so it continues in a copy: everything said so far, going on separately from the original.',
+    held_recheck_hint: 'If you quit {app} first, the same conversation can go on instead.',
+    conv_in_baton: 'This conversation is already running in baton: Start brings its window to the front.',
+    in_baton_front: 'This conversation is already running in baton; its window is in front now.',
+    err_in_baton: 'This conversation is already running in baton. Its row is under Sessions.',
+    // a session moving to a copy, a conversation running in baton, quitting the desktop app to go on in it
+    run_moving: 'Moving to a copy', conv_running: 'Running in baton',
+    held_recheck_hint_desktop: 'If you quit the Claude desktop app completely (also from its tray icon) first, the same conversation can go on instead.',
     conv_gone_hint: 'The folder this conversation ran in is gone, so it cannot continue.',
     conv_unusable: 'Folder not usable',
     conv_bad_hint: 'baton starts sessions only in folders on this PC (such as C:\\…) with a path shorter than 248 characters, so this conversation cannot continue from here.',
@@ -424,11 +508,9 @@ const T = {
     set_exhausted: 'When every account is limited', ex_wait: 'Wait for the first account to free up, then continue', ex_stop: 'Stop and show how to continue later',
     set_advanced: 'Advanced', set_cooldown: 'Minimum seconds between switches', set_max: 'Most switches per hour', set_retry: 'Minutes to wait when the reset time is unknown',
     set_prompt: 'Message sent to the next account to continue', set_share: 'Share your usual Claude Code setup (skills, CLAUDE.md, …) with every account',
-    set_claude: 'Claude Code location', set_claude_auto: 'Find automatically',
-    set_claude_which: 'Claude Code to use', claude_which_auto: 'Automatic (the installed CLI if there is one and it is not too old, else the desktop app\'s)',
-    claude_which_desktop: 'Always the one inside the Claude desktop app',
+    set_claude_which: 'Claude Code to use',
     claude_which_note: 'Either way, sessions open in a Claude Code window of their own (a terminal screen), not inside the desktop app.', set_claude_bundle: 'Also use the Claude Code inside the Claude desktop app',
-    set_claude_custom: 'Custom (full path to claude.exe)', saved: 'Saved.', set_lang: 'Language', lang_auto: 'Same as Windows',
+    saved: 'Saved.', set_lang: 'Language', lang_auto: 'Same as Windows',
     help_title: 'How baton works',
     help_points: [
       'Each account has its own Claude Code profile; Claude Code manages its sign-in.',
@@ -436,6 +518,7 @@ const T = {
       'When the account in use hits its limit, baton stops Claude Code safely and reopens the same conversation on the next account (about 5-10 seconds).',
       'The conversation and project folder stay the same; background commands that were running end and are not re-run.',
       'The Claude desktop app\'s own sign-in does not change; baton\'s accounts are signed in separately.',
+      'To paste a picture (a screenshot, say) in a session window, press Alt+V. Ctrl+V and the terminal\'s other paste keys paste only text. An image file is attached when you drag it onto the window or paste its full path; type @ and part of a name to point Claude at a file in the folder.',
     ],
     notice_short: 'Before you use it', diag_title: 'Diagnostics', diag_run: 'Run diagnostics', diag_running: 'Running…',
     open_data: 'Open data folder', cli_title: 'Command line', cli_body: 'baton.exe in the same folder offers everything from PowerShell too; in that folder, e.g. .\\baton.exe list, .\\baton.exe run.',
@@ -483,6 +566,13 @@ const T = {
     office_room_library_d: 'reading and searching files', office_room_dev_d: 'writing and editing code', office_room_server_d: 'commands, git', office_room_search_d: 'the web and outside tools',
     office_room_meeting_d: 'plans, to-dos, skills', office_room_desk_d: 'questions for you', office_room_seat_d: 'thinking, talking, calling agents',
     office_room_lounge_d: 'a coffee when the turn ends', office_room_elevator_d: 'arrivals, departures, shifts',
+    // office: side columns, and what is hidden from it
+    office_resize_side: 'Floor guide width', office_resize_panel: 'Panel width', office_resize_tip: 'Drag to resize · double-click to reset · Enter to fold or unfold', office_folded: 'folded',
+    office_guide_btn: 'Floor guide', office_guide_tip: 'Opens the floor guide over the office', office_panel_btn: 'Panel', office_panel_tip: 'Opens the session, the people and the activity',
+    office_show_s: 'Show in the office: {name}', office_show_floor: 'Show this floor (project) in the office: {name}', office_show_tip: 'Unticked items are hidden here in the office only; the sessions themselves are not touched.',
+    office_hidden_more: 'Show {n} hidden', office_hidden_more1: 'Show 1 hidden', office_hidden_less: 'Fold hidden items', office_unhide_all: 'Show everything again',
+    office_hidden_n: '{n} hidden', office_floor_off: 'floor hidden', office_follow_tip: 'hidden sessions are skipped', office_quiet_tip: 'Floors with no activity in the last 3 days',
+    office_all_hidden_title: 'Every session is hidden', office_all_hidden: 'Tick a floor or a session in the floor guide to watch it here again.',
     err_office_off: 'The office is turned off. Turn it on in Settings.', err_no_popout: 'This baton cannot open the office in a window of its own.',
     problem: 'Could not read a file: {e}', claude_warn: '{w}', need_claude: 'Claude Code was not found, so sessions cannot start.',
     need_mode: 'You have not chosen how baton switches accounts yet.', choose_now: 'Choose now',
@@ -499,9 +589,47 @@ const T = {
     err_windows_open: 'Windows that baton opened (session or sign-in windows) are still open. Close them, then uninstall.',
     switch_now: 'Requested: it starts on {a} shortly.', switch_now_any: 'Requested: it starts on a free account shortly.',
     num_bad: 'Enter a whole number of 1 or more.',
-    err_open_elsewhere: 'This conversation is open in another window (the desktop app or another session). Close it there and try again.',
     err_bad_folder: 'Choose an existing folder on this PC (e.g. C:\\Users\\…).', err_long_folder: 'That path is too long. Choose a folder with a shorter path.',
     ago_now: 'just now', ago_min: '{n} min ago', ago_hour: '{n} h ago', ago_day: '{n} d ago',
+    // showing a session in the Claude desktop app
+    dk_btn: 'Desktop app…', dk_btn_wait: 'It can show in the desktop app after its first message.',
+    dk_title: 'Show in the Claude desktop app', dk_loading: 'Looking at the desktop app…', dk_apply: 'Apply',
+    dk_intro: 'Pick the accounts whose Claude desktop app lists this session in its Code tab. It is not listed for the accounts you leave unticked. Nothing is uploaded: the desktop app opens the same conversation on this computer.',
+    dk_active: 'Signed in to the desktop app now', dk_used: 'Shows when you switch to this account in the desktop app',
+    dk_unused: 'Not used in the desktop app yet: it shows once you sign in with this account there',
+    dk_same: '{a} and {b} are the same Claude account.', dk_app_only: 'The account the Claude desktop app is signed in to', dk_app_only_note: 'Not one of baton\'s accounts.',
+    dk_former: 'No longer one of baton\'s accounts; untick it to take the session off this list.', dk_app_former: 'Another account of the desktop app',
+    dk_why_api_key: 'Uses an API key, not a Claude sign-in, so the desktop app has no list for it.',
+    dk_why_cloud: 'Uses {p}, not a Claude sign-in, so the desktop app has no list for it.',
+    dk_why_unknown: 'baton does not know which Claude account this is yet. Press Check sign-ins on the Accounts tab.',
+    dk_why_token: 'Signs in with a long-lived token, so baton cannot tell which Claude account it is.',
+    dk_why_gateway: 'Signs in through a gateway, not a Claude sign-in, so the desktop app has no list for it.',
+    dk_cloud_other: 'a cloud provider',
+    dk_why_own: 'Made in the desktop app on this account, so it stays there. To hide it, archive it in the desktop app.',
+    dk_why_archived: 'Archived in the desktop app on this account. To list it again, unarchive it there.',
+    dk_why_released: 'You went on with it in the desktop app on this account, so it is the desktop app\'s now. To hide it, archive it there.',
+    dk_why_deleted: 'You deleted it in the desktop app. Tick it to list it again.',
+    dk_copy: 'The desktop app keeps the original you opened there; this tick is for baton\'s copy, “{t} (baton)”.',
+    dk_archived: 'Archived in the desktop app; untick it to take it off the list.',
+    dk_split: 'baton\'s conversation file and the desktop app\'s are no longer one file, so what is said on one side does not show on the other. baton stops updating this session in the desktop app. You can still untick accounts.',
+    dk_problem_conflict: 'Your own Claude Code folder already has a different conversation file with this id, so it cannot be shown (baton never replaces that file).',
+    dk_problem_other_drive: 'This conversation is on another drive than your own Claude Code folder, so the desktop app cannot open it.',
+    dk_problem_link_failed: 'baton could not make this conversation openable for the desktop app.',
+    dk_problem_no_file: 'It can show in the desktop app after its first message.',
+    dk_running: 'The desktop app is open now: for the account it is signed in to, a change shows after you quit it completely (also from its tray icon) and open it again.',
+    dk_tip_copy: 'If you open it in the desktop app while baton is running it, baton goes on in a copy so neither side overwrites the other. The desktop app keeps the original and the copy shows next to it.',
+    dk_tip_hide: 'To hide it, untick it here rather than deleting it in the desktop app: deleting it there can let the conversation file be cleaned up later.',
+    dk_tip_limits: 'Going on with it in the desktop app uses the limits of the account the desktop app is signed in to.',
+    dk_done: 'Done.', dk_next_open: 'It shows the next time you open the Claude desktop app.',
+    dk_restart: 'Quit the Claude desktop app (also from its tray icon) and open it again to see the change.',
+    dk_switch: 'It shows when you switch to that account in the desktop app.', dk_gone_quit: 'It disappears from the desktop app after you quit it. Keep this window open until then.',
+    dk_gone: 'It is no longer listed for the accounts you unticked.', dk_none: 'Nothing changed.',
+    dk_pill: 'Desktop: {a}', dk_pill_split: '⚠ Desktop: files split', dk_app_account: 'desktop app account',
+    err_no_file: 'It can show in the desktop app after its first message.', err_unknown_place: 'That account cannot be chosen now. Open this again.',
+    err_split: 'baton\'s and the desktop app\'s conversation files split, so nothing new can be ticked.', err_no_desktop: 'The Claude desktop app was not found on this PC.',
+    err_conflict: 'Your own Claude Code folder already has a different conversation file with this id, so it cannot be shown.',
+    err_other_drive: 'This conversation is on another drive than your own Claude Code folder, so the desktop app cannot open it.',
+    err_link_failed: 'baton could not make this conversation openable for the desktop app.',
   },
 };
 
@@ -684,11 +812,84 @@ document.addEventListener('focusout', () => {
 // Within the view, the redraw waits until the click has gone through.
 document.addEventListener('click', () => { if (S.mainDirty) setTimeout(render, 0); });
 
+// claudeChip says which Claude Code sessions start with; a click shows where
+// to choose another one.
 function claudeChip(st) {
   if (st.claude_pending) return h('span', { class: 'chip', text: t('claude_checking') });
-  if (!st.claude.found) return h('span', { class: 'chip bad', text: t('claude_missing'), title: st.claude.error || '' });
-  const label = st.claude.source === 'desktop' ? t('claude_desktop', { v: st.claude.version }) : t('claude_cli', { v: st.claude.version });
-  return h('span', { class: 'chip' + (st.claude.warning ? ' warn' : ' ok'), text: label, title: st.claude.warning || st.claude.path });
+  const c = st.claude;
+  const open = () => { S.tab = 'settings'; S.ui.advancedOpen = true; render(); const el = document.getElementById('claude-pick'); if (el) el.scrollIntoView({ block: 'center' }); };
+  if (!c.found) {
+    const some = (c.installs || []).some((i) => i.problem !== 'wrapper');
+    return h('button', { class: 'chip bad', text: t(some ? 'claude_unusable' : 'claude_missing'), title: c.error || '', onclick: open });
+  }
+  const label = t(c.source === 'desktop' ? 'claude_desktop' : 'claude_cli', { v: c.version });
+  return h('button', { class: 'chip ok', text: label, title: c.path + (c.fallback ? '\n' + claudeFallbackText(c) : ''), onclick: open });
+}
+
+// ---- which Claude Code (Settings → Advanced) ------------------------------------------
+
+function claudeSource(src) { return t('cc_src_' + src); }
+
+// claudeWhy says why a copy of Claude Code cannot be used.
+function claudeWhy(i, min) {
+  if (i.problem === 'too_old') return t(i.source === 'desktop' ? 'cc_why_too_old_app' : 'cc_why_too_old', { min });
+  return t('cc_why_' + i.problem);
+}
+
+// claudeFallbackText: the copy chosen cannot be used now, and which one is used
+// instead (the chosen one is the selected row, so its path is not repeated).
+function claudeFallbackText(c) {
+  const fb = c.fallback;
+  const why = fb.why === 'too_old' ? t('cc_why_old') : t('cc_why_' + fb.why);
+  return t('cc_fallback', { why, v: c.version, src: claudeSource(c.source) });
+}
+
+// claudeOldCli is the newest Claude Code CLI found that is only too old.
+function claudeOldCli(c) {
+  return (c.installs || []).filter((i) => i.source !== 'desktop' && i.problem === 'too_old')
+    .sort((a, b) => b.version.localeCompare(a.version, undefined, { numeric: true }))[0];
+}
+
+// claudeProblemText says why no Claude Code can be used and what to do: on
+// the banner, beside its Update the CLI button, and on the first-run screen
+// (inDialog), which has no such button.
+function claudeProblemText(st, inDialog) {
+  const c = st.claude, ins = c.installs || [];
+  const oldCli = claudeOldCli(c);
+  const desk = ins.find((i) => i.source === 'desktop'); // the list has the app's newest copy first
+  if (c.bundle_off) return t('claude_bundle_off');
+  if (oldCli && desk && desk.problem === 'too_old') return t('claude_none_old', { min: c.min });
+  if (oldCli) {
+    // The desktop app is there but its Code tab was never opened: opening
+    // it gives a new enough Claude Code too.
+    const app = !desk && c.desktop_app && (st.config.allow_desktop_bundle || st.config.claude_path === 'desktop');
+    return [t('claude_cli_old', { v: oldCli.version, min: c.min }), t(inDialog ? 'claude_cli_old_later' : 'claude_cli_old_btn'),
+      app ? t('claude_cli_old_app') : ''].filter(Boolean).join(' ');
+  }
+  if (desk && desk.problem === 'too_old') return t('claude_app_old', { v: desk.version });
+  if (desk && desk.problem === 'installing') return t('claude_app_installing');
+  return c.desktop_app ? t('claude_app_setup') : t('ob_claude_missing');
+}
+
+// claudeErrorDetails: baton's own message lists every copy and its fix, in
+// English. It is kept under Details, since the text above it and Settings say
+// the same; its lines are kept as they are.
+function claudeErrorDetails(c) {
+  return c.error ? h('details', { class: 'small muted mt6', open: S.ui.claudeErrOpen, ontoggle: (e) => { S.ui.claudeErrOpen = e.target.open; } },
+    h('summary', { text: t('details') }), h('div', { class: 'prewrap', text: c.error })) : null;
+}
+
+const samePath = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+// claudeUpdate runs an old Claude Code CLI's own update in a window of its own.
+async function claudeUpdate(path) {
+  try { await api('claude/update', { path }); toast(t('cc_update_started')); S.lastJSON = ''; await refresh(); } catch (e) { showError(e); }
+}
+
+function claudeUpdateButton(st, i, label, primary) {
+  const busy = st.jobs.some((j) => j.kind === 'claude-update' && j.running && j.target === i.path);
+  return h('button', { class: 'btn' + (primary ? ' primary' : ''), disabled: busy, onclick: () => claudeUpdate(i.path) },
+    busy ? h('span', { class: 'spin' }) : null, busy ? ' ' + t('cc_updating') : label);
 }
 
 function modeChip(st) {
@@ -723,12 +924,11 @@ function renderBanners(st) {
   for (const p of st.problems || []) out.push(h('div', { class: 'banner bad' }, h('div', { class: 'grow', text: t('problem', { e: p }) })));
   if (st.elevated) out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow', text: t('elevated') })));
   if (!st.claude_pending && !st.claude.found) {
-    const msg = st.claude.bundle_off ? t('claude_bundle_off')
-      : st.claude.too_old ? (st.claude.source === 'desktop' ? t('claude_too_old') : st.claude.source === 'config' ? t('claude_path_old')
-        : t('claude_cli_old') + (st.claude.desktop_app && st.config.allow_desktop_bundle ? ' ' + t('claude_cli_old_app') : ''))
-        : st.claude.desktop_app ? t('claude_app_setup') : t('ob_claude_missing');
-    out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', { text: t('need_claude') }), h('div', { text: msg }),
-      st.claude.error ? h('div', { class: 'small muted', text: st.claude.error }) : null),
+    const c = st.claude, oldCli = claudeOldCli(c);
+    const some = (c.installs || []).some((i) => i.problem !== 'wrapper');
+    out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow' }, h('b', { text: t(some ? 'need_claude_old' : 'need_claude') }),
+      h('div', { text: claudeProblemText(st, false) }), claudeErrorDetails(c)),
+      oldCli ? claudeUpdateButton(st, oldCli, t('cc_update_cli'), true) : null,
       h('button', { class: 'btn', text: t('recheck'), onclick: async () => { await api('claude/refresh', {}).catch(showError); refresh(); } })));
   }
   if (st.update && st.update.newer && !S.ui.dismissed['upd' + st.update.latest] && S.tab !== 'help') {
@@ -782,13 +982,15 @@ function viewSessions(st) {
     opening && !rows.length ? h('p', { class: 'muted' }, h('span', { class: 'spin' }), ' ', t('job_run')) : null,
     lingering ? h('p', { class: 'muted small', text: t('ended_console') }) : null, body);
   const recentSessions = h('div', { class: 'card' }, h('h3', { text: t('recent_sessions') }),
-    st.recent_sessions.length ? h('div', {}, st.recent_sessions.map((r) => h('div', { class: 'row' },
+    st.recent_sessions.length ? h('div', {}, st.recent_sessions.map((r) => h('div', { class: 'row recent' },
       h('div', { class: 'grow' },
-        h('div', { class: 'title', text: convTitle(r) }),
+        h('div', { class: 'title' }, h('span', { text: convTitle(r) }), deskPills(r.desktop)),
         h('div', { class: 'sub', title: r.cwd, text: `${baseName(r.cwd)} · ${ago(r.ended)} · ${r.where === 'claude-code' ? t('conv_where_home') : t('conv_where', { a: r.where })}` })),
-      h('button', { class: 'btn', text: t('continue_btn'), disabled: !st.claude.found || !canStart,
-        onclick: () => startSession({ folder: r.cwd, mode: 'pick', session_id: r.session_id, where: r.where,
-          conv: { session_id: r.session_id, where: r.where, title: r.title, first_prompt: r.first_prompt, cwd: r.cwd, modified: r.ended } }) }))))
+      h('div', { class: 'actions' },
+        st.desktop ? h('button', { class: 'btn ghost', text: t('dk_btn'), onclick: () => openDesktop(r.session_id) }) : null,
+        h('button', { class: 'btn', text: t('continue_btn'), disabled: !st.claude.found || !canStart,
+          onclick: () => startSession({ folder: r.cwd, mode: 'pick', session_id: r.session_id, where: r.where,
+            conv: { session_id: r.session_id, where: r.where, title: r.title, first_prompt: r.first_prompt, cwd: r.cwd, modified: r.ended } }) })))))
       : h('p', { class: 'muted', text: t('recent_sessions_none') }));
   const recent = h('div', { class: 'card' }, h('h3', { text: t('recent_title') }),
     st.switches.length ? h('div', {}, st.switches.map((sw) => h('div', { class: 'row' },
@@ -826,7 +1028,9 @@ function cutCard(st, canStart) {
 
 function runState(r) {
   const cls = { running: 'ok', stopping: 'info', switching: 'info', ending: 'info', waiting: 'warn', asking: 'warn' }[r.state] || 'off';
-  return h('span', { class: 'pill ' + cls, text: t('run_' + r.state) });
+  // A move to a copy (the conversation was opened elsewhere) is not an account switch.
+  const moving = r.moving && (r.state === 'stopping' || r.state === 'switching');
+  return h('span', { class: 'pill ' + cls, text: moving ? t('run_moving') : t('run_' + r.state) });
 }
 
 function runRow(st, r) {
@@ -863,6 +1067,9 @@ function runRow(st, r) {
   // At a glance: where, what state, which account, how full the context is,
   // what changed and Remote Control. The rest waits behind "Details".
   const open = !!S.ui.runOpen[r.run_id];
+  // The conversation open somewhere else too: two writers split it.
+  const places = [...new Set((r.also_open || []).map((o) => t('ao_' + o.where, { a: o.account || '' })))];
+  const elsewhere = places.join(', ');
   const toggle = h('button', { class: 'btn ghost details-btn', 'aria-expanded': String(open), text: open ? t('details_less') : t('details_more'),
     onclick: () => { S.ui.runOpen[r.run_id] = !open; render(); } });
   const facts = [
@@ -870,15 +1077,18 @@ function runRow(st, r) {
     r.context != null ? contextFact(r.context) : null,
     changesFact(r),
     r.remote_control ? h('span', { class: 'pill info', title: t('rc_where', { a: r.account || '' }), text: t('rc_on') }) : null,
-  ].filter(Boolean);
+    elsewhere ? h('span', { class: 'pill warn', text: '⚠ ' + t('conv_open') }) : null,
+    deskPills(r.desktop),
+  ].flat().filter(Boolean);
   return h('div', { class: 'row run' + (open ? ' open' : '') },
     h('div', { class: 'grow' },
       h('div', { class: 'title' }, h('span', { title: r.cwd, text: baseName(r.cwd) }), runState(r), claudeState(r)),
       h('div', { class: 'facts' }, facts),
+      elsewhere ? h('div', { class: 'hint', text: t('also_open_hint', { w: elsewhere }) }) : null,
       r.claude === 'waiting' && r.waiting_for ? h('div', { class: 'hint', text: t('cl_waiting_hint', { w: r.waiting_for }) }) : null,
       asking ? h('div', { class: 'hint', text: t('asking_hint') + ' ' + t('asking_stop_hint') }) : null,
       waiting ? h('div', { class: 'hint', text: r.account ? t('waiting_hint') : t('waiting_first') }) : null,
-      open ? runDetails(r) : null),
+      open ? runDetails(st, r) : null),
     h('div', { class: 'actions' },
       r.window ? h('button', { class: 'btn', title: t('show_window_tip'), text: t('show_window'),
         onclick: () => api('sessions/focus', { run_id: r.run_id }).catch(showError) }) : null,
@@ -889,7 +1099,7 @@ function runRow(st, r) {
 }
 
 // runDetails is what a session row shows once opened.
-function runDetails(r) {
+function runDetails(st, r) {
   const c = r.changes;
   const line = (label, ...value) => h('div', { class: 'detail' }, h('span', { class: 'detail-label', text: label }), h('span', { class: 'detail-value' }, ...value));
   return h('div', { class: 'details' },
@@ -901,7 +1111,114 @@ function runDetails(r) {
     h('div', { class: 'actions start' },
       c && c.repo && c.files ? h('button', { class: 'btn small-btn', text: t('ch_btn'), onclick: () => openChanges(r) }) : null,
       h('button', { class: 'btn small-btn', text: t('open_folder'), onclick: () => api('open', { what: 'folder', run_id: r.run_id }).catch(showError) }),
-      h('button', { class: 'btn small-btn', text: t('open_log'), onclick: () => api('open', { what: 'run', run_id: r.run_id }).catch(showError) })));
+      h('button', { class: 'btn small-btn', text: t('open_log'), onclick: () => api('open', { what: 'run', run_id: r.run_id }).catch(showError) }),
+      // The desktop app opens a conversation from its file: none before the first message.
+      st.desktop ? h('button', { class: 'btn small-btn', text: t('dk_btn'), disabled: !r.has_file || !r.session_id,
+        title: r.has_file ? null : t('dk_btn_wait'), onclick: () => openDesktop(r.session_id) }) : null));
+}
+
+// ---- the Claude desktop app ------------------------------------------------------
+
+// deskPills says where a session shows in the Claude desktop app (b: the
+// state's desktop badge), and warns when its file split from the app's.
+function deskPills(b) {
+  if (!b) return [];
+  const names = (b.places || []).map((p) => p || t('dk_app_account'));
+  return [
+    names.length ? h('span', { class: 'pill info', text: t('dk_pill', { a: names.join(', ') }) }) : null,
+    b.split ? h('span', { class: 'pill warn', title: t('dk_split'), text: t('dk_pill_split') }) : null,
+  ];
+}
+
+// openDesktop picks the accounts whose Claude desktop app lists a session.
+async function openDesktop(sessionId) {
+  const body = h('div', {}, h('p', { class: 'muted small' }, h('span', { class: 'spin' }), ' ', t('dk_loading')));
+  const err = h('div', { class: 'err' });
+  const apply = h('button', { class: 'btn primary', text: t('dk_apply'), disabled: true });
+  openDialog(h('h2', { text: t('dk_title') }), h('p', { class: 'small dk-intro', text: t('dk_intro') }), body, err,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), apply));
+  let v;
+  try { v = await api('desktop/places?session_id=' + encodeURIComponent(sessionId)); } catch (e) { body.replaceChildren(h('p', { class: 'err', text: errText(e) })); return; }
+  // What the user decides: baton's own ticks. The desktop app's own records stay as they are.
+  // Every ticked row is sent, also a locked one (a list the app took over since stays ticked:
+  // left out, it would count as unticked); a locked box cannot be changed. A row ticked when
+  // the dialog opened that the user left so is sent as kept ('kept:' + key, desktop.Kept):
+  // baton leaves it as it is by then, so a record deleted in the app meanwhile is not
+  // written again. Only a box the user ticked here is sent as a tick (its key). 'thread'
+  // (desktop.Ticked) says the view had the session's thread: the session may go on in
+  // another conversation while this is open (/clear), and the ticks are the session's.
+  const was = new Set(v.places.filter((p) => p.key && p.checked).map((p) => p.key));
+  const picked = new Set(was);
+  body.replaceChildren(...[
+    v.title ? h('p', { class: 'dk-session', text: v.title }) : null,
+    v.split ? h('div', { class: 'tip warn-tip', text: t('dk_split') }) : null,
+    v.problem ? h('div', { class: 'tip warn-tip', text: t('dk_problem_' + v.problem) }) : null,
+    h('div', { class: 'dk-places' }, v.places.map((p) => desktopRow(v, p, picked))),
+    v.app_running ? h('p', { class: 'small dk-running', text: t('dk_running') }) : null,
+    h('ul', { class: 'small muted dk-tips' }, [t('dk_tip_copy'), t('dk_tip_hide'), t('dk_tip_limits')].map((x) => h('li', { text: x }))),
+  ].filter(Boolean));
+  apply.disabled = false;
+  apply.addEventListener('click', async () => {
+    apply.disabled = true;
+    err.textContent = '';
+    try {
+      const places = [...picked].map((k) => (was.has(k) ? 'kept:' + k : k));
+      if (v.thread) places.push('thread');
+      const r = await api('desktop/apply', { session_id: sessionId, places });
+      closeDialog(); toast(desktopDone(r)); S.lastJSON = ''; await refresh();
+    } catch (e) {
+      err.textContent = errText(e);
+      // A failed apply may have taken unticked rows off already (what it did stays done):
+      // such a row is no longer ticked as the dialog opened, so a tick it gets again is
+      // the user's own, sent as its key.
+      for (const k of [...was]) if (!picked.has(k)) was.delete(k);
+    } finally { apply.disabled = false; }
+  });
+}
+
+// desktopRow is one account's list in the desktop app, ticked where the
+// session shows. A row the desktop app owns, or that cannot be chosen, says why.
+function desktopRow(v, p, picked) {
+  const names = p.accounts || [];
+  const fixed = p.locked || p.disabled;
+  const label = p.app_only ? (p.email || t(p.former ? 'dk_app_former' : 'dk_app_only')) : names.join(', ');
+  const notes = [];
+  if (p.app_only) notes.push(t('dk_app_only_note'));
+  else if (p.former) notes.push(t('dk_former'));
+  if (names.length > 1) notes.push(t('dk_same', { a: names.slice(0, -1).join(', '), b: names[names.length - 1] }));
+  if (p.why) notes.push(p.why === 'cloud' ? t('dk_why_cloud', { p: cloudName(p.provider) }) : t('dk_why_' + p.why));
+  if (p.copy) notes.push(t('dk_copy', { t: v.title }));
+  if (p.archived) notes.push(t('dk_archived'));
+  const state = !p.key ? '' : p.active ? t('dk_active') : p.used ? t('dk_used') : t('dk_unused');
+  const box = h('input', { type: 'checkbox', checked: p.locked ? p.checked : picked.has(p.key), disabled: fixed,
+    onchange: (e) => {
+      if (e.target.checked) picked.add(p.key); else picked.delete(p.key);
+      row.classList.toggle('selected', e.target.checked);
+    } });
+  const row = h('label', { class: 'choice dk' + (box.checked && !fixed ? ' selected' : '') + (fixed ? ' off' : '') }, box,
+    h('span', { class: 'grow' },
+      h('b', {}, h('span', { text: label }), p.email && !p.app_only ? h('span', { class: 'dk-email', text: p.email }) : null),
+      state ? h('span', { class: 'small muted', text: state }) : null,
+      notes.map((n) => h('span', { class: 'small dk-note' + (p.why === 'deleted' || p.why === 'released' ? ' warn-text' : ''), text: n }))));
+  return row;
+}
+
+// desktopDone says what an Apply changed, and when the desktop app shows it:
+// the account it is signed in to when it opens (a running app is opened
+// again), other accounts when the user switches to them there.
+function desktopDone(r) {
+  if (!r.added.length && !r.removed.length) return t('dk_none');
+  const say = [t('dk_done')];
+  if (r.active_added) say.push(t(r.app_running ? 'dk_restart' : 'dk_next_open'));
+  if (r.other_added) say.push(t('dk_switch'));
+  if (r.active_removed) say.push(t('dk_gone_quit'));
+  else if (!r.added.length) say.push(t('dk_gone'));
+  return say.join(' ');
+}
+
+// cloudName names the cloud provider an account signs in through.
+function cloudName(id) {
+  return { bedrock: 'Amazon Bedrock', vertex: 'Google Vertex AI', foundry: 'Microsoft Foundry' }[id] || t('dk_cloud_other');
 }
 
 // contextFact: how full the session's context window is, as a small meter.
@@ -1020,19 +1337,23 @@ function openStart(pre) {
       h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: form.trust, onchange: (e) => { form.trust = e.target.checked; } }), h('span', { text: t('trust_ok') }))));
   }
 
-  // The conversation a start would continue; one that another Claude Code
-  // has open can only go on in a copy.
+  // The conversation a start would continue. One that another Claude Code
+  // has open goes on in a copy; one a baton session runs brings its window
+  // forward instead (unless the user ticks a copy).
   function target() {
     if (form.mode === 'continue') return convs[0] || null;
     if (form.mode === 'pick' && form.sel) return convs.find((c) => c.session_id === form.sel.session_id && c.where === form.sel.where) || null;
     return null;
   }
-  const copyOf = (c) => !!c && (c.open || form.copy);
+  const heldElsewhere = (c) => !!c && c.open && !c.in_baton;
+  const copyOf = (c) => !!c && (heldElsewhere(c) || form.copy);
   function drawCopy() {
     const c = target();
     if (!c) { copyBox.replaceChildren(); return; }
-    copyBox.replaceChildren(c.open ? h('div', { class: 'tip', text: t('conv_open_hint') }) : '',
-      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: copyOf(c), disabled: c.open, onchange: (e) => { form.copy = e.target.checked; } }),
+    const why = heldElsewhere(c) ? h('div', { class: 'tip', text: t('copy_auto', { app: holderName(c.holder) }) })
+      : c && c.in_baton ? h('div', { class: 'tip', text: t('conv_in_baton') }) : '';
+    copyBox.replaceChildren(why,
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: copyOf(c), disabled: heldElsewhere(c), onchange: (e) => { form.copy = e.target.checked; } }),
         h('span', { text: t('copy_ok') })));
   }
 
@@ -1116,10 +1437,15 @@ function openStart(pre) {
       if (!form.checked) { err.textContent = t('folder_bad'); return; }
       if (form.problem) { err.textContent = form.problem === 'long_folder' ? t('folder_long') : t('folder_bad'); return; }
       if (!form.trusted && !form.trust) { err.textContent = t('trust_needed'); return; }
-      await api('sessions/start', { folder: cleanPath(form.folder), account: form.account, mode: form.mode === 'pick' ? 'resume' : form.mode,
+      const res = await api('sessions/start', { folder: cleanPath(form.folder), account: form.account, mode: form.mode === 'pick' ? 'resume' : form.mode,
         session_id: form.sel ? form.sel.session_id : '', where: form.sel ? form.sel.where : '', trust: form.trust,
         copy: form.mode !== 'new' && copyOf(target()), remote_control: form.rc });
-      closeDialog(); toast(t('start_done') + ' ' + t('first_start'));
+      closeDialog();
+      // It runs in baton already: its window came forward and nothing started.
+      if (res.focused) toast(t('in_baton_front'));
+      // Opened elsewhere since the dialog looked: it went on in a copy anyway.
+      else if (res.copied) toast(t('start_done') + ' ' + t('copy_auto', { app: holderName(res.holder) }));
+      else toast(t('start_done') + ' ' + t('first_start'));
     } catch (e) {
       if (e.code === 'needs_mode') { closeDialog(); openNotice(() => openStart(pre)); return; }
       err.textContent = errText(e);
@@ -1164,7 +1490,8 @@ function sourceName(c) {
 function convItem(c, withFolder) {
   return h('div', { class: 'grow' },
     h('div', { class: 'title' }, h('span', { text: convTitle(c) }),
-      c.open ? h('span', { class: 'pill warn', text: t('conv_open') }) : null,
+      c.in_baton ? h('span', { class: 'pill ok', text: t('conv_running') })
+        : c.open ? h('span', { class: 'pill warn', text: t('conv_open') }) : null,
       c.folder_ok === false ? h('span', { class: 'pill off', text: c.folder_problem === 'gone' ? t('conv_gone') : t('conv_unusable') }) : null),
     h('div', { class: 'sub small muted', title: c.cwd || '', text: [withFolder ? baseName(c.cwd) : '', ago(c.modified), sourceName(c)].filter(Boolean).join(' · ') }));
 }
@@ -1215,7 +1542,7 @@ async function openImport() {
     if (sel && sel.folder_ok === false) {
       hint.replaceChildren(h('div', { class: 'tip', text: sel.folder_problem === 'gone' ? t('conv_gone_hint') : t('conv_bad_hint') }));
     } else if (sel && sel.open) {
-      hint.replaceChildren(heldWarning(sel, recheck, note));
+      hint.replaceChildren(heldNote(sel, recheck, note));
     } else {
       hint.replaceChildren(...(note ? [h('div', { class: 'tip ok-tip', text: note })] : []));
     }
@@ -1248,20 +1575,26 @@ async function openImport() {
   draw();
 }
 
-// heldWarning: the conversation is open in another app. Close that first to
-// go on with the same conversation, or go on in a copy, which does not sync.
-function heldWarning(c, recheck, note) {
-  const app = t({ 'claude-desktop': 'held_desktop', cli: 'held_cli', 'claude-vscode': 'held_vscode' }[c.holder] || 'held_other');
-  const close = t({ 'claude-desktop': 'held_close_desktop', cli: 'held_close_cli' }[c.holder] || 'held_close_other');
-  const btn = h('button', { class: 'btn', text: t('held_recheck'), onclick: async () => {
+// holderName names what has a conversation open (its entrypoint).
+function holderName(holder) {
+  return t({ 'claude-desktop': 'held_desktop', cli: 'held_cli', 'claude-vscode': 'held_vscode' }[holder] || 'held_other');
+}
+
+// heldNote: the conversation is open in another app, so it goes on in a copy
+// by itself. Check again is there for one who quit that app meanwhile: then
+// the same conversation goes on.
+function heldNote(c, recheck, note) {
+  const app = holderName(c.holder);
+  // Closing the desktop app's window does not let go of the conversation:
+  // the app must be quit, from its tray icon too.
+  const how = c.holder === 'claude-desktop' ? t('held_recheck_hint_desktop') : t('held_recheck_hint', { app });
+  const btn = h('button', { class: 'btn small-btn', text: t('held_recheck'), title: how, onclick: async () => {
     btn.disabled = true;
     try { await recheck(); } finally { btn.disabled = false; }
   } });
-  return h('div', { class: 'tip warn-tip' },
-    h('b', { text: '⚠ ' + t('held_title', { app }) }),
-    h('div', { class: 'mt6', text: close }),
-    h('div', { class: 'mt6', text: t('held_copy') }),
-    h('div', { class: 'actions start mt6' }, btn, note ? h('span', { class: 'small', text: note }) : null));
+  return h('div', { class: 'tip' },
+    h('div', { text: t('copy_auto', { app }) }),
+    h('div', { class: 'small muted mt6' }, h('span', { text: note || how }), ' ', btn));
 }
 
 // ---- accounts ------------------------------------------------------------------------
@@ -1530,11 +1863,12 @@ function maybeOnboard() {
   const steps = [
     () => [h('h2', { text: t('ob_welcome_title') }), h('ul', { class: 'steps' }, t('ob_welcome_points').map((p) => h('li', { text: p })))],
     () => {
-      const s = S.state;
+      const s = S.state, c = s.claude;
       let msg = t('ob_claude_wait');
-      if (!s.claude_pending) msg = !s.claude.found ? t('ob_claude_missing') : s.claude.source === 'desktop'
-        ? t('ob_claude_desktop', { v: s.claude.version }) : t('ob_claude_cli', { v: s.claude.version });
-      return [h('h2', { text: t('ob_claude_title') }), h('p', { text: msg }), s.claude.error && !s.claude.found ? h('p', { class: 'small muted', text: s.claude.error }) : null];
+      // Not found, or every copy too old: the same words as the banner.
+      if (!s.claude_pending) msg = !c.found ? claudeProblemText(s, true) : c.source === 'desktop'
+        ? t('ob_claude_desktop', { v: c.version }) : t('ob_claude_cli', { v: c.version });
+      return [h('h2', { text: t('ob_claude_title') }), h('p', { text: msg }), !s.claude_pending && !c.found ? claudeErrorDetails(c) : null];
     },
   ];
   const draw = () => {
@@ -1565,6 +1899,62 @@ async function setConfig(key, value, acknowledge, silent) {
   }
 }
 
+// claudePicker lists every Claude Code on this PC to choose from: finding the
+// best one automatically first, then the desktop app's (whichever version it
+// has), each copy found, and a path typed in.
+function claudePicker(st) {
+  const c = st.claude, ins = c.installs || [];
+  const choice = st.config.claude_path || '';
+  // The server says which row claude_path is (a Scoop shim is listed as the
+  // claude.exe it leads to; a desktop version the app removed follows the
+  // app); until it looked again after a change, claude_path itself.
+  const key = c.choice === choice && typeof c.selected === 'string' ? c.selected : choice;
+  const typed = key && key !== 'desktop' && !ins.some((i) => samePath(i.path, key));
+  const sel = S.ui.claudeOther || typed ? 'other' : key;
+  const pick = (value) => { S.ui.claudeOther = false; setConfig('claude_path', value); };
+  const row = (o) => h('div', { class: 'choice' + (o.selected ? ' selected' : '') + (o.off ? ' off' : '') },
+    h('label', { class: 'grow' },
+      h('input', { type: 'radio', name: 'claudepick', checked: o.selected, disabled: o.off, onchange: o.pick }),
+      h('span', {}, h('b', {}, o.title, o.tag ? h('span', { class: 'pill ok', text: o.tag }) : null),
+        o.sub ? h('span', { class: 'small muted', text: o.sub }) : null, ...(o.more || []))),
+    o.button || null);
+
+  const auto = ins.find((i) => samePath(i.path, c.auto));
+  const desk = ins.find((i) => i.source === 'desktop' && !i.problem);
+  const out = [
+    row({ selected: sel === '', title: t('cc_auto'), pick: () => pick('auto'),
+      sub: auto ? t('cc_auto_now', { v: auto.version, src: claudeSource(auto.source) }) : t('cc_auto_none') }),
+    sel === '' ? h('label', { class: 'check choice-sub' },
+      h('input', { type: 'checkbox', checked: st.config.allow_desktop_bundle, onchange: (e) => setConfig('allow_desktop_bundle', e.target.checked) }),
+      h('span', { text: t('set_claude_bundle') })) : null,
+    row({ selected: sel === 'desktop', title: t('cc_desktop'), pick: () => pick('desktop'),
+      sub: desk ? t('cc_desktop_now', { v: desk.version }) : t('cc_desktop_none') }),
+  ];
+  // The copies that work first, newest first; then the others, with why.
+  const listed = ins.map((i, n) => ({ i, n })).sort((a, b) => (!!a.i.problem - !!b.i.problem) ||
+    (b.i.version || '').localeCompare(a.i.version || '', undefined, { numeric: true }) || a.n - b.n).map((x) => x.i);
+  for (const i of listed) {
+    const selected = sel !== 'other' && samePath(i.path, key);
+    const title = i.version ? 'Claude Code ' + i.version : i.problem === 'wrapper' ? i.path.split('\\').pop() : 'Claude Code';
+    out.push(row({ selected, off: !!i.problem && !selected, pick: () => pick(i.path),
+      title, tag: i.in_use ? t('cc_in_use') : '', sub: claudeSource(i.source),
+      more: [h('div', { class: 'small mono muted', text: i.path }), i.problem ? h('div', { class: 'small warn-text', text: claudeWhy(i, c.min) }) : null],
+      button: i.problem === 'too_old' && i.source !== 'desktop' ? claudeUpdateButton(st, i, t('cc_update')) : null }));
+  }
+  const input = h('input', { type: 'text', class: 'mono', placeholder: t('cc_other_hint'), value: S.ui.claudeOtherText ?? (typed ? choice : ''),
+    oninput: (e) => { S.ui.claudeOtherText = e.target.value; } });
+  const apply = async () => {
+    const p = cleanPath(input.value);
+    if (p && await setConfig('claude_path', p)) { S.ui.claudeOther = false; S.ui.claudeOtherText = undefined; render(); }
+  };
+  out.push(row({ selected: sel === 'other', title: t('cc_other'), pick: () => { S.ui.claudeOther = true; render(); } }),
+    sel === 'other' ? h('div', { class: 'inline choice-sub' }, input, h('button', { class: 'btn', text: t('apply'), onclick: apply })) : null);
+  return [h('h3', { id: 'claude-pick', text: t('set_claude_which'), class: 'mt14' }),
+    c.found && c.fallback ? h('div', { class: 'hint mb8', text: claudeFallbackText(c) }) : null,
+    ...out,
+    h('p', { class: 'small muted', text: t('cc_note') + ' ' + t('claude_which_note') })];
+}
+
 function viewSettings(st) {
   const c = st.config;
   const modeForm = { mode: c.switch_mode || '' }; // nothing is drawn as chosen until it is
@@ -1593,8 +1983,6 @@ function viewSettings(st) {
   const prompt = h('textarea', { text: c.continue_prompt });
   const share = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.share_user_config, onchange: (e) => setConfig('share_user_config', e.target.checked) }),
     h('span', { text: t('set_share') }));
-  const bundle = h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.allow_desktop_bundle, onchange: (e) => setConfig('allow_desktop_bundle', e.target.checked) }),
-    h('span', { text: t('set_claude_bundle') }));
 
   const advanced = h('details', { open: S.ui.advancedOpen, ontoggle: (e) => { S.ui.advancedOpen = e.target.open; } }, h('summary', { text: t('set_advanced') }), h('div', { class: 'mt12' },
     num('cooldown_seconds', t('set_cooldown')), num('max_switches_per_hour', t('set_max')), num('exhausted_retry_minutes', t('set_retry')),
@@ -1603,19 +1991,7 @@ function viewSettings(st) {
     share,
     h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: c.remote_control, onchange: (e) => setConfig('remote_control', e.target.checked) }),
       h('span', { text: t('set_rc') })),
-    h('h3', { text: t('set_claude'), class: 'mt14' }),
-    h('p', { class: 'small muted', text: st.claude.found ? st.claude.path : (st.claude.error || '') }),
-    st.claude.found && st.claude.old_cli ? h('p', { class: 'small muted', text: t('claude_old_cli_skipped', { v: st.claude.old_cli }) }) : null,
-    h('label', { class: 'field' }, h('span', { text: t('set_claude_which') }),
-      h('select', { onchange: (e) => setConfig('claude_path', e.target.value) },
-        h('option', { value: 'auto', text: t('claude_which_auto'), selected: !c.claude_path }),
-        h('option', { value: 'desktop', text: t('claude_which_desktop'), selected: c.claude_path === 'desktop' }),
-        c.claude_path && c.claude_path !== 'desktop' ? h('option', { value: c.claude_path, text: c.claude_path, selected: true }) : null),
-      h('div', { class: 'small muted', text: t('claude_which_note') })),
-    c.claude_path !== 'desktop' ? bundle : null,
-    c.claude_path && c.claude_path !== 'desktop' ? h('div', { class: 'actions start' }, h('span', { class: 'small mono', text: c.claude_path }),
-      h('button', { class: 'btn', text: t('set_claude_auto'), onclick: () => setConfig('claude_path', 'auto') })) : null,
-    h('p', { class: 'small muted', text: t('claude_custom_cli') })));
+    claudePicker(st)));
   const rules = h('div', { class: 'card' },
     h('div', { class: 'card-head' }, h('div', {}, h('h3', { text: t('set_rules') }), h('p', { class: 'small muted', text: t('set_rules_hint') })),
       h('button', { class: 'btn', text: t('rule_add'), disabled: !st.accounts.length, onclick: () => openRule(st) })),
@@ -1766,6 +2142,12 @@ function officeRoot() {
     accounts: () => (S.state ? S.state.accounts.map((a) => a.id) : []),
     focus: (runId) => api('sessions/focus', { run_id: runId }).catch(showError),
     popout: () => api('office/popout', {}).catch(showError),
+    // The side columns as this kind of window left them (config.json: the
+    // page's own storage is new every launch), and what is hidden.
+    layout: () => ((S.state && S.state.config.office_layout) || {})[officeOnly ? 'popout' : 'tab'] || {},
+    saveLayout: (p) => api('office/layout', Object.assign({ window: officeOnly ? 'popout' : 'tab' }, p)),
+    hide: (body) => api('office/hide', body),
+    error: showError,
   });
   return officeHost;
 }

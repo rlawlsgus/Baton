@@ -158,11 +158,12 @@ func TestCompareVersions(t *testing.T) {
 	if CompareVersions("2.1.308", "2.1.268") <= 0 || CompareVersions("2.1.9", "2.1.10") >= 0 || CompareVersions("2.1.0", "2.1.0") != 0 {
 		t.Fatal("version compare broken")
 	}
-	if _, err := CheckVersion("2.1.100"); err == nil {
+	if err := CheckVersion("2.1.100"); err == nil {
 		t.Error("too-old version accepted")
 	}
-	if w, err := CheckVersion("9.0.0"); err != nil || w == "" {
-		t.Error("newer-than-tested version should warn, not fail")
+	// There is no upper limit: newer versions are used as they come.
+	if err := CheckVersion("9.0.0"); err != nil {
+		t.Error("a version newer than tested was refused:", err)
 	}
 }
 

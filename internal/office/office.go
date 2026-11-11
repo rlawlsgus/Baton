@@ -52,6 +52,14 @@ type Sources struct {
 	Dirs     []Dir    // every config folder: each account's profile, and the user's own
 	Accounts []string // account ids in accounts.json order (it sets their colours)
 	Runs     []Run    // baton sessions whose supervisor runs now
+	// Partial: some config folder could not be listed this time (accounts.json
+	// unreadable, say). A floor whose project seems to have no conversations
+	// left then keeps its number: they may only be out of sight.
+	Partial bool
+	// What the user hid from the office: sessions by id, floors by project
+	// key (ProjectKey). Follow mode skips them; they stay listed, flagged.
+	HiddenSessions []string
+	HiddenFloors   []string
 }
 
 // Dir is a config folder with its conversations and session registry.
@@ -100,12 +108,19 @@ type Building struct {
 }
 
 type Floor struct {
-	Floor    int           `json:"floor"`
-	Name     string        `json:"name"`
-	Path     string        `json:"path"`
-	Live     bool          `json:"live"`
-	Busy     bool          `json:"busy"`
-	Last     time.Time     `json:"last"`
+	Floor int    `json:"floor"`
+	Name  string `json:"name"`
+	Path  string `json:"path"`
+	// Live and Busy go by the sessions not hidden.
+	Live bool      `json:"live"`
+	Busy bool      `json:"busy"`
+	Last time.Time `json:"last"`
+	// Count is how many conversations of the folder the office knows of
+	// (Sessions lists the newest 40), Shown how many of them are not hidden
+	// one by one; Hidden is the whole floor hidden.
+	Count    int           `json:"count"`
+	Shown    int           `json:"shown"`
+	Hidden   bool          `json:"hidden,omitempty"`
 	Sessions []SessionItem `json:"sessions"`
 }
 
@@ -117,7 +132,8 @@ type SessionItem struct {
 	Live    bool      `json:"live"`
 	Status  string    `json:"status,omitempty"` // idle | busy | waiting, while live
 	Account string    `json:"account,omitempty"`
-	Source  string    `json:"source"` // baton | cli | desktop
+	Source  string    `json:"source"`           // baton | cli | desktop
+	Hidden  bool      `json:"hidden,omitempty"` // the user hid it (its floor may be hidden as well)
 }
 
 var sessionRx = regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`)
@@ -158,6 +174,9 @@ type Tracker struct {
 	scanning  bool
 	scanned   bool
 	floors    *floors
+	partial   bool            // Sources.Partial, last look around
+	hiddenS   map[string]bool // sessions the user hid
+	hiddenF   map[string]bool // floors (project keys) the user hid
 	building  Building
 	bDigest   uint64
 	sessions  map[string]*session
@@ -206,6 +225,13 @@ func (t *Tracker) closed() bool {
 	}
 }
 
+// Refresh looks around again at once (the user hid or showed something):
+// follow mode and the building follow within a tick.
+func (t *Tracker) Refresh() {
+	t.rescan.Store(true)
+	t.kick()
+}
+
 func (t *Tracker) kick() {
 	select {
 	case t.wake <- struct{}{}:
@@ -251,6 +277,12 @@ func (t *Tracker) Poll(ctx context.Context, q Query) Response {
 			digest = digest*1099511628211 ^ s.digest
 			reset = !s.knows(q.Since)
 			news = !reset && s.lastSeq > q.Since
+		} else {
+			// The client still shows a conversation (since counts its
+			// events; an answer without one says 0) and none is shown now:
+			// everything it could follow was hidden between two polls, say.
+			// That is news at once, not at the next change.
+			news = q.Since > 0
 		}
 		if first {
 			start = digest
@@ -275,8 +307,10 @@ func (t *Tracker) Poll(ctx context.Context, q Query) Response {
 
 // answer builds a response. Call with mu held. Views and buildings are
 // never changed once made, so the response can be encoded after unlocking.
+// Without a conversation Seq is 0: there are no events to ask after, and a
+// poll with since 0 and none to show waits for news.
 func (t *Tracker) answer(s *session, since int64, reset bool, now time.Time) Response {
-	r := Response{Seq: t.seq, Reset: reset, Me: t.opt.Me, Now: utc(now), Building: t.building, Events: []Event{},
+	r := Response{Reset: reset, Me: t.opt.Me, Now: utc(now), Building: t.building, Events: []Event{},
 		Accounts: append([]string{}, t.accounts...)}
 	if s == nil {
 		return r

@@ -50,6 +50,10 @@ func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
+// Replace renames from over to, as WriteFileAtomic does with its temp file
+// (for a temp file named some other way).
+func Replace(from, to string) error { return replace(from, to) }
+
 // replace renames from over to. A POSIX-semantics rename works even while
 // another process holds the destination open (a reader, `tail -f`, an
 // indexer); plain MoveFileEx fails then, so it is only the fallback.

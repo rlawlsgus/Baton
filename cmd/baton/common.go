@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,6 +34,9 @@ func load() (*env, error) {
 	if err := p.Ensure(); err != nil {
 		return nil, err
 	}
+	// Each `claude --version` takes about a second; the versions found are
+	// kept for every baton process.
+	claude.UseVersionCache(filepath.Join(p.Root, "claude-versions.json"))
 	cfg, err := config.Load(p.Config())
 	if err != nil {
 		return nil, err
@@ -44,34 +48,88 @@ func load() (*env, error) {
 	return &env{paths: p, cfg: cfg, reg: reg}, nil
 }
 
-// resolveClaude finds a claude.exe that baton can use and checks its version.
+// resolveClaude finds the Claude Code to use (see claude.Choose).
 func (e *env) resolveClaude() (claude.Install, error) {
 	inst, _, err := e.resolveClaudeAll()
 	return inst, err
 }
 
-// resolveClaudeAll is resolveClaude that also says which copies of Claude
-// Code it passed over (too old, or not runnable).
+// resolveClaudeAll is resolveClaude that also returns every copy of Claude
+// Code found. When the one chosen in the settings cannot be used now, it says
+// in one line which one is used instead.
 func (e *env) resolveClaudeAll() (claude.Install, []claude.Install, error) {
+	inst, all, fb, err := e.findClaude()
+	if fb != nil {
+		fmt.Fprintln(os.Stderr, fallbackLine(fb, inst))
+	}
+	if inst.Problem == claude.ProblemKnownBad {
+		fmt.Fprintf(os.Stderr, say("baton: warning: Claude Code %s has a known problem with baton (%s); update it\n",
+			"baton: 주의: Claude Code %s에는 baton과 맞지 않는 알려진 문제가 있습니다 (%s). 업데이트하세요\n"), inst.Version, inst.Detail)
+	}
+	return inst, all, err
+}
+
+func (e *env) findClaude() (claude.Install, []claude.Install, *claude.Fallback, error) {
 	base, _ := envx.Build(os.Environ(), nil)
-	inst, skipped, err := claude.ResolveUsable(e.cfg.ClaudePath, e.cfg.DesktopBundleAllowed(), base)
-	if err != nil {
-		var old *claude.TooOldError
-		switch {
-		case !errors.As(err, &old):
-		case inst.Source == "config":
-			err = fmt.Errorf("%w; or reset claude_path with: baton config claude_path auto", err)
-		case inst.Source != "desktop" && claude.DesktopAppInstalled() && e.cfg.DesktopBundleAllowed():
-			err = fmt.Errorf("%w; or update the Claude desktop app and open its Code tab once: baton then uses the Claude Code that comes with it", err)
-		}
-		return inst, skipped, err
+	return claude.ResolveUsable(e.cfg.ClaudePath, e.cfg.DesktopBundleAllowed(), base)
+}
+
+// fallbackLine says that the Claude Code chosen is not available and which
+// one is used for now.
+func fallbackLine(fb *claude.Fallback, inst claude.Install) string {
+	wanted := fb.Wanted
+	if wanted == claude.DesktopChoice {
+		wanted = say("the Claude desktop app's", "Claude 데스크톱 앱의 것")
 	}
-	warn, _ := claude.CheckVersion(inst.Version)
-	if warn != "" {
-		fmt.Fprintln(os.Stderr, say("baton: warning: "+warn,
-			fmt.Sprintf("baton: 참고: Claude Code %s는 이 baton으로 시험한 최신 버전(%s)보다 새 버전입니다", inst.Version, claude.TestedMax)))
+	why := say("it is no longer there", "더 이상 없음")
+	switch fb.Why {
+	case claude.ProblemTooOld:
+		why = say("it is too old", "버전이 너무 낮음")
+	case claude.ProblemNotRunnable:
+		why = say("it does not start", "실행되지 않음")
+	case claude.ProblemInstalling:
+		why = say("the Claude app is still installing it", "Claude 앱이 설치하는 중")
+	case claude.ProblemWrapper:
+		why = say("it is a .cmd/.ps1 wrapper", ".cmd/.ps1 래퍼임")
+	case claude.ProblemKnownBad:
+		why = say("it has a known problem with baton", "baton과 맞지 않는 문제가 있음")
+	case claude.ProblemNotSetUp:
+		why = say("the Claude desktop app has not set up its Claude Code yet (open its Code tab once)",
+			"Claude 데스크톱 앱이 아직 Claude Code를 준비하지 않음 (Code 탭을 한 번 여세요)")
 	}
-	return inst, skipped, nil
+	return fmt.Sprintf(say("baton: the Claude Code you chose (%s) is not available (%s); using Claude Code %s from %s for now",
+		"baton: 선택한 Claude Code(%s)를 쓸 수 없어(%s) 지금은 %[4]s의 Claude Code %[3]s 버전을 씁니다"), wanted, why, inst.Version, installSource(inst.Source))
+}
+
+// installSource says where a copy of Claude Code comes from.
+func installSource(src string) string {
+	switch src {
+	case "desktop":
+		return say("the Claude desktop app", "Claude 데스크톱 앱")
+	case "native":
+		return say("the native installer", "기본 설치 프로그램")
+	case "npm":
+		return "npm"
+	case "winget":
+		return "WinGet"
+	case "scoop":
+		return "Scoop"
+	case "path":
+		return "PATH"
+	}
+	return say("the path you set", "직접 지정한 경로")
+}
+
+// claudeForLogout is a Claude Code that can sign profiles out, however old:
+// removing an account must not leave its login behind because the Claude
+// Code found is too old for sessions.
+func (e *env) claudeForLogout() (string, bool) {
+	inst, all, _, err := e.findClaude()
+	if err == nil {
+		return inst.Path, true
+	}
+	i, ok := claude.AnyRunnable(all)
+	return i.Path, ok
 }
 
 // loadState reads the account ledger. If it cannot be read, that is said
@@ -92,6 +150,18 @@ func (e *env) refreshAuth(exe string, a *accounts.Account) error {
 	if err != nil {
 		return err
 	}
+	applyAuth(a, st, a.ProfileDir)
+	return nil
+}
+
+// applyAuth records what `claude auth status` said about the account whose
+// profile is profileDir. The status has no account id, which the Claude
+// desktop app names its per-account folders after: it comes from the
+// profile's own .claude.json, when that is the sign-in the status describes
+// (same organization and email). A signed-out profile keeps the ids it had:
+// the desktop app signs in on its own, so its list for that account stays.
+func applyAuth(a *accounts.Account, st claude.AuthStatus, profileDir string) {
+	keepUUID, keepOrg := a.AccountUUID, a.OrgID
 	a.LoggedIn = st.LoggedIn
 	a.AuthMethod = st.AuthMethod
 	if st.APIProvider != "" && st.APIProvider != "firstParty" {
@@ -103,7 +173,15 @@ func (e *env) refreshAuth(exe string, a *accounts.Account) error {
 	a.OrgName = st.OrgName
 	a.Subscription = st.Subscription
 	a.CheckedAt = time.Now()
-	return nil
+	switch {
+	case !st.LoggedIn:
+		a.AccountUUID, a.OrgID = keepUUID, keepOrg
+	case a.AuthMethod == "claude.ai" && a.AccountUUID == "":
+		id, org, email := claude.OAuthIdentity(profileDir)
+		if id != "" && org != "" && strings.EqualFold(org, st.OrgID) && email != "" && strings.EqualFold(email, st.Email) {
+			a.AccountUUID = id
+		}
+	}
 }
 
 // say picks the Korean text when the baton window asked for Korean

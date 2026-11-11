@@ -79,11 +79,12 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	get := map[string]func(http.ResponseWriter, *http.Request){
-		"state":         s.apiState,
-		"conversations": s.apiConversations,
-		"changes":       s.apiChanges,
-		"folder/info":   s.apiFolderInfo,
-		"office":        s.apiOffice,
+		"state":          s.apiState,
+		"conversations":  s.apiConversations,
+		"changes":        s.apiChanges,
+		"folder/info":    s.apiFolderInfo,
+		"office":         s.apiOffice,
+		"desktop/places": s.apiDesktopPlaces,
 	}
 	post := map[string]func(http.ResponseWriter, *http.Request){
 		"accounts/add":     s.apiAddOrLogin("add"),
@@ -106,6 +107,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"rules/set":        s.apiRuleSet,
 		"rules/remove":     s.apiRuleRemove,
 		"claude/refresh":   s.apiClaudeRefresh,
+		"claude/update":    s.apiClaudeUpdate,
 		"install":          s.apiInstall,
 		"uninstall":        s.apiUninstall,
 		"update/check":     s.apiUpdateCheck,
@@ -113,6 +115,9 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"doctor":           s.apiDoctor,
 		"open":             s.apiOpen,
 		"office/popout":    s.apiOfficePopout,
+		"office/layout":    s.apiOfficeLayout,
+		"office/hide":      s.apiOfficeHide,
+		"desktop/apply":    s.apiDesktopApply,
 	}
 	switch r.Method {
 	case http.MethodGet:
@@ -415,6 +420,7 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--account", req.Account)
 	}
 	var cargs []string // Claude Code's own options, after "--"
+	sid, where := req.SessionID, req.Where
 	switch req.Mode {
 	case "", "new":
 	case "continue":
@@ -424,14 +430,10 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 			fail(w, http.StatusBadRequest, "no_conversation", "no conversation in this folder yet", "")
 			return
 		}
-		t, code := s.findTranscript(latest[0].SessionID, s.whereOf(latest[0].ConfigDir), req.Copy)
-		if code != "" {
-			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
-			return
-		}
-		cargs = append(cargs, "--resume", t)
+		sid, where = latest[0].SessionID, s.whereOf(latest[0].ConfigDir)
+		fallthrough
 	case "resume":
-		t, code := s.findTranscript(req.SessionID, req.Where, req.Copy)
+		t, code := s.findTranscript(sid, where)
 		if code != "" {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
 			return
@@ -441,10 +443,27 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad_request", "mode must be new, continue or resume", "")
 		return
 	}
-	if req.Copy && (req.Mode == "continue" || req.Mode == "resume") {
+	resumes, copied, holder := len(cargs) > 0, false, ""
+	if resumes && !req.Copy {
+		// Another Claude Code writing the same conversation would split it:
+		// when a baton session runs it, that session's window comes to the
+		// front instead; when anything else has it open, it goes on in a copy.
+		h := run.HeldBy(s.allConfigDirs(), s.opt.Paths.RunsDir(), sid, supervisorAlive)
+		if h.Run != nil {
+			s.focusInstead(w, *h.Run)
+			return
+		}
+		copied, holder = len(h.Holders) > 0, h.Entrypoint()
+	}
+	if resumes && (req.Copy || copied) {
 		// Claude Code reads the conversation and goes on under a new session
 		// id in the account's profile; the original file is never written.
 		cargs = append(cargs, "--fork-session")
+	}
+	if copied {
+		// Not a copy the user asked for: where the conversation shows in the
+		// desktop app goes along with the session.
+		args = append(args, "--auto-copy-of", strings.ToLower(sid))
 	}
 	if req.RemoteControl {
 		// Kept on every relaunch, so it comes back on after a switch.
@@ -471,7 +490,22 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "spawn", err.Error(), "")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, map[string]bool{"ok": true})
+	if copied {
+		// The page says so: the conversation was not open when it last looked.
+		writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "copied": true, "holder": holder})
+		return
+	}
+	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true})
+}
+
+// focusInstead answers a start of a conversation that a baton session runs
+// already: that session's window comes to the front, and nothing starts.
+func (s *Server) focusInstead(w http.ResponseWriter, j run.Journal) {
+	if s.opt.Focus == nil || j.ConsoleWindow == 0 || s.opt.Focus(uintptr(j.ConsoleWindow)) != nil {
+		fail(w, http.StatusConflict, "in_baton", "this conversation is already running in baton", "")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "focused": j.RunID})
 }
 
 // apiRuleSet adds or replaces the rule for a folder.
@@ -531,11 +565,17 @@ func (s *Server) apiRuleRemove(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
-// allConfigDirs are every folder conversations live in.
+// allConfigDirs are every folder conversations live in: the accounts'
+// profiles first, then the user's own setup. A conversation baton shows in
+// the desktop app has a second name there, and the lists keep the first.
 func (s *Server) allConfigDirs() []string {
+	reg, _ := accounts.Load(s.opt.Paths.Accounts())
 	var all []string
-	for _, d := range s.configDirs() {
-		all = append(all, d)
+	for _, a := range reg.Accounts {
+		all = append(all, a.ProfileDir)
+	}
+	if h := share.UserHome(s.opt.Paths.ProfilesDir()); h != "" {
+		all = append(all, h)
 	}
 	return all
 }
@@ -553,9 +593,8 @@ func (s *Server) whereOf(dir string) string {
 var sessionIDRx = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // findTranscript finds a conversation by session id in one config folder:
-// a regular .jsonl file directly inside <folder>\projects\<project>, which no
-// other Claude Code is writing right now (unless only a copy of it goes on).
-func (s *Server) findTranscript(sessionID, where string, copy bool) (string, string) {
+// a regular .jsonl file directly inside <folder>\projects\<project>.
+func (s *Server) findTranscript(sessionID, where string) (string, string) {
 	if !sessionIDRx.MatchString(sessionID) {
 		return "", "bad_transcript"
 	}
@@ -570,13 +609,6 @@ func (s *Server) findTranscript(sessionID, where string, copy bool) (string, str
 	fi, err := os.Lstat(t)
 	if err != nil || !fi.Mode().IsRegular() {
 		return "", "bad_transcript"
-	}
-	var all []string
-	for _, d := range s.configDirs() {
-		all = append(all, d)
-	}
-	if !copy && len(claude.Holders(all, sessionID)) > 0 {
-		return "", "open_elsewhere"
 	}
 	return t, ""
 }
@@ -596,11 +628,10 @@ func (s *Server) configDirs() map[string]string {
 }
 
 func (s *Server) profileDirs() []string {
+	reg, _ := accounts.Load(s.opt.Paths.Accounts())
 	var out []string
-	for where, d := range s.configDirs() {
-		if where != "claude-code" {
-			out = append(out, d)
-		}
+	for _, a := range reg.Accounts {
+		out = append(out, a.ProfileDir)
 	}
 	return out
 }
@@ -621,19 +652,19 @@ type conversationView struct {
 	Open          bool      `json:"open"`             // another Claude Code (such as the desktop app) has it open now
 	Holder        string    `json:"holder,omitempty"` // what has it open: claude-desktop, cli, claude-vscode...
 	Modified      time.Time `json:"modified"`
+	// InBaton: a baton session runs it now (a start brings that window forward).
+	InBaton bool `json:"in_baton,omitempty"`
 }
 
 // apiConversations lists the conversations of one folder (?folder=), or the
 // newest of every folder (?all=1) for bringing in ones from Claude Code.
 func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	list := []conversationView{}
-	dirs := s.configDirs()
 	whereOf := map[string]string{}
-	var all []string
-	for where, d := range dirs {
+	for where, d := range s.configDirs() {
 		whereOf[strings.ToLower(filepath.Clean(d))] = where
-		all = append(all, d)
 	}
+	all := s.allConfigDirs()
 	var found []claude.Transcript
 	if r.URL.Query().Get("all") == "1" {
 		found = claude.ListAllTranscripts(all, 200)
@@ -646,6 +677,7 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		found = claude.ListTranscripts(all, folder, 20)
 	}
 	open := claude.OpenSessions(all)
+	inBaton := s.batonHeld(open)
 	for _, t := range found {
 		_, problem := checkFolder(t.Cwd)
 		if problem == "bad_folder" && driveRx.MatchString(filepath.Clean(t.Cwd)) {
@@ -653,9 +685,36 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, conversationView{SessionID: t.SessionID, Where: whereOf[strings.ToLower(filepath.Clean(t.ConfigDir))],
 			Title: t.Title, FirstPrompt: t.FirstPrompt, Cwd: t.Cwd, FolderOK: problem == "", FolderProblem: problem,
-			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], Modified: t.Modified})
+			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], InBaton: inBaton[t.SessionID], Modified: t.Modified})
 	}
 	writeJSON(w, http.StatusOK, list)
+}
+
+// batonHeld picks, of the open conversations, the ones a running baton
+// session's claude has open (the claude its run started, or one that one
+// started).
+func (s *Server) batonHeld(open map[string]string) map[string]bool {
+	out := map[string]bool{}
+	if len(open) == 0 {
+		return out
+	}
+	var kids []int
+	for _, j := range run.Active(s.opt.Paths.RunsDir(), supervisorAlive) {
+		if j.ChildPID > 0 {
+			kids = append(kids, j.ChildPID)
+		}
+	}
+	if len(kids) == 0 {
+		return out
+	}
+	for sid, list := range claude.LiveByConversation(s.allConfigDirs()) {
+		for _, o := range list {
+			if open[sid] != "" && claude.StartedBy(o, kids...) {
+				out[sid] = true
+			}
+		}
+	}
+	return out
 }
 
 func (s *Server) apiStop(w http.ResponseWriter, r *http.Request) {
@@ -851,7 +910,7 @@ func (s *Server) apiConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	if req.Key == "claude_path" || req.Key == "allow_desktop_bundle" {
-		s.claudeAt = time.Time{} // look for Claude Code again
+		s.claudeAgainLocked()
 	}
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -905,9 +964,46 @@ func (s *Server) apiUninstall(w http.ResponseWriter, r *http.Request) {
 // desktop app's Code tab, or updated it).
 func (s *Server) apiClaudeRefresh(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	s.claudeAt = time.Time{}
+	s.claudeAgainLocked()
 	s.mu.Unlock()
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+// apiClaudeUpdate runs an old Claude Code CLI's own `claude update` in a
+// console window, where the user sees it download. The path comes from the
+// page, so it must be a copy this window found itself, too old for baton and
+// not the desktop app's (the app updates that one); `baton claude-update`
+// checks again.
+func (s *Server) apiClaudeUpdate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Path string `json:"path"`
+	}
+	if !readJSON(w, r, &req) {
+		return
+	}
+	s.mu.Lock()
+	found, busy := false, false
+	for _, i := range s.claude.Installs {
+		if i.Path == req.Path && i.Source != "desktop" && i.Problem == claude.ProblemTooOld {
+			found = true
+		}
+	}
+	for _, j := range s.jobs {
+		busy = busy || j.running() && j.kind == "claude-update"
+	}
+	s.mu.Unlock()
+	switch {
+	case !found:
+		fail(w, http.StatusBadRequest, "not_updatable", "that is not a Claude Code CLI baton found too old", "")
+	case busy:
+		fail(w, http.StatusConflict, "claude_updating", "a Claude Code update is already running", "")
+	default:
+		if err := s.console("claude-update", req.Path, "", []string{"claude-update", req.Path}); err != nil {
+			fail(w, http.StatusInternalServerError, "spawn", err.Error(), "")
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	}
 }
 
 func (s *Server) apiDoctor(w http.ResponseWriter, r *http.Request) {
@@ -1062,6 +1158,12 @@ func (s *Server) consoleJob(kind, target, dir string, args []string, resultFile 
 		s.mu.Unlock()
 		if kind == "add" || kind == "login" {
 			s.StartCheck() // pick up the new sign-in at once
+		}
+		if kind == "claude-update" {
+			claude.ForgetVersion(target) // it may have been updated in place
+			s.mu.Lock()
+			s.claudeAgainLocked()
+			s.mu.Unlock()
 		}
 	}()
 	return nil

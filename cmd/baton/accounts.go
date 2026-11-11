@@ -571,9 +571,9 @@ func cmdRemove(args []string) error {
 	} else if n > 0 {
 		fmt.Fprintf(os.Stderr, say("baton: moved %d conversation(s) to %s\n", "baton: 대화 %d개를 %s 폴더로 옮겼습니다\n"), n, filepath.Join(home, "projects"))
 	}
-	if inst, err := e.resolveClaude(); err == nil {
+	if exe, ok := e.claudeForLogout(); ok {
 		pe, _ := envx.ForProfile(dir, nil)
-		if _, err := claude.RunInteractive(inst.Path, []string{"auth", "logout"}, pe, dir); err != nil {
+		if _, err := claude.RunInteractive(exe, []string{"auth", "logout"}, pe, dir); err != nil {
 			fmt.Fprintln(os.Stderr, "baton: warning: logout failed:", err)
 		}
 	}
