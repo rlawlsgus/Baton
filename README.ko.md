@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.8.0-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.8.1-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -149,7 +149,7 @@ baton resume 2cd067ab-193c-4e56-baa2-0b34dc203160
 
 ## Claude 데스크톱 앱에 세션 표시하기
 
-실행 중인 세션(*자세히* 안)이나 *최근 세션*에서 **데스크톱 앱 표시…**를 누르고, Code 탭 목록에 이 세션을
+실행 중인 세션(*자세히* 안)이나 *최근 세션*에서 **데스크톱 앱에 표시할 계정 선택**을 누르고, Code 탭 목록에 이 세션을
 보여 줄 Claude 데스크톱 앱 계정을 체크한 뒤 **적용**을 누르세요. 체크하지 않은 계정에서는 보이지 않습니다.
 데스크톱 앱에 지금 로그인된 계정은 baton 계정이 아니어도 목록에 나옵니다. 아무것도 업로드되지 않습니다.
 데스크톱 앱이 이 PC에 있는 같은 대화를 열기 때문에, 어느 쪽에서 나눈 대화든 다른 쪽에도 보입니다. 첫
@@ -250,7 +250,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.8.0_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.8.1_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -295,7 +295,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.8.0
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.8.1
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.

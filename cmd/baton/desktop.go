@@ -13,7 +13,7 @@ import (
 // cmdDesktop says in which accounts' Claude desktop app a conversation is
 // listed, and changes that (--show, --hide: baton's account names, or
 // "desktop" for the account the desktop app is signed in to when it is none
-// of baton's). It does what the window's "Desktop app…" dialog does.
+// of baton's). It does what the window's "Choose desktop app accounts" dialog does.
 func cmdDesktop(args []string) error {
 	const usage = "baton desktop <session-id> [--show <accounts>] [--hide <accounts>]"
 	fs := newFlags("desktop", usage)

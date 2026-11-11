@@ -23,7 +23,7 @@ const T = {
     run_asking: '세션 창에서 확인을 기다리는 중', run_ending: '세션을 끝내는 중', run_on: '{a} 계정', run_since: '{t} 시작',
     asking_stop_hint: '세션을 끝내려면 세션 창에서 Ctrl+C를 누르세요 (n은 지금 계정에서 계속합니다).',
     ended_console: '끝난 세션 창이 아직 열려 있습니다. 그 창에서 Enter를 누르면 닫힙니다.', retry_now: '{a} 계정으로 지금 다시 시도',
-    switch_btn: '다른 계정으로', switch_auto: '다음 계정으로 (자동 선택)', switch_to: '{a}(으)로', open_folder: '폴더 열기', open_log: '기록',
+    switch_btn: '다른 계정으로 전환', switch_auto: '다음 계정으로 (자동 선택)', switch_to: '{a}(으)로', open_folder: '폴더 열기', open_log: '기록',
     switch_asked: '전환을 요청했습니다. 현재 응답이 끝나면(최대 1분) 전환됩니다.', asking_hint: '세션 창에 나타난 질문에 답하세요.',
     switch_asked_confirm: '전환을 요청했습니다. 현재 응답이 끝나면 세션 창에서 전환할지 묻습니다. Enter로 확인하세요.',
     recent_title: '최근 전환', recent_none: '아직 전환 기록이 없습니다.',
@@ -92,7 +92,7 @@ const T = {
     cc_why_not_set_up: 'Claude 데스크톱 앱이 아직 Claude Code를 준비하지 않음 (Code 탭을 한 번 여세요)',
     recheck: '다시 확인', elevated: 'baton이 관리자 권한으로 실행 중입니다. 세션도 관리자 권한으로 실행되니, 창을 닫고 일반 권한으로 다시 여세요.',
     // start dialog
-    start_title: '새 세션 시작', start_folder: '작업할 폴더', browse: '찾아보기…', recent_folders: '최근 폴더',
+    start_title: '새 세션 시작', start_folder: '작업할 폴더', browse: '찾아보기', recent_folders: '최근 폴더',
     start_account: '시작할 계정', account_auto: '자동 (사용 가능한 계정 중 우선순위대로)',
     start_conv: '대화', conv_new: '새 대화', conv_continue: '이 폴더의 마지막 대화 이어하기', conv_pick: '목록에서 고르기',
     conv_none: '이 폴더에서 한 대화가 없습니다.', conv_loading: '대화 목록을 불러오는 중…', conv_untitled: '(제목 없음)', conv_latest: '이어 갈 대화: {p}',
@@ -226,7 +226,7 @@ const T = {
     upd_failed: '업데이트하지 못했습니다: {e}', upd_err_sessions: '실행 중인 세션이 있습니다. 세션을 모두 끝낸 뒤 업데이트하세요(세션이 baton.exe를 쓰고 있습니다).',
     upd_err_windows: 'baton이 연 창(세션 창이나 로그인 창)이 아직 열려 있습니다. 그 창들을 닫은 뒤 업데이트하세요.',
     upd_banner: 'baton {v}이(가) 나왔습니다.', upd_banner_go: '자세히', set_upd: 'baton을 열 때 새 버전이 있는지 확인 (GitHub)',
-    uninstall_go: '제거…', uninstall_confirm: '이 창이 닫히고, 제거 창에서 한 번 더 확인합니다. 실행 중인 세션이 있으면 먼저 끝내세요.', uninstall_ok: '제거 창 열기',
+    uninstall_go: '제거', uninstall_confirm: '이 창이 닫히고, 제거 창에서 한 번 더 확인합니다. 실행 중인 세션이 있으면 먼저 끝내세요.', uninstall_ok: '제거 창 열기',
     // office
     office_set: '사무실 보기 (재미 기능)',
     office_set_hint: '이 PC의 Claude Code 대화를 사무실에서 일하는 사람들로 보여 줍니다. 사무실 탭이 생기고, 따로 띄워 다른 모니터에 둘 수도 있습니다. 대화 기록을 읽기만 하고 아무것도 바꾸지 않습니다.',
@@ -284,7 +284,7 @@ const T = {
     err_bad_folder: '있는 폴더를 고르세요 (내 PC의 폴더, 예: C:\\Users\\…).', err_long_folder: '경로가 너무 깁니다. 더 짧은 경로의 폴더를 고르세요.',
     ago_now: '방금', ago_min: '{n}분 전', ago_hour: '{n}시간 전', ago_day: '{n}일 전',
     // showing a session in the Claude desktop app
-    dk_btn: '데스크톱 앱 표시…', dk_btn_wait: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.',
+    dk_btn: '데스크톱 앱에 표시할 계정 선택', dk_btn_wait: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.',
     dk_title: 'Claude 데스크톱 앱에 표시', dk_loading: '데스크톱 앱을 살펴보는 중…', dk_apply: '적용',
     dk_intro: '이 세션을 Code 탭 목록에 보여 줄 Claude 데스크톱 앱 계정을 고르세요. 체크하지 않은 계정에서는 보이지 않습니다. 아무것도 업로드되지 않으며, 데스크톱 앱이 이 컴퓨터에 있는 같은 대화를 엽니다.',
     dk_active: '지금 데스크톱 앱에 로그인된 계정', dk_used: '데스크톱 앱에서 이 계정으로 바꾸면 보입니다',
@@ -409,7 +409,7 @@ const T = {
     claude_cli_old_app: 'If you do not use the CLI itself, opening the Code tab of the Claude desktop app once also works: baton then uses the Claude Code that comes with the app.',
     cc_why_not_set_up: 'the Claude desktop app has not set up its Claude Code yet (open its Code tab once)',
     recheck: 'Check again', elevated: 'baton is running as administrator, so sessions would too. Close it and open it again normally.',
-    start_title: 'Start a session', start_folder: 'Project folder', browse: 'Browse…', recent_folders: 'Recent folders',
+    start_title: 'Start a session', start_folder: 'Project folder', browse: 'Browse', recent_folders: 'Recent folders',
     start_account: 'Account', account_auto: 'Automatic (first available, in order)',
     start_conv: 'Conversation', conv_new: 'New conversation', conv_continue: 'Continue the last conversation in this folder', conv_pick: 'Choose from the list',
     conv_none: 'No conversations in this folder yet.', conv_loading: 'Loading conversations…', conv_untitled: '(untitled)', conv_latest: 'Continues: {p}',
@@ -536,7 +536,7 @@ const T = {
     upd_failed: 'Could not update: {e}', upd_err_sessions: 'Sessions are running. End them all, then update (they use baton.exe).',
     upd_err_windows: 'Windows that baton opened (session or sign-in windows) are still open. Close them, then update.',
     upd_banner: 'baton {v} is out.', upd_banner_go: 'Details', set_upd: 'Check for a newer baton when it opens (GitHub)',
-    uninstall_go: 'Uninstall…', uninstall_confirm: 'This window closes and the uninstall window asks once more. End running sessions first.', uninstall_ok: 'Open uninstall',
+    uninstall_go: 'Uninstall', uninstall_confirm: 'This window closes and the uninstall window asks once more. End running sessions first.', uninstall_ok: 'Open uninstall',
     office_set: 'Show the office (just for fun)',
     office_set_hint: 'Shows the Claude Code conversations on this PC as people at work in an office. An Office tab appears, and the office can pop out into a window of its own for another screen. It only reads the conversations and changes nothing.',
     office_window_title: 'baton office', office_floor_guide: 'Floor guide', office_follow: 'Follow the latest session', office_no_floors: 'No floors yet.',
@@ -592,7 +592,7 @@ const T = {
     err_bad_folder: 'Choose an existing folder on this PC (e.g. C:\\Users\\…).', err_long_folder: 'That path is too long. Choose a folder with a shorter path.',
     ago_now: 'just now', ago_min: '{n} min ago', ago_hour: '{n} h ago', ago_day: '{n} d ago',
     // showing a session in the Claude desktop app
-    dk_btn: 'Desktop app…', dk_btn_wait: 'It can show in the desktop app after its first message.',
+    dk_btn: 'Choose desktop app accounts', dk_btn_wait: 'It can show in the desktop app after its first message.',
     dk_title: 'Show in the Claude desktop app', dk_loading: 'Looking at the desktop app…', dk_apply: 'Apply',
     dk_intro: 'Pick the accounts whose Claude desktop app lists this session in its Code tab. It is not listed for the accounts you leave unticked. Nothing is uploaded: the desktop app opens the same conversation on this computer.',
     dk_active: 'Signed in to the desktop app now', dk_used: 'Shows when you switch to this account in the desktop app',
@@ -1056,7 +1056,7 @@ function runRow(st, r) {
       if (waiting && (v === r.account || !r.account)) toast(v === '*' ? t('switch_now_any') : t('switch_now', { a: v }));
       else toast(confirmMode ? t('switch_asked_confirm') : t('switch_asked'));
     } catch (err) { showError(err); }
-  } }, h('option', { value: '', text: t('switch_btn') + '…' }),
+  } }, h('option', { value: '', text: t('switch_btn') }),
   autoOk ? h('option', { value: '*', text: t('switch_auto') }) : null,
   others.map((a) => h('option', { value: a.id, text: t('switch_to', { a: a.id }) })),
   // While waiting for a reset, the current account can be tried again now.
