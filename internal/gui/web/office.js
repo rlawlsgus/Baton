@@ -1191,7 +1191,8 @@
       case 'error': return { act: 'fail', flash: ['fail', d, 6], dwell: 1600, mood: 'oops' };
       case 'deny': return { act: 'deny', flash: ['deny', d || t('office_b_denied'), 3.5], dwell: 1000 };
       case 'compact': return { act: 'note', flash: ['note', '🗜 ' + t('office_b_compact'), 3.5], dwell: 900 };
-      case 'idle': return { act: 'idle', room: main ? 'lounge' : null };
+      // Claude waits at its desk while its subagents work (they report there).
+      case 'idle': return { act: 'idle', room: main ? (ev.room === 'seat' ? 'seat' : 'lounge') : null };
       case 'hire': return null; // the newcomer arrives on its own
       case 'report': return { act: 'report', room: 'seat', arriveFlash: ['report', '📋 ' + t('office_b_report'), 3.5], dwell: 2400 };
       case 'leave': return { act: 'leave', room: 'elevator', flash: ['leave', t('office_b_leave'), 8] };
@@ -1328,9 +1329,28 @@
     }
     // Too much queued: skip ahead, keeping the latest few steps (and leaving).
     if (a.queue.length > 14) a.queue = a.queue.filter((s, i) => i >= a.queue.length - 8 || s.act === 'leave');
+    // Claude stays at its desk while a subagent still comes to report there:
+    // the walk over can take longer than the report does in the snapshot.
+    if (a.kind === 'claude' && toLounge(a) && reportDue(now)) return;
     const next = a.queue.shift();
     if (next) begin(a, next, now);
     else settle(a, now);
+  }
+  // toLounge: what Claude does next is going to the lounge.
+  function toLounge(a) {
+    const s = a.queue[0];
+    if (s) return s.act === 'idle' && s.room === 'lounge';
+    return !!a.snap && a.snap.state === 'idle' && a.snap.room === 'lounge' && a.settled !== settleKey(a.snap);
+  }
+  // reportDue: a subagent is on its way to Claude's desk to report, or
+  // reporting there.
+  function reportDue(now) {
+    for (const o of actors.values()) {
+      if (o.kind !== 'agent' || o.gone) continue;
+      if (o.cur && o.cur.act === 'report' && !(o.cur.arrived && now >= o.cur.until)) return true;
+      if (o.queue.some((s) => s.act === 'report')) return true;
+    }
+    return false;
   }
 
   // ---- the elevator ----------------------------------------------------------------------
@@ -1490,7 +1510,7 @@
       case 'prompt': return ['🙋', '“' + d + '”'];
       case 'error': return ['⚠️', d];
       case 'compact': return ['🗜', t('office_l_compact')];
-      case 'idle': return ['☕', t('office_l_idle')];
+      case 'idle': return ev.room === 'seat' ? ['🪑', t('office_l_wait')] : ['☕', t('office_l_idle')];
       case 'hire': return ['📞', t('office_l_hire', { type: ev.type || t('office_agent') }) + (d ? ' · ' + d : '')];
       case 'report': return ['📋', t('office_l_report')];
       case 'leave': return ['👋', t('office_l_leave')];
@@ -2256,13 +2276,16 @@
     const s = a.snap;
     const st = s.state || 'idle';
     const room = s.room || '';
+    // Claude, its turn over, waits at its desk for its subagents.
+    const waits = st === 'idle' && a.kind === 'claude' && room === 'seat' && !!view &&
+      (view.actors || []).some((x) => x.kind === 'agent' && x.state !== 'leaving');
     let doing;
     if (st === 'working' && s.tool) doing = (ROOM_ICON[room] || '🔧') + ' ' + t('office_room_' + room) + ' · ' + (s.detail || s.tool);
     else if (st === 'thinking') doing = '💭 ' + t('office_b_think') + '…';
     else if (st === 'asking') doing = '❓ ' + (s.detail || t('office_b_ask'));
     else if (st === 'talking' && view && view.say && view.say.actor === s.id) doing = '💬 ' + view.say.text;
     else if (st === 'error') doing = '⚠️ ' + (s.detail || (s.tool ? t('office_l_fail', { d: s.tool }) : t('office_st_error')));
-    else if (st === 'idle') doing = a.kind === 'me' ? '💻 ' + t('office_room_desk') : '☕ ' + t('office_room_lounge');
+    else if (st === 'idle') doing = a.kind === 'me' ? '💻 ' + t('office_room_desk') : waits ? '🪑 ' + t('office_wait') : room === 'seat' ? '🪑 ' + t('office_room_seat') : '☕ ' + t('office_room_lounge');
     else doing = (ROOM_ICON[room] || '') + ' ' + (room ? t('office_room_' + room) : '');
     const meta = h('div', { class: 'of-person-meta', text: metaText(a) });
     meta.hidden = !meta.textContent;
@@ -2274,7 +2297,7 @@
         h('div', { class: 'of-person-head' },
           h('b', { text: nameOf(s) }),
           a.kind === 'agent' && s.type && s.type !== s.label ? h('span', { class: 'muted small', text: s.type }) : null,
-          a.kind !== 'me' ? h('span', { class: 'pill ' + (STATE_PILL[st] || 'off'), text: t('office_st_' + st) }) : null),
+          a.kind !== 'me' ? h('span', { class: 'pill ' + (STATE_PILL[st] || 'off'), text: t(waits ? 'office_st_waiting' : 'office_st_' + st) }) : null),
         s.desc && a.kind === 'agent' ? h('div', { class: 'of-person-desc', text: s.desc }) : null,
         h('div', { class: 'of-person-doing', text: doing }),
         meta),

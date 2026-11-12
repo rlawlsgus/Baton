@@ -208,6 +208,12 @@ func (s *session) follow(f *agentFile, now time.Time, attaching bool) {
 			typ = "general-purpose"
 		}
 		a = s.hire(id, typ, short(f.meta.Description, 60), now)
+		if attaching && !f.mod.IsZero() && f.mod.Before(a.lastAt) {
+			// Its rows are older than this look: how long it has been quiet
+			// counts from its file (agentStale), or every new look at the
+			// office would start that over.
+			a.lastAt = f.mod
+		}
 	}
 	a.file, f.actor = f.path, a.id
 	s.agentIDs[f.id] = a.id

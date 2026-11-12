@@ -382,9 +382,11 @@ func (t *Tracker) update(s *session, now time.Time) {
 			// Shift change: the next account's Claude comes in.
 			s.emit(Event{T: now, Actor: mainID, Kind: "shift", Room: roomElevator, Detail: s.runAcct + " → " + r.Account})
 			m.hiredAt, m.arriveTo = now, now.Add(arriveFor)
+			s.sendHome(now) // baton stopped the Claude Code they ran in
 		case handover(r.State) && !handover(s.runSt):
 			// Claude goes home; who comes next is not known yet.
 			s.emit(Event{T: now, Actor: mainID, Kind: "shift", Room: roomElevator, Detail: r.Account + " →"})
+			s.sendHome(now)
 		}
 		s.runAcct, s.runSt = r.Account, r.State
 	}

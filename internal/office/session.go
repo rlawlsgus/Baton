@@ -174,6 +174,7 @@ type session struct {
 	cwd      string // where the desktop app moved it
 	seen     dedupe
 	sched    []scheduled
+	deskWait bool // Claude's turn ended with it waiting at its desk for its subagents
 	lastRow  time.Time
 	now      time.Time // when the rows being read were read
 
@@ -294,6 +295,14 @@ func (s *session) row(line []byte, who *actor, now time.Time) {
 	}
 	if s.mode == modeLive && r.UUID != "" && t.Before(s.created.Add(-oldRows)) && s.quiet.IsZero() {
 		return
+	}
+	if who.kind == kindClaude {
+		// The conversation's rows come in time order: subagents due to leave
+		// by this row's time leave first. Otherwise a replay (which reaches
+		// advance only once every row is read), or a tick that came late,
+		// keeps them around for every later turn, and Claude waits at its
+		// desk for nobody.
+		s.leaveDue(t)
 	}
 	if t.After(s.lastRow) {
 		s.lastRow = t
@@ -425,7 +434,30 @@ func (s *session) turnEnd(who *actor, t time.Time) {
 		return
 	}
 	who.turnEnded, who.endedAt = true, t
-	s.emit(Event{T: t, Actor: who.id, Kind: "idle", Room: roomLounge})
+	room := s.idleRoom()
+	s.deskWait = room == roomSeat
+	s.emit(Event{T: t, Actor: who.id, Kind: "idle", Room: room})
+}
+
+// agentsAround: a subagent is in the office and not on its way out yet
+// (coming in, at work, or reporting back).
+func (s *session) agentsAround() bool {
+	for _, id := range s.order {
+		if a := s.actors[id]; a != nil && a.kind == kindAgent && a.leaveAt.IsZero() {
+			return true
+		}
+	}
+	return false
+}
+
+// idleRoom is where Claude waits once its turn is over: at its desk while
+// a subagent still works, since that is where the subagent comes to
+// report, and in the lounge once they are all gone.
+func (s *session) idleRoom() string {
+	if s.agentsAround() {
+		return roomSeat
+	}
+	return roomLounge
 }
 
 // setTodos changes the whiteboard and returns how it was, to undo the change
@@ -814,6 +846,22 @@ func (s *session) leave(a *actor, t time.Time) {
 	if f := s.files[a.file]; f != nil {
 		f.done = true
 	}
+	// The last one heard back: Claude, its turn over, waited for it at its
+	// desk and now goes for its coffee. Only then: one already in the lounge
+	// is not sent there again. A leave applied late (a subagent whose own
+	// transcript, read after Claude's when attaching, says it finished) is
+	// dated no earlier than the wait, so the log ends in the lounge too.
+	if m := s.mainActor(); m != nil && m.turnEnded && s.deskWait && !s.agentsAround() {
+		s.deskWait = false
+		s.emit(Event{T: later(t, m.endedAt), Actor: m.id, Kind: "idle", Room: roomLounge})
+	}
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
 }
 
 // drop forgets a subagent.
@@ -843,14 +891,7 @@ func (s *session) drop(id string) {
 // advance moves time on: reported subagents leave, and those who left are
 // gone from the picture after a while.
 func (s *session) advance(now time.Time) {
-	sort.SliceStable(s.sched, func(i, j int) bool { return s.sched[i].at.Before(s.sched[j].at) })
-	for len(s.sched) > 0 && !s.sched[0].at.After(now) {
-		sc := s.sched[0]
-		s.sched = s.sched[1:]
-		if a := s.actors[sc.actor]; a != nil {
-			s.leave(a, sc.at)
-		}
-	}
+	s.leaveDue(now)
 	for _, id := range append([]string(nil), s.order...) {
 		a := s.actors[id]
 		switch {
@@ -862,14 +903,40 @@ func (s *session) advance(now time.Time) {
 	}
 }
 
+// leaveDue sends off the reported subagents whose time to leave has come
+// by t. Nobody is forgotten here: a replay calls it on every row, and a
+// subagent dropped then would be hired again when its transcript is found.
+func (s *session) leaveDue(t time.Time) {
+	if len(s.sched) == 0 {
+		return
+	}
+	sort.SliceStable(s.sched, func(i, j int) bool { return s.sched[i].at.Before(s.sched[j].at) })
+	for len(s.sched) > 0 && !s.sched[0].at.After(t) {
+		sc := s.sched[0]
+		s.sched = s.sched[1:]
+		if a := s.actors[sc.actor]; a != nil {
+			s.leave(a, sc.at)
+		}
+	}
+}
+
 // ended: the conversation's Claude Code is gone. Its subagents go home and
 // nothing it had open goes on.
 func (s *session) ended(now time.Time) {
 	m := s.mainActor()
 	s.closeAll(m)
 	m.thinking = false
+	s.sendHome(now)
+}
+
+// sendHome: the Claude Code its subagents ran in is gone (the session
+// ended, or baton stopped it to go on with another account), and they with
+// it. Claude no longer waits for them: no "resting" line comes after the
+// end or the shift, which say it already.
+func (s *session) sendHome(now time.Time) {
+	s.deskWait = false
 	for _, id := range s.order {
-		if a := s.actors[id]; a.leaveAt.IsZero() {
+		if a := s.actors[id]; a != nil && a.leaveAt.IsZero() {
 			s.leave(a, now)
 		}
 	}
@@ -977,7 +1044,7 @@ func (s *session) stateOf(a *actor, now time.Time) (v ActorView, since time.Time
 			now.Sub(a.saidAt) >= talkFor && now.Sub(a.failAt) >= failFor:
 			// Claude Code says its turn is over: a tool use whose result was
 			// never read (or a cloud never cleared) does not keep Claude busy.
-			set("idle", roomLounge, a.endedAt)
+			set("idle", s.idleRoom(), a.endedAt)
 			return
 		}
 	}
@@ -1002,7 +1069,7 @@ func (s *session) stateOf(a *actor, now time.Time) (v ActorView, since time.Time
 		// Claude Code works, and its rows are written when a block is done.
 		set("thinking", roomSeat, time.Time{})
 	case a.kind == kindClaude && (a.turnEnded || s.info.status == "idle"):
-		set("idle", roomLounge, a.endedAt)
+		set("idle", s.idleRoom(), a.endedAt)
 	default:
 		set("idle", s.restRoom(a), time.Time{})
 	}
