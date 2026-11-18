@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"baton/internal/fsx"
@@ -19,17 +20,28 @@ import (
 // change anywhere but the temporary folder panics. The user's real data must
 // never be reached from a test, whatever else a test gets wrong.
 
+// Guard is guard, for internal/desklogin, which changes the desktop app's
+// data folder too: every change it makes goes through it.
+func Guard(op, path string) { guard(op, path) }
+
 func guard(op, path string) {
 	if !testing.Testing() {
 		return
 	}
+	temp, err := filepath.Abs(os.TempDir())
+	if err != nil {
+		temp = os.TempDir()
+	}
+	if inTemp(path, temp) {
+		return
+	}
 	long := longPath(path)
-	for _, own := range realData {
-		if under(long, longPath(own)) {
+	for _, own := range realLong {
+		if under(long, own) {
 			panic(fmt.Sprintf("desktop: a test tried to %s %s, in the user's own data", op, path))
 		}
 	}
-	if under(long, longPath(os.TempDir())) {
+	if under(long, tempLong(temp)) {
 		return
 	}
 	panic(fmt.Sprintf("desktop: a test tried to %s %s, outside the temporary folder", op, path))
@@ -55,6 +67,96 @@ var realData = func() []string {
 	}
 	return out
 }()
+
+// realLong are realData spelled out in full, once: spelling a path out asks
+// the file system about each of its folders (about a millisecond each time),
+// and these do not change while the tests run. A folder that is not there
+// yet is spelled out as far as it exists, which is how it reads once made.
+var realLong = func() []string {
+	var out []string
+	for _, d := range realData {
+		out = append(out, longPath(d))
+	}
+	return out
+}()
+
+// tempLongs holds the temporary folder spelled out in full, by its absolute
+// name in the test environment (a test may name another one).
+var tempLongs sync.Map
+
+func tempLong(dir string) string {
+	if l, ok := tempLongs.Load(dir); ok {
+		return l.(string)
+	}
+	l := longPath(dir)
+	tempLongs.Store(dir, l)
+	return l
+}
+
+// inTemp answers at once for a path written under the temporary folder as
+// the test environment names it, which is where nearly every change a test
+// makes is: spelling such a path out only spells out the temporary folder
+// in front of the rest, so it is in the temporary folder in full too, and,
+// while that folder and the user's real data are apart (neither is in the
+// other), in none of the real data. Anything else is spelled out in full.
+// Letters are matched in ASCII case only: NTFS tells apart letters that
+// Unicode folds together (ſ and s), so a look-alike of the temporary
+// folder's name is never taken for it. The answers are kept by name for the
+// whole run: a short name (JOHNDO~1) that comes to mean another folder
+// while the tests run is not looked for.
+func inTemp(path, temp string) bool {
+	abs, err := filepath.Abs(path)
+	if err != nil || !underASCII(abs, temp) {
+		return false
+	}
+	return tempApart(temp)
+}
+
+// underASCII is under with letters matched in ASCII case only.
+func underASCII(path, dir string) bool {
+	path, dir = filepath.Clean(path), filepath.Clean(dir)
+	if len(path) < len(dir) || !asciiFold(path[:len(dir)], dir) {
+		return false
+	}
+	return len(path) == len(dir) || path[len(dir)] == filepath.Separator || strings.HasSuffix(dir, string(filepath.Separator))
+}
+
+func asciiFold(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		x, y := a[i], b[i]
+		if 'A' <= x && x <= 'Z' {
+			x += 'a' - 'A'
+		}
+		if 'A' <= y && y <= 'Z' {
+			y += 'a' - 'A'
+		}
+		if x != y {
+			return false
+		}
+	}
+	return true
+}
+
+// tempAparts holds, by the temporary folder's name, whether it and every
+// real data folder are apart, spelled out in full.
+var tempAparts sync.Map
+
+func tempApart(dir string) bool {
+	if a, ok := tempAparts.Load(dir); ok {
+		return a.(bool)
+	}
+	l, apart := tempLong(dir), true
+	for _, own := range realLong {
+		if under(l, own) || under(own, l) {
+			apart = false
+		}
+	}
+	tempAparts.Store(dir, apart)
+	return apart
+}
 
 // under reports whether path is dir or inside it, ignoring case.
 func under(path, dir string) bool {
@@ -126,27 +228,6 @@ func removeFile(path string) error {
 func link(oldname, newname string) error {
 	guard("link", newname)
 	return os.Link(oldname, newname)
-}
-
-// linkCount is how many names the file at path has (0 when that cannot be
-// read). A second name is removed only from a file that has another one.
-func linkCount(path string) uint32 {
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return 0
-	}
-	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES,
-		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
-		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
-	if err != nil {
-		return 0
-	}
-	defer windows.CloseHandle(h)
-	var fi windows.ByHandleFileInformation
-	if windows.GetFileInformationByHandle(h, &fi) != nil {
-		return 0
-	}
-	return fi.NumberOfLinks
 }
 
 func writeIndex(path string, v any) error {

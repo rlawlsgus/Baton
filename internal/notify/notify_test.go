@@ -42,6 +42,9 @@ func TestShowToTestFile(t *testing.T) {
 }
 
 func useTestKeys(t *testing.T) {
+	// Register and Unregister write nothing while toasts go to a file (as
+	// when the whole suite runs with it set); these tests write the keys.
+	t.Setenv(testFileEnv, "")
 	appIDKey, schemeKey = `Software\baton-test-notify\appid`, `Software\baton-test-notify\scheme`
 	t.Cleanup(func() {
 		deleteTree(`Software\baton-test-notify`)

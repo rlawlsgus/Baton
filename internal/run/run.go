@@ -161,6 +161,15 @@ type Journal struct {
 	ConsoleWindow  uint64 `json:"console_window,omitempty"`
 	SessionID      string `json:"session_id,omitempty"`
 	TranscriptPath string `json:"transcript_path,omitempty"`
+	// ForkOf: the transcript a copy starts from, until the copy has a file
+	// of its own. A relaunch before then forks that transcript again, so it
+	// must not be deleted meanwhile.
+	ForkOf string `json:"fork_of,omitempty"`
+	// Opens: the conversation file the run resumes at its first launch,
+	// named while it waits for an account first (SessionID and
+	// TranscriptPath name it only from that launch on). A delete of it
+	// waits.
+	Opens string `json:"opens,omitempty"`
 	// Moving: the switch under way (State stopping or switching) is a move to
 	// a copy on the same account, because another Claude Code opened the
 	// conversation, not a switch to another account.

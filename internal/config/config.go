@@ -77,11 +77,29 @@ type Config struct {
 	// OfficeView is how the office tab looks (see OfficeView); the window
 	// keeps it, `baton config` does not show it.
 	OfficeView *OfficeView `json:"office_view,omitempty"`
+	// DesktopLogins lets baton switch the Claude desktop app's sign-in
+	// between the user's own accounts when asked (internal/desklogin). Off
+	// by default; on needs its own notice accepted, and off goes through
+	// desklogin.TurnOff, which deletes every sign-in kept.
+	DesktopLogins bool `json:"desktop_logins,omitempty"`
+	// DesktopLoginsAcknowledged is the DesktopLoginsDisclosure the user last
+	// accepted (0 after turning it off: the notice shows again).
+	DesktopLoginsAcknowledged int `json:"desktop_logins_acknowledged,omitempty"`
 }
 
 // DisclosureVersion changes whenever the risk notice changes materially, so
 // the user sees the new wording before switching continues.
 const DisclosureVersion = 2
+
+// DesktopLoginsDisclosure changes whenever the notice for switching the
+// desktop app's sign-in changes materially.
+const DesktopLoginsDisclosure = 1
+
+// DesktopLoginsOn: switching the desktop app's sign-in is on, and its
+// notice, as it reads now, accepted.
+func (c Config) DesktopLoginsOn() bool {
+	return c.DesktopLogins && c.DesktopLoginsAcknowledged >= DesktopLoginsDisclosure
+}
 
 func (c Config) ShareEnabled() bool { return c.ShareUserConfig == nil || *c.ShareUserConfig }
 

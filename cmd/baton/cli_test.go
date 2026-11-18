@@ -67,9 +67,11 @@ func (c *cli) run(extraEnv []string, args ...string) (string, int) {
 	c.t.Helper()
 	cmd := exec.Command(batonExe, args...)
 	// The Claude desktop app's data folder is never the real one in a test:
-	// by default there is none (a test can name one in extraEnv).
+	// by default there is none (a test can name one in extraEnv). Nor is the
+	// Recycle Bin: a folder stands in for it.
 	env := []string{"BATON_HOME=" + c.home, "BATON_NOTIFY_FILE=" + notesFile,
-		"BATON_DESKTOP_DATA=" + filepath.Join(c.home, "no-desktop-app"), "BATON_DESKTOP_RUNNING=0"}
+		"BATON_DESKTOP_DATA=" + filepath.Join(c.home, "no-desktop-app"), "BATON_DESKTOP_RUNNING=0",
+		"BATON_RECYCLE=" + filepath.Join(c.home, "recycle-bin")}
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(strings.ToUpper(kv), "BATON_") {
 			env = append(env, kv)
@@ -185,7 +187,9 @@ func TestRefusedInsideSession(t *testing.T) {
 	inside := []string{"BATON_RUN=r1"}
 	for _, args := range [][]string{{"switch", "a"}, {"config", "switch_mode", "auto"}, {"add", "b"},
 		{"remove", "a"}, {"login", "a"}, {"sync"}, {"run"}, {"stop"}, {"uninstall", "--yes"}, {"gui", "--browser"},
-		{"rules", "set", c.home, "a"}, {"rules", "remove", c.home}} {
+		{"rules", "set", c.home, "a"}, {"rules", "remove", c.home},
+		{"sessions", "delete", "11111111-2222-4333-8444-555555555555", "--yes"}, {"desktop", "login", "add"},
+		{"desktop", "login", "forget", "--all", "--yes"}, {"config", "desktop_logins", "false"}} {
 		if out, code := c.run(inside, args...); code == 0 || !strings.Contains(out, "inside a baton session") {
 			t.Errorf("%v from inside a session: code %d\n%s", args, code, out)
 		}
@@ -201,6 +205,27 @@ func TestSwitchModeNeedsAcknowledgement(t *testing.T) {
 	// ...but turning switching off needs no acknowledgement.
 	if out, code := c.run(nil, "config", "switch_mode", "off"); code != 0 {
 		t.Fatalf("off: %d\n%s", code, out)
+	}
+}
+
+// The notice says baton never reads the credentials of its own accounts:
+// not that it reads none at all, since it copies the desktop app's sign-in
+// files when that switching is on.
+func TestRiskNoticeOnCredentials(t *testing.T) {
+	for lang, want := range map[string][]string{
+		"":   {"baton never reads or stores the credentials of its accounts;", "keeps copies of the app's sign-in files as they are"},
+		"ko": {"baton은 baton 계정의 로그인 정보를 읽거나 저장하지 않습니다.", "앱의 로그인 파일을 있는 그대로 복사해 보관하며"},
+	} {
+		t.Setenv("BATON_LANG", lang)
+		got := strings.Join(strings.Fields(riskNotice()), " ")
+		for _, w := range want {
+			if !strings.Contains(got, w) {
+				t.Errorf("%q: no %q in\n%s", lang, w, riskNotice())
+			}
+		}
+		if strings.Contains(got, "never reads your credentials") || strings.Contains(got, "baton은 로그인 정보를 읽지 않습니다") {
+			t.Errorf("%q: the notice still says baton reads no credentials at all", lang)
+		}
 	}
 }
 
@@ -981,6 +1006,58 @@ func TestRemoveAndUninstallKeepConversations(t *testing.T) {
 	}
 	if _, err := os.Stat(data); !os.IsNotExist(err) {
 		t.Fatalf("baton's data folder is still there: %v", err)
+	}
+}
+
+// Removing an account does not move away a conversation a running session
+// will open: one waiting for its first account names it only in Opens (or
+// ForkOf for a copy), and would then say it was deleted. Once that session
+// ended, the removal goes ahead.
+func TestRemoveWaitsForASessionThatWillOpenIt(t *testing.T) {
+	c := newCLI(t)
+	env := []string{"CLAUDE_CONFIG_DIR=" + t.TempDir(), "LOCALAPPDATA=" + t.TempDir(), "APPDATA=" + t.TempDir()}
+	if out, code := c.run(env, "add", "a"); code != 0 {
+		t.Fatalf("add: %d\n%s", code, out)
+	}
+	conv := filepath.Join(c.registry().Get("a").ProfileDir, "projects", "C--proj", "11111111-2222-4333-8444-0000000000a1.jsonl")
+	_ = os.MkdirAll(filepath.Dir(conv), 0o700)
+	if err := os.WriteFile(conv, []byte(`{"type":"user","cwd":"C:\proj"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := envAt(c.home)
+	runID := "20261113-120000-a1a1a1"
+	dir := e.paths.Run(runID)
+	_ = os.MkdirAll(dir, 0o700)
+	save := func(j run.Journal) {
+		t.Helper()
+		j.RunID, j.SupervisorPID, j.SupervisorCreated = runID, os.Getpid(), winproc.ProcessCreated(os.Getpid())
+		if err := run.SaveJournal(dir, j); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refused := func(what, want string, lang ...string) {
+		t.Helper()
+		out, code := c.run(append(env, lang...), "remove", "a", "--yes")
+		if code == 0 || !strings.Contains(out, want) {
+			t.Fatalf("%s: %d\n%s", what, code, out)
+		}
+		if a := c.registry().Get("a"); a == nil || !a.Enabled {
+			t.Fatalf("%s: the account was removed or left disabled: %+v", what, a)
+		}
+		if _, err := os.Stat(conv); err != nil {
+			t.Fatalf("%s: the conversation was moved: %v", what, err)
+		}
+	}
+
+	save(run.Journal{State: run.StateWaiting, Opens: conv})
+	refused("a resume waiting for its first account", "baton run "+runID+` is waiting to continue a conversation stored in "a"'s profile`)
+	refused("in Korean", "대기 중인 세션 "+runID+`가 "a" 계정에 저장된 대화를`, "BATON_LANG=ko")
+	save(run.Journal{State: run.StateWaiting, Account: "b", ForkOf: conv})
+	refused("a copy of it, on another account", "baton run "+runID+` (now on "b") is continuing a conversation stored in "a"'s profile`)
+
+	save(run.Journal{State: run.StateDone, Opens: conv})
+	if out, code := c.run(env, "remove", "a", "--yes"); code != 0 || c.registry().Get("a") != nil || !strings.Contains(out, "moved 1 conversation") {
+		t.Fatalf("remove once the session ended: %d\n%s", code, out)
 	}
 }
 

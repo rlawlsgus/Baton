@@ -239,11 +239,15 @@ func cmdConfig(args []string) error {
 		return err
 	}
 	key, val := args[0], strings.Join(args[1:], " ")
+	if key == "desktop_logins" {
+		// On has its own notice and checks; off deletes every kept sign-in.
+		return configDesktopLogins(e, val)
+	}
 	// Questions are asked first; the change itself is applied to a fresh copy
 	// under the lock, so it cannot undo another command's change.
 	set, err := config.Setter(e.cfg, key, val, false)
 	if errors.Is(err, config.ErrNeedsAcknowledgement) {
-		fmt.Fprint(os.Stderr, riskNotice)
+		fmt.Fprint(os.Stderr, riskNotice())
 		ok, err := yes("Have you read this, and do you want baton to switch accounts? [y/N] ")
 		if err != nil {
 			return err

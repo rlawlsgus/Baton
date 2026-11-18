@@ -224,6 +224,36 @@ func TestLiveClaudeKeepsSecondName(t *testing.T) {
 			t.Fatal("the second name stayed once nothing has it open")
 		}
 	})
+	// Every account is limited: a run waits for its first one, and only its
+	// journal's Opens (a resume) or ForkOf (a copy) names the file it opens
+	// by path once one frees up.
+	for _, how := range []string{"opens", "fork_of"} {
+		t.Run("a waiting run will open it ("+how+")", func(t *testing.T) {
+			r := newRig(t)
+			file := r.conversation(r.prof, sid)
+			r.apply(sid, file, keyA)
+			h := r.second(file, sid)
+			dir := filepath.Join(r.d.RunsDir, run.NewID(time.Now()))
+			must(t, os.MkdirAll(dir, 0o700))
+			j := run.Journal{RunID: filepath.Base(dir), SupervisorPID: os.Getpid(),
+				SupervisorCreated: winproc.ProcessCreated(os.Getpid()), State: run.StateWaiting, Cwd: r.proj, Started: time.Now()}
+			if how == "opens" {
+				j.Opens = h
+			} else {
+				j.ForkOf = h
+			}
+			must(t, run.SaveJournal(dir, j))
+			r.apply(sid, file)
+			if !sameFile(h, file) {
+				t.Fatal("the second name went while a waiting run of baton's will open it")
+			}
+			must(t, os.RemoveAll(dir))
+			must(t, r.d.Reconcile())
+			if isFile(h) || !isFile(file) {
+				t.Fatal("the second name stayed once nothing has it open")
+			}
+		})
+	}
 	t.Run("baton's session writes by its own name", func(t *testing.T) {
 		r := newRig(t)
 		file := r.conversation(r.prof, sid)

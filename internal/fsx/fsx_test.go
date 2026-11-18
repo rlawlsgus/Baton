@@ -61,6 +61,61 @@ func writeTemp(t *testing.T, dir, s string) string {
 	return f.Name()
 }
 
+func TestLinkCount(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	if err := os.WriteFile(a, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if n := LinkCount(a); n != 1 {
+		t.Fatalf("one name: %d", n)
+	}
+	if err := os.Link(a, b); err != nil {
+		t.Fatal(err)
+	}
+	if n := LinkCount(b); n != 2 {
+		t.Fatalf("two names: %d", n)
+	}
+	if n := LinkCount(filepath.Join(dir, "none")); n != 0 {
+		t.Fatalf("no file: %d", n)
+	}
+	// A folder has one name too (it is opened as a folder, not refused).
+	if n := LinkCount(dir); n != 1 {
+		t.Fatalf("folder: %d", n)
+	}
+}
+
+// Two names of one file have one id, which stays when a name moves; another
+// file has another.
+func TestFileID(t *testing.T) {
+	dir := t.TempDir()
+	a, b, c := filepath.Join(dir, "a"), filepath.Join(dir, "b"), filepath.Join(dir, "c")
+	for _, p := range []string{a, c} {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Link(a, b); err != nil {
+		t.Fatal(err)
+	}
+	ia, ok1 := FileID(a)
+	ib, ok2 := FileID(b)
+	ic, ok3 := FileID(c)
+	if !ok1 || !ok2 || !ok3 || ia != ib || ia == ic {
+		t.Fatalf("a %v %v, b %v %v, c %v %v", ia, ok1, ib, ok2, ic, ok3)
+	}
+	moved := filepath.Join(dir, "moved")
+	if err := os.Rename(a, moved); err != nil {
+		t.Fatal(err)
+	}
+	if im, ok := FileID(moved); !ok || im != ia {
+		t.Fatalf("moved: %v %v", im, ok)
+	}
+	if _, ok := FileID(a); ok {
+		t.Fatal("no file, yet an id")
+	}
+}
+
 func TestIsWithin(t *testing.T) {
 	root := `C:\data\baton\profiles`
 	for p, want := range map[string]bool{

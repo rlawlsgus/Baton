@@ -51,8 +51,11 @@ var koreanNotices = map[string]string{
 		"계속하려면 \"Yes, I trust this folder\"를 고르세요",
 	"stopped while waiting": "기다리는 중에 멈췄습니다",
 	// the conversation open in another Claude Code too
-	"This conversation is already running in baton; its window is in front now.": "이 대화는 이미 baton에서 실행 중입니다. 그 창을 앞으로 가져왔습니다.",
-	"This conversation is already running in baton (session %s).":                "이 대화는 이미 baton에서 실행 중입니다 (세션 %s).",
+	"This conversation is already running in baton; its window is in front now.":                                         "이 대화는 이미 baton에서 실행 중입니다. 그 창을 앞으로 가져왔습니다.",
+	"This conversation is already running in baton (session %s).":                                                        "이 대화는 이미 baton에서 실행 중입니다 (세션 %s).",
+	"this conversation was deleted while the session waited, so it did not start":                                        "세션이 기다리는 동안 이 대화가 삭제되어 시작하지 않았습니다",
+	"the conversation file is no longer at %s (deleted or moved while the session waited), so the session did not start": "세션이 기다리는 동안 대화 파일이 삭제되었거나 옮겨져서 더 이상 %s에 없습니다. 세션을 시작하지 않았습니다",
+	"the conversation moved while the session waited; it goes on from where it is now, %s":                               "세션이 기다리는 동안 대화 파일이 옮겨졌습니다. 지금 있는 곳에서 이어 갑니다: %s",
 	"It is open in %s, so it continues in a copy: everything said so far, going on separately from the original.": "%s에서 열려 있어 사본으로 이어 갑니다. " +
 		"지금까지의 내용이 모두 들어 있고, 원래 대화와는 따로 진행됩니다.",
 	"this conversation was also opened in %s, so this session goes on in a copy; the original stays there": "이 대화가 %s에서도 열려서 이 세션은 사본으로 이어 갑니다. 원래 대화는 그쪽에 그대로 있습니다",

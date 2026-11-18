@@ -8,7 +8,7 @@
 쓰던 계정이 사용 한도에 걸리면, baton이 로그인해 둔 다음 계정에서 *같은 대화*를 이어 갑니다.
 내용을 복사하거나 처음부터 다시 설명할 필요가 없습니다.
 
-[![Release](https://img.shields.io/badge/release-v0.8.2-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.9.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -20,6 +20,8 @@
 [시작하기](#시작하기) ·
 [기존 대화 가져오기](#데스크톱-앱의-대화-가져오기) ·
 [데스크톱 앱에 표시](#claude-데스크톱-앱에-세션-표시하기) ·
+[대화 삭제](#대화-삭제하기) ·
+[데스크톱 앱 로그인](#데스크톱-앱-로그인-계정-바꾸기-비공식) ·
 [사무실](#사무실) ·
 [작동 방식](#작동-방식) ·
 [명령줄](#명령줄) ·
@@ -43,13 +45,18 @@
 - 🔁 **같은 대화를 다음 계정에서.** 한도에 걸리면 baton이 Claude Code를 안전하게 멈추고, 다음 계정에서
   대화 전체를 가지고 다시 시작합니다. 한도에 걸린 그 질문도 사라지지 않습니다. 전환은 5~10초쯤 걸립니다.
 - 🔐 **로그인은 계정마다 한 번.** 2단계 인증을 포함해 계정마다 처음 한 번만 로그인하면 로그인이 유지됩니다.
-  로그인과 갱신은 Claude Code가 직접 하며, baton은 인증 정보를 읽거나 저장하지 않습니다.
+  로그인과 갱신은 Claude Code가 직접 하며, baton은 계정의 인증 정보를 읽지 않습니다.
 - 🖥️ **Claude 데스크톱 앱 사용자를 위해.** 데스크톱 앱에 들어 있는 Claude Code를 그대로 쓰므로 따로
   설치할 것이 없습니다. 한국어와 영어 창을 제공합니다.
 - 📥 **쓰던 대화를 그대로 가져오기.** 데스크톱 앱의 Code 탭, 터미널, VS Code에서 하던 세션을 골라
   baton에서 이어 갈 수 있습니다.
 - 🗂️ **데스크톱 앱에도 표시.** 세션마다 어느 계정의 Claude 데스크톱 앱 Code 탭에 보일지 고르고, 그쪽에서도
   이어 갈 수 있습니다.
+- 🗑️ **필요 없는 대화 삭제.** 대화와 Claude Code가 함께 저장한 것을 휴지통으로 옮깁니다. baton, 데스크톱
+  앱 목록, Claude Code의 이어 가기 목록에서 모두 사라지며, 완전히 지우는 일은 없습니다.
+- 🔀 **데스크톱 앱 로그인 계정 바꾸기 (선택).** 내 계정마다 Claude 데스크톱 앱의 로그인을 보관해 두었다가 고른
+  계정의 것을 되돌려 놓아, 이메일 코드 없이 앱의 계정을 바꿀 수 있습니다. 비공식 기능이며 직접 켜기 전에는
+  꺼져 있습니다.
 - 📊 **계정마다 한도를 한눈에.** 계정 탭에서 계정마다 5시간 한도와 주간 한도를 얼마나 썼는지, 언제
   초기화되는지 보여 줍니다. 세션 창에도 프롬프트 아래에 계정과 사용량이 나옵니다
   (`baton · work · 5시간 34% · 주간 12%`).
@@ -97,7 +104,9 @@ Windows 10/11의 Claude 데스크톱 앱 사용자 기준입니다.
 6. *선택:* **도움말 → 시작 메뉴에 설치**를 누르면 시작 메뉴에서 열 수 있고, 업데이트한 뒤에도 작업
    표시줄 고정이 유지됩니다.
 
-Claude 데스크톱 앱 자체의 로그인은 바뀌지 않습니다. baton의 계정들은 데스크톱 앱과 따로 로그인됩니다.
+Claude 데스크톱 앱 자체의 로그인은 직접 바꾸지 않는 한 바뀌지 않습니다
+([데스크톱 앱 로그인 계정 바꾸기](#데스크톱-앱-로그인-계정-바꾸기-비공식) 참고). baton의 계정들은 데스크톱 앱과
+따로 로그인됩니다.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/ko/accounts-dark.png">
@@ -189,6 +198,93 @@ baton resume 2cd067ab-193c-4e56-baa2-0b34dc203160
 baton desktop 2cd067ab-193c-4e56-baa2-0b34dc203160 --show personal,work
 ```
 
+## 대화 삭제하기
+
+*최근 세션*의 줄에서 **대화 삭제**를 누르거나, **기존 대화 가져오기**에서 대화를 고른 뒤 **대화 삭제**를
+누르세요. baton이 먼저 무엇이 지워지는지 보여 줍니다. 대화, Claude Code가 함께 저장한 것(서브에이전트, 저장된
+도구 출력, `/rewind` 체크포인트), 그 대화를 실행한 baton 세션 기록, 그리고 대화를 뺄 데스크톱 앱 목록입니다.
+**휴지통으로 옮기기**를 누르면 모두 Windows 휴지통으로 옮기며, 휴지통에서 되살릴 수 있습니다. 대화는 baton,
+Claude Code의 이어 가기 목록, 사무실에서 사라집니다.
+
+- **완전히 지우는 일은 없습니다.** 휴지통에 넣을 수 없는 것이 있으면(휴지통이 없는 드라이브, 휴지통에 넣기에
+  너무 긴 경로, 다른 프로그램이 쓰고 있는 파일) 아무것도 지우지 않고 이유를 알려 줍니다. 중간에 멈추면 남은
+  것을 알려 주고, 다시 삭제하면 나머지를 옮깁니다. 대화 파일이 링크나 정션으로 연결된 폴더에 있거나 Claude
+  Code 폴더 밖에도 이름이 있으면 그대로 둡니다.
+- **그대로 두는 것:** 프로젝트 파일, 폴더 메모리, Claude Code 입력 기록, 계획 파일, 다른 대화. baton이 만든
+  사본도 별개의 대화라 남습니다. 내용은 그대로지만, 삭제한 대화와 함께 저장된 큰 도구 출력은 사본에서 더 이상
+  열 수 없습니다(그런 경우 삭제 창에서 알려 줍니다).
+- **어디에서도 열려 있지 않아야 합니다.** baton 세션이 실행 중이거나(먼저 끝내고, 그 창이 남아 있으면
+  닫으세요), 터미널이나 IDE의 Claude Code, 데스크톱 앱(트레이 아이콘에서도 완전히 종료하세요)에서 열려 있으면
+  지울 수 없습니다. *다시 확인*으로 다시 볼 수 있습니다.
+- **데스크톱 앱 자신의 세션은 데스크톱 앱에서 삭제하세요.** 데스크톱 앱이 자기 세션으로 갖고 있는 대화(앱에서
+  만들었거나 앱에서 이어 간 대화)는 앱에서 삭제하면, 그 뒤 앱이 남긴 파일을 baton에서 지울 수 있습니다.
+  baton이 데스크톱 앱에 넣은 항목은 대화와 함께 빠집니다.
+
+명령줄에서는 다음과 같이 합니다(`--dry-run`은 무엇이 지워지는지 보여 주기만 합니다).
+
+```bash
+baton sessions delete 2cd067ab-193c-4e56-baa2-0b34dc203160
+```
+
+## 데스크톱 앱 로그인 계정 바꾸기 (비공식)
+
+Claude 데스크톱 앱은 한 번에 한 계정으로만 로그인되고, 다른 계정으로 로그인할 때마다 이메일 코드를 받아야
+합니다. baton은 내 계정마다 데스크톱 앱의 로그인을 이 PC에 보관해 두었다가, 앱이 종료된 동안 고른 계정의 것을
+되돌려 놓을 수 있습니다. 그러면 코드 없이 계정을 바꿀 수 있습니다.
+
+> [!IMPORTANT]
+> Anthropic의 기능이 아니며, 이를 허용한다는 Anthropic의 공식 입장도 없습니다. 특히 사용 한도에 걸린 뒤
+> 계정을 바꾸는 것은 한도를 우회하는 것으로 볼 수 있으며, Anthropic은 계정을 정지할 수 있습니다. 데스크톱 앱이
+> 업데이트되면 언제든 작동하지 않을 수 있습니다. 직접 켜기 전에는 꺼져 있으며, 계정에 대한 위험은 본인이
+> 집니다. **본인 소유의 계정만** 쓰세요.
+
+1. **설정 → Claude 데스크톱 앱의 로그인 계정 바꾸기 (비공식)**을 켜고, 안내를 읽은 뒤 동의에 체크하세요(또는
+   `baton config desktop_logins true`). 그러면 계정 탭에 **Claude 데스크톱 앱 로그인** 카드가 생깁니다.
+2. 데스크톱 앱을 완전히 종료(트레이 아이콘에서도)하세요. **데스크톱 앱에 계정 추가**를 누르면 앱의 로그인을
+   보관하고 이 PC에서만 비웁니다. 앱을 열어 다른 계정으로 로그인(이메일 코드 한 번)한 뒤 다시 완전히
+   종료하세요.
+3. 그다음부터는 카드의 줄에서 **데스크톱 앱을 이 계정으로 바꾸기**를 누르면 바뀝니다. *바꾼 뒤 데스크톱 앱
+   열기*를 켜 두면 baton이 앱을 열어 줍니다.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/ko/desktop-logins-dark.png">
+  <img src="docs/images/ko/desktop-logins-light.png" alt="계정 탭의 Claude 데스크톱 앱 로그인 카드: 데스크톱 앱은 지금 work로 로그인되어 있고(아직 보관 안 함), personal의 로그인은 방금 보관되어 데스크톱 앱을 이 계정으로 바꾸기 버튼을 누를 수 있음">
+</picture>
+
+- **계정을 바꾸려고 데스크톱 앱에서 로그아웃하지 마세요.** 로그아웃하면 Claude 서버에서도 로그인이 끝나, baton이
+  보관한 로그인도 작동하지 않습니다(다시 로그인하려면 이메일 코드가 필요합니다). 계정을 추가할 때는 *데스크톱
+  앱에 계정 추가*를 쓰고, 로그아웃은 더 쓰지 않을 계정에만 하세요.
+- **내가 요청할 때만, 앱이 종료된 동안에만.** baton이 스스로 데스크톱 앱의 계정을 바꾸거나, 사용 한도 때문에
+  바꾸는 일은 없습니다. 앱이 실행 중이면 거절합니다.
+- **baton이 옮기는 것:** 앱의 쿠키, 사이트 저장소, 설정 파일의 항목 6개(그중 2개는 암호화된 토큰)를 있는
+  그대로 옮깁니다. 복호화하거나 어디로도 보내지 않으며, 쿠키와 토큰은 앱이 저장한 그대로 암호화되어 이 PC의
+  내 Windows 계정에서만 쓸 수 있습니다. 사이트 저장소는 앱에서도 암호화되어 있지 않으며, 그 안에 있는 앱 설정
+  일부도 계정을 따라갑니다. 보관 위치는 `%LOCALAPPDATA%\baton\desktop-logins`입니다. 앱의 나머지(Code 탭
+  목록, 그 밖의 앱 설정)는 그대로 둡니다.
+- **데스크톱 앱은 로그인된 계정의 사용 한도를 씁니다.** 앱의 계정을 바꿔도 baton의 계정이나 세션은 바뀌지
+  않습니다.
+- **전환이 중간에 끊기면**(프로그램 오류, 정전) 되돌릴 때까지 *되돌리기*가 보입니다. 데스크톱 앱을 완전히
+  종료한 뒤 누르세요(또는 `baton desktop login recover`). 그사이 앱을 사용했고 baton이 그 로그인을 보관할 수
+  없다면 그 로그인 위로 되돌리지 않습니다. *지금 그대로 두기*를 누르세요(또는
+  `baton desktop login recover --leave-as-is`). 앱은 지금 계정에 그대로 남습니다.
+- **이 기능을 끄거나 baton을 제거하면 baton이 보관한 로그인은 모두 지워집니다.** 데스크톱 앱은 그때 로그인된
+  계정에 그대로 남습니다. Claude 서버의 로그인은 끝나지 않습니다. 로그인까지 끝내려면 앱을 그 계정으로 바꾼 뒤
+  앱에서 로그아웃하고, baton에서 *보관 삭제*를 누르세요.
+
+명령줄에서는 다음과 같이 합니다(`--open`을 붙이면 바꾼 뒤 데스크톱 앱을 엽니다).
+
+```bash
+baton desktop login
+```
+
+```bash
+baton desktop login add
+```
+
+```bash
+baton desktop login use work --open
+```
+
 ## 사무실
 
 **설정 → 사무실 보기 (재미 기능)**을 켜거나 `baton config office true`를 실행하면 창에 **사무실** 탭이
@@ -231,7 +327,7 @@ sequenceDiagram
 ```
 
 - **계정마다 프로필 하나.** 계정마다 별도의 Claude Code 프로필(`CLAUDE_CONFIG_DIR`)을 씁니다.
-  로그인과 갱신은 Claude Code가 직접 하므로, baton은 인증 정보를 읽거나 저장하거나 보내지 않습니다.
+  로그인과 갱신은 Claude Code가 직접 하므로, baton은 그 인증 정보를 읽거나 보내지 않습니다.
 - **진짜 Claude Code.** `baton run`은 콘솔에서 대화형 `claude.exe`를 실행하고, 훅을 더한 설정 파일을
   넘깁니다. 응답이 사용 한도로 끝나면 `StopFailure` 훅이 baton에 알립니다.
 - **깔끔한 전환.** baton은 Claude Code가 쉴 때까지 기다렸다가 Ctrl+Break로 멈춥니다. 그러면 Claude가
@@ -250,7 +346,7 @@ sequenceDiagram
 들어 있습니다. 받은 파일은 `checksums.txt`와 비교해 확인할 수 있습니다.
 
 ```bash
-Get-FileHash baton_0.8.2_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.9.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 창의 **도움말 → 시작 메뉴에 설치**는 baton을 `%LOCALAPPDATA%\Programs\baton`에 복사합니다. 명령줄을
@@ -295,7 +391,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 릴리스할 때는 먼저 `docs/releases/v<버전>.md`에 릴리스 노트를 쓰고 아래 명령을 실행합니다. zip(x64와 arm64)과 `checksums.txt`, 그리고 노트에 체크섬을 붙인 릴리스 화면용 `RELEASE_NOTES.md`를 만듭니다. 이때 `dist\`에는 그 파일들만 남습니다.
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.8.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.9.0
 ```
 
 아이콘, 매니페스트, 버전 리소스는 `go run ./tools/winres -version <v>`로 다시 만듭니다.
@@ -356,7 +452,15 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton run --restore <run>` | 끊긴 세션을 다시 열기 (`baton status`에 목록이 나옴). 그사이 대화가 다른 곳에서 열렸으면 사본으로 엶 |
 | `baton sessions [--max N]` | 데스크톱 앱 것을 포함해 모든 폴더의 대화 보기 |
 | `baton resume <id> [--account <이름>] [--copy]` | 그중 하나를 그 폴더에서 이어 가기. 다른 곳에서 열려 있으면 사본으로 이어 가고, 이미 baton에서 실행 중이면 그 세션 창을 앞으로 가져옴 (`--copy`는 언제나 원래 대화를 그대로 둠) |
+| `baton sessions delete <id> [--dry-run] [--yes]` | 대화와 Claude Code가 함께 저장한 것을 휴지통으로 옮기기 (`--dry-run`은 무엇이 지워지는지 보여 주기만 함) |
 | `baton desktop <id> [--show <계정>] [--hide <계정>]` | 세션이 어느 계정의 Claude 데스크톱 앱에 보이는지 확인하거나 바꾸기 (계정 이름, 쉼표로 구분) |
+| `baton desktop login` | baton이 보관한 데스크톱 앱 로그인과 앱에 지금 로그인된 계정 보기 (`desktop_logins`를 켜야 함) |
+| `baton desktop login add [--open]` | 데스크톱 앱의 로그인을 보관하고 이 PC에서 비우기 (앱에서 다른 계정으로 로그인하려고 할 때) |
+| `baton desktop login use <이름> [--open]` | 앱이 종료된 동안 데스크톱 앱을 보관한 로그인으로 바꾸기 (baton 계정 이름이나 붙인 이름) |
+| `baton desktop login label <이름> <붙일 이름>` | 보관한 로그인에 이름 붙이기 |
+| `baton desktop login forget <이름> \| --all [--yes]` | 보관한 로그인 하나, 또는 전부 지우기 |
+| `baton desktop login recover [--open] [--leave-as-is]` | 중간에 끊긴 데스크톱 앱 로그인 전환을 되돌리기, 또는 앱을 지금 그대로 두기 |
+| `baton desktop login tidy` | 중간에 멈춘 전환이 데스크톱 앱 폴더에 남긴 사본 지우기 |
 | `baton switch [<이름>] [--run <id>]` | 다른 터미널에서, 실행 중인 세션을 현재 응답이 끝난 뒤 다른 계정으로 옮기기 |
 | `baton stop [--run <id>]` | 실행 중인 세션을 안전하게 끝내기. 나중에 이어 갈 수 있음 |
 | `baton status` | 계정, 실행 중인 세션, 끊긴 세션, 최근 전환 보기 |
@@ -365,7 +469,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `baton rules [set <폴더> <계정>[,<계정>...] \| remove <폴더>]` | 폴더 규칙 보기, 추가, 지우기 (알아 둘 점 참고) |
 | `baton doctor` | Claude Code(찾은 것 모두, 사용 중인 것은 `*`), 콘솔, 그림 붙여 넣기, 모든 로그인 점검 |
 | `baton update [--check]` | GitHub에서 최신 baton을 받아 설치 (`--check`는 새 버전이 있는지만 확인) |
-| `baton uninstall [--yes]` | baton의 대화를 평소 Claude Code 폴더로 옮기고, 모든 계정을 로그아웃한 뒤 baton 데이터와 시작 메뉴 항목 삭제 |
+| `baton uninstall [--yes]` | baton의 대화를 평소 Claude Code 폴더로 옮기고, 모든 계정을 로그아웃한 뒤 baton 데이터(보관한 데스크톱 앱 로그인 포함)와 시작 메뉴 항목 삭제 |
 
 **설정** (`baton config`):
 
@@ -384,6 +488,7 @@ Claude Code만으로는 그 계정의 기본 모드로 돌아갑니다. 예를 �
 | `notifications` | 세션이 보내는 Windows 알림: `all`(기본값), `important`(응답이 끝났을 때는 빼고), `off` |
 | `keep_awake` | 세션이 작업하거나 한도가 풀리기를 기다리는 동안 PC가 저절로 잠들지 않게 함 (기본값 `true`) |
 | `office` | Claude의 작업을 사무실 풍경으로 실시간으로 보여 주는 *사무실* 탭 표시 (기본값 `false`) |
+| `desktop_logins` | Claude 데스크톱 앱의 로그인을 내 계정들 사이에서 바꾸기 (기본값 `false`; `true`는 먼저 안내에 동의해야 하고, `false`는 보관한 로그인을 지움) |
 | `check_updates` | 창이 몇 시간마다 GitHub에서 새 baton이 있는지 확인 (기본값 `true`) |
 | `gui_language` | 창의 언어: `auto`(Windows 설정을 따름), `ko`, `en` |
 | `gui_theme` | 창의 색: `auto`(Windows 설정을 따름), `light`, `dark`. 창 위쪽에서도 바꿀 수 있음 |
@@ -422,6 +527,8 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
 - `runs\<id>\`: 세션마다의 훅 이벤트와 기록
 - `logs\gui.log`: 창 자체의 기록
 - `desktop.json`: baton이 Claude 데스크톱 앱에 넣은 항목
+- `desktop-logins\`: baton이 보관한 데스크톱 앱 로그인 (로그인 바꾸기를 켠 동안만)
+- `deleting\`: 대화를 삭제하는 동안만 잠깐 남는 표시
 
 </details>
 
@@ -439,7 +546,7 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
   자동으로 쓰지 않습니다. 문제가 해결되면 `baton enable <이름>`이나 성공한 `baton login <이름>`이 표시를
   지웁니다.
 - **세션 안에서는 계정을 바꾸는 명령이 거절됩니다.** `baton switch`, `add`, `login`, `remove`, `sync`,
-  `config …`는 baton이 지켜보는 세션 안에서 실행하면 거절됩니다. 그 세션의 모델이 세션을 옮기기 어렵게
+  `config …`, `sessions delete`, `desktop login …`은 baton이 지켜보는 세션 안에서 실행하면 거절됩니다. 그 세션의 모델이 세션을 옮기기 어렵게
   하려는 장치일 뿐 보안 경계는 아닙니다. 세션은 사용자 권한으로 실행되기 때문입니다.
 - **확인 모드는 세션 창에서 묻습니다.** `confirm` 모드에서는 `baton switch`로 요청한 전환을 포함해 모든
   전환을 그 세션의 콘솔 창에서 확인해야 합니다. baton 앱 창에서는 묻지 않습니다. Enter는 예이고,
@@ -511,8 +618,8 @@ baton의 데이터는 `%LOCALAPPDATA%\baton`에 있습니다(`BATON_HOME`으로 
 - **바뀐 파일은 git으로 봅니다.** 변경사항 줄은 git(Git for Windows)이 설치되어 있고 폴더가 git 저장소일 때
   나옵니다. 마지막 커밋 이후 커밋하지 않은 변경을 새 파일까지 포함해 보여 줍니다.
 - **세션은 데스크톱 앱이 아니라 Claude Code 창에서 열립니다.** baton은 세션을 계정 사이에서 옮기기 위해
-  Claude Code를 직접 실행합니다. Claude 데스크톱 앱에는 앱 자체의 로그인이 하나 있고, baton은 그것을
-  건드리지 않습니다. *설정 → 고급 설정 → 사용할 Claude Code*는 어떤 `claude.exe`(설치된 CLI 또는 데스크톱
+  Claude Code를 직접 실행합니다. Claude 데스크톱 앱에는 앱 자체의 로그인이 하나 있고, 직접 바꾸지 않는 한
+  baton은 그것을 건드리지 않습니다([데스크톱 앱 로그인 계정 바꾸기](#데스크톱-앱-로그인-계정-바꾸기-비공식) 참고). *설정 → 고급 설정 → 사용할 Claude Code*는 어떤 `claude.exe`(설치된 CLI 또는 데스크톱
   앱에 들어 있는 것)를 실행할지만 정합니다. baton 세션을 데스크톱 앱의 Code 탭에도 보이게 하려면
   [Claude 데스크톱 앱에 세션 표시하기](#claude-데스크톱-앱에-세션-표시하기)를 보세요.
 - **세션을 데스크톱 앱에 표시하면 앱의 데이터에 씁니다.** baton은 앱의 데이터 폴더에 계정마다 작은 항목
@@ -551,8 +658,10 @@ baton uninstall
 제거 프로그램은 먼저 baton에서 시작한 대화를 평소 Claude Code 폴더(`%USERPROFILE%\.claude`)로 옮겨
 보존합니다. 그래서 `claude --resume`으로 다시 열 수 있습니다. 옮기지 못한 대화가 있으면 거기서 멈추고
 아무것도 지우지 않습니다. 그다음 Claude Code로 모든 계정을 로그아웃하고 baton 데이터 폴더
-(`%LOCALAPPDATA%\baton`, 계정마다의 프로필)를 지웁니다. 시작 메뉴 항목, Windows 설치된 앱 목록의 항목,
-알림 등록, 설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내세요. Claude 계정 자체와 평소 쓰던 Claude Code 설정,
+(`%LOCALAPPDATA%\baton`, 계정마다의 프로필)를 지웁니다. baton이 보관한 데스크톱 앱 로그인도 지우며, 끊긴
+로그인 전환이 있으면 먼저 정리합니다(데스크톱 앱은 그때 로그인된 계정에 그대로 남습니다). 시작 메뉴 항목,
+Windows 설치된 앱 목록의 항목, 알림 등록, 설치 폴더도 지웁니다. 실행 중인 세션은 먼저 끝내고, 삭제 중인
+대화가 있으면 끝날 때까지 기다리세요. Claude 계정 자체와 평소 쓰던 Claude Code 설정,
 Claude 데스크톱 앱이 직접 만든 세션은 건드리지 않습니다. baton이 데스크톱 앱에 넣은 항목은 남아서, 평소
 Claude Code로 옮겨진 대화를 엽니다. 목록에 남기기 싫으면 제거하기 전에 baton에서 체크를 해제하세요.
 
@@ -578,9 +687,11 @@ python -I test/e2e/e2e_baton.py <빈 폴더>
 go build -tags batontest -o bin/baton-test.exe ./cmd/baton
 ```
 
-첫 명령은 단위 테스트입니다. 세 번째 명령인 종단 간 테스트는 실제 계정 없이, `spikes/phase0/harness`의
-가짜 Messages API를 상대로 ConPTY에서 진짜 `baton.exe`와 `claude.exe`를 실행합니다. 다루는 내용은 다음과
-같습니다.
+첫 명령은 단위 테스트입니다. 데스크톱 앱 로그인 전환의 상태 조합 테스트는 기본으로 다섯 중 두 개쯤만 돌고,
+`BATON_MATRIX=all`이면 모든 상태를, `BATON_MATRIX=full`이면 상태마다 모든 동작을 돕니다(`go test`의 기본
+제한 10분보다 오래 걸리므로 `-timeout 40m`을 붙이세요). 세 번째 명령인 종단 간 테스트는 실제 계정 없이,
+`spikes/phase0/harness`의 가짜 Messages API를 상대로 ConPTY에서 진짜 `baton.exe`와 `claude.exe`를
+실행합니다. 다루는 내용은 다음과 같습니다.
 
 - 전환: 자동, 수동, 확인 모드, 그리고 전환 전에 응답 기다리기
 - 모든 계정이 한도에 걸린 경우
@@ -602,10 +713,17 @@ go build -tags batontest -o bin/baton-test.exe ./cmd/baton
   실시간으로 보여 주는지, 그리고 열 너비 조절과 세션·층 숨기기 (마지막 명령으로 만드는 테스트 빌드가 필요)
 - 두 계정의 데스크톱 앱에 세션 표시(앱과 같은 모양의 임시 데이터 폴더에서): 항목, 두 번째 이름, `/clear`,
   baton이 실행 중일 때 앱에서 열기(baton은 사본으로 이어 감), 체크 해제
+- 대화 삭제(임시 휴지통으로): 실행 중이거나 다른 곳에서 열려 있거나 데스크톱 앱 자신의 세션이면 거절하고,
+  창과 명령줄에서 그 대화의 파일만 옮기는지
+- 데스크톱 앱 로그인 바꾸기(앱과 같은 모양의 임시 데이터 폴더에서): 안내, 계정 추가, 바이트 하나까지 같은
+  전환, 앱의 잠금 파일이 열려 있을 때 거절, 끄기
 
 창의 서버는 `internal/gui`에 자체 단위 테스트가 있습니다. 마지막 명령으로 만드는 테스트 빌드에는
 `baton gui --no-window --test-spawn`이 추가되며, 이 명령은 브라우저용 페이지를 띄웁니다. 이때 로그인은
-가짜 claude로 숨겨서 실행하고, 세션은 기록만 합니다. 설계가 기대는 Claude Code 동작의 검증 결과는
+가짜 claude로 숨겨서 실행하고, 세션은 기록만 합니다. 테스트 빌드는 휴지통(`BATON_RECYCLE`,
+`<BATON_HOME>\test-recycle-bin`)을 대신하고, Claude 데스크톱 앱은 설치되지 않은 것으로 봅니다
+(`BATON_DESKTOP_DATA=none`, `BATON_DESKTOP_RUNNING=0`). 이 변수에 다른 폴더를 지정하면 그 폴더를 씁니다.
+`BATON_HOME`이 없으면 휴지통의 기준 폴더는 `%TEMP%\baton-test`입니다. 설계가 기대는 Claude Code 동작의 검증 결과는
 `spikes/phase0/RESULTS.md`에 있습니다.
 
 ## 라이선스

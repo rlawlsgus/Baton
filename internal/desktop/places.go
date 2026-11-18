@@ -36,6 +36,9 @@ type Row struct {
 	// longer one of its accounts' (removed since) nor the app's current one;
 	// it stays on offer so it can be unticked.
 	Former bool `json:"former,omitempty"`
+	// Kept: baton keeps the desktop app's sign-in for this account (see
+	// Desk.Known), so the app can be switched to it.
+	Kept bool `json:"kept,omitempty"`
 }
 
 // View is what the window's dialog (and `baton desktop`) shows for a session.
@@ -120,12 +123,15 @@ func (v View) Ticked() []string {
 // baton's. The first is the one --show ticks: a row of the accounts comes
 // before a former one (see Row.Former), which has the names it had, and a
 // current row may have those now. An account of baton's named "desktop"
-// is that account: the app's own then goes by no name.
+// is that account: the app's own then goes by no name. The app may have
+// been on several accounts none of baton's (its sign-in switched): each
+// also goes by its email address, when that is known.
 func (v View) Named(name string) []Row {
 	app := name == "desktop" && !slices.ContainsFunc(v.Rows, func(r Row) bool { return slices.Contains(r.Accounts, name) })
 	var now, former []Row
 	for _, r := range v.Rows {
-		if !slices.Contains(r.Accounts, name) && !(r.AppOnly && app) {
+		byEmail := r.AppOnly && r.Email != "" && strings.EqualFold(r.Email, name)
+		if !slices.Contains(r.Accounts, name) && !(r.AppOnly && app) && !byEmail {
 			continue
 		}
 		if r.Former {
@@ -185,6 +191,11 @@ func (d *Desk) view(ix *Index, c Conversation, pr probe) View {
 			r := Row{Key: k, Former: true, AppOnly: t.Places[k].Label == "", Active: pr.isCurrent(k)}
 			if l := t.Places[k].Label; l != "" {
 				r.Accounts = strings.Split(l, ", ")
+			} else if d.Known != nil {
+				// An account the app was on before, none of baton's: named by
+				// what baton keeps of it, so two of them can be told apart.
+				acct, _, _ := strings.Cut(k, "/")
+				_, r.Email, _ = d.Known(acct)
 			}
 			former = append(former, r)
 		}
@@ -199,6 +210,10 @@ func (d *Desk) view(ix *Index, c Conversation, pr probe) View {
 		if r.Key != "" {
 			dir := d.placeDir(r.Key)
 			r.Used = ix.appUsed(r.Key, dir)
+			if d.Known != nil {
+				acct, _, _ := strings.Cut(r.Key, "/")
+				_, _, r.Kept = d.Known(acct)
+			}
 			if p := placeOf(t, r.Key); p != nil {
 				switch p.State {
 				case stateShown:
@@ -377,6 +392,17 @@ func (d *Desk) appAccount(ix *Index, active string) (org, email string) {
 	if org == "" && len(orgs) == 1 {
 		org = orgs[0]
 	}
+	if (org == "" || email == "") && d.Known != nil {
+		// What baton kept when the app was on it last: right after a switch
+		// to it, the user's own Claude Code still names the one before.
+		ko, ke, _ := d.Known(active)
+		if org == "" && validID(ko) {
+			org = ko
+		}
+		if email == "" {
+			email = ke
+		}
+	}
 	return org, email
 }
 
@@ -430,6 +456,7 @@ func (d *Desk) Apply(c Conversation, want []string) (Result, error) {
 			wanted[k] = true
 		}
 	}
+	asked := c.ID
 	err := d.update(func(ix *Index) error {
 		pr := d.look(ix)
 		t := ix.Thread(c.ID)
@@ -442,6 +469,9 @@ func (d *Desk) Apply(c Conversation, want []string) (Result, error) {
 			t = on[0]
 			d.locate(t)
 			c = Conversation{ID: t.Session, Transcript: t.Transcript}
+		}
+		if d.deleting(asked) || d.deleting(c.ID) {
+			return fail("deleting", c.ID)
 		}
 		// What the app did since the last look is noted first, as the dialog
 		// showed it: a row is judged one way everywhere. Every thread's, so a

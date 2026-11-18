@@ -105,22 +105,6 @@ func shortPath(p string) string {
 	return windows.UTF16ToString(buf[:n])
 }
 
-func TestLinkCount(t *testing.T) {
-	dir := t.TempDir()
-	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
-	must(t, os.WriteFile(a, []byte("x"), 0o600))
-	if n := linkCount(a); n != 1 {
-		t.Fatalf("one name: %d", n)
-	}
-	must(t, link(a, b))
-	if n := linkCount(b); n != 2 {
-		t.Fatalf("two names: %d", n)
-	}
-	if n := linkCount(filepath.Join(dir, "none")); n != 0 {
-		t.Fatalf("no file: %d", n)
-	}
-}
-
 // The desktop app is on another organization of its account than the one
 // the user's own Claude Code names: while it runs, every list of that
 // account is left to it. A record it writes back after an untick is still

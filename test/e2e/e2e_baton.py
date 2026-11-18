@@ -51,10 +51,19 @@ Scenarios:
              conversation's second name in the user's own Claude Code is the same file, a later
              turn is in both, /clear moves the records on, unticking takes them and then the second
              name away, and a record the desktop app made itself is never touched
+  delete     deleting a conversation from the window: refused while it runs, then it, its run and
+             what Claude Code keeps by its id go to the Recycle Bin (a stand-in), off the desktop
+             app's lists; one made outside baton is refused while the desktop app has it as its own
+             or a Claude Code has it open, then deleted with the CLI
+  desklogin  switching the Claude desktop app's sign-in between the user's accounts (opt in), through
+             the window and the CLI: the app's files come back byte for byte, nothing switches while
+             the app holds its lock, and turning it off deletes every kept sign-in
 
 Windows notifications go to a file instead of the screen (BATON_NOTIFY_FILE): auto, confirm,
 exhausted and billing check the ones they would show. %LOCALAPPDATA%, %APPDATA% and the Claude
-desktop app's data folder (BATON_DESKTOP_DATA) are scratch folders too, for every scenario.
+desktop app's data folder (BATON_DESKTOP_DATA) are scratch folders too, for every scenario and for
+the user's own Claude Code a scenario starts outside baton (World.claude_env), and the Recycle Bin
+is a folder of the run (BATON_RECYCLE).
 """
 from __future__ import annotations
 
@@ -69,13 +78,14 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(REPO, "spikes", "phase0", "harness"))
-from cc import Run, read_jsonl, fwd, wait_until  # noqa: E402
+from cc import Run, read_jsonl, fwd, long_path, wait_until  # noqa: E402
 from conpty import PseudoConsole  # noqa: E402
 from mockapi import Handler, MockServer, _last_user_text, _redact, read_log, write_scenario  # noqa: E402
 
@@ -109,6 +119,11 @@ class World:
         self.desk_data = os.path.join(self.local_appdata, "Claude-Data", "claude_e2e")
         for d in (self.local_appdata, self.appdata):
             os.makedirs(d, exist_ok=True)
+        # A conversation deleted in a scenario goes to this stand-in for the Recycle Bin (with a
+        # manifest of what came from where), never to Windows' own.
+        self.recycle = os.path.join(self.run.root, "recycle-bin")
+        # Variables one scenario sets for the processes it starts; it empties this when it ends.
+        self.extra_env: dict = {}
         write_scenario(self.scen, {KEY_A: {"mode": "echo"}, KEY_B: {"mode": "echo"}})
         self.mock_log = os.path.join(self.run.logs, "mock.jsonl")
         self.srv = MockServer(self.mock_log, self.scen)
@@ -158,9 +173,19 @@ class World:
         self.write_json("config.json", cfg)
 
     def env(self) -> dict:
+        # CLAUDECODE empty: this test may itself run inside a Claude Code, and baton refuses some
+        # things (switching the desktop app's sign-in) when asked from one.
         return self.run.env(None, {"BATON_HOME": self.home, "BATON_NOTIFY_FILE": self.notes_file,
                                    "LOCALAPPDATA": self.local_appdata, "APPDATA": self.appdata,
-                                   "BATON_DESKTOP_DATA": self.desk_data, "BATON_DESKTOP_RUNNING": "0"})
+                                   "BATON_DESKTOP_DATA": self.desk_data, "BATON_DESKTOP_RUNNING": "0",
+                                   "BATON_RECYCLE": self.recycle, "CLAUDECODE": "", **self.extra_env})
+
+    def claude_env(self, **more: str) -> dict:
+        """Variables for a Claude Code a scenario starts itself (the user's own, outside baton). The
+        harness's isolated_env passes the machine's real %LOCALAPPDATA% and %APPDATA% on, so they
+        are set to the run's scratch ones here, as baton's own Claude Code gets them: its caches,
+        logs and look for the desktop app stay in the run."""
+        return {**self.extra_env, "LOCALAPPDATA": self.local_appdata, "APPDATA": self.appdata, **more}
 
     def notes(self, run_dir: str) -> list[dict]:
         """The notifications a run would have shown."""
@@ -197,8 +222,8 @@ class World:
         pc.start()
         return pc
 
-    def baton_cmd(self, *args: str) -> subprocess.CompletedProcess:
-        return subprocess.run([self.baton, *args], env=self.env(), cwd=self.run.proj, capture_output=True,
+    def baton_cmd(self, *args: str, extra_env: dict | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run([self.baton, *args], env={**self.env(), **(extra_env or {})}, cwd=self.run.proj, capture_output=True,
                               text=True, encoding="utf-8", errors="replace", timeout=60, stdin=subprocess.DEVNULL)
 
     # ---- waiting helpers (judge progress from the mock / hook files, not the redrawn screen)
@@ -1315,7 +1340,7 @@ def scenario_elsewhere(w: World, res: list) -> dict:
     desk = w.run.profile("desk", KEY_B, w.srv.base_url, trust=[w.run.proj], dir=w.user_claude, settings_extra=settings)
 
     def desk_pty(name: str, args: list[str]) -> PseudoConsole:
-        pc = w.run.pty(desk, args, name=name)
+        pc = w.run.pty(desk, args, name=name, extra_env=w.claude_env())
         pc.start()
         return pc
 
@@ -1730,8 +1755,7 @@ def scenario_desktop(w: World, res: list) -> dict:
         settings["env"] = {**(settings.get("env") or {}), "ANTHROPIC_BASE_URL": w.srv.base_url}
         desk = w.run.profile("desk", KEY_B, w.srv.base_url, trust=[w.run.proj], dir=w.user_claude, settings_extra=settings)
         pd = w.run.pty(desk, ["--resume", new_sid], name="desktop-app",
-                       extra_env={"CLAUDE_CODE_ENTRYPOINT": "claude-desktop", "CLAUDE_CODE_HOST_SESSION_ID": orig,
-                                  "LOCALAPPDATA": w.local_appdata, "APPDATA": w.appdata})
+                       extra_env=w.claude_env(CLAUDE_CODE_ENTRYPOINT="claude-desktop", CLAUDE_CODE_HOST_SESSION_ID=orig))
         pd.start()
         if not w.wait_session_starts(3, 90):
             raise Fail("desktop: baton did not go on in a copy when the desktop app opened the session")
@@ -2144,6 +2168,17 @@ class BatonWindow:
         except ValueError:
             return r.status, {"raw": raw[:200].decode("utf-8", "replace")}
 
+    def page_file(self, name: str) -> str:
+        """A file of the page itself (app.js...), as the window loads it: it needs no token."""
+        conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=20)
+        try:
+            conn.request("GET", "/" + name)
+            r = conn.getresponse()
+            raw = r.read()
+        finally:
+            conn.close()
+        return raw.decode("utf-8", "replace") if r.status == 200 else ""
+
     def close(self) -> None:
         """Say bye as a closing page does; the server then ends by itself (3 s
         later). Otherwise end it, and the hidden commands it started, by pid."""
@@ -2495,6 +2530,798 @@ def scenario_office(w: World, res: list) -> dict:
             "tool_calls": names, "subagent_tool_calls": sub_names, "gui": w.baton_test, **office}
 
 
+# ---- deleting a conversation; switching the desktop app's sign-in ---------------------
+
+def keep_bytes(*paths: str) -> dict:
+    """What each file holds now (None: it is not there), for put_back."""
+    out = {}
+    for p in paths:
+        try:
+            with open(p, "rb") as f:
+                out[p] = f.read()
+        except FileNotFoundError:
+            out[p] = None
+    return out
+
+
+def put_back(keep: dict) -> None:
+    for p, data in keep.items():
+        if data is None:
+            if os.path.exists(p):
+                os.remove(p)
+        else:
+            with open(p, "wb") as f:
+                f.write(data)
+
+
+def put_json(path: str, update: dict) -> None:
+    cur = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            cur = json.load(f)
+    cur.update(update)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(cur, f, indent=1)
+
+
+def sha(path: str) -> str | None:
+    import hashlib
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def same_path(a: str, b: str) -> bool:
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def desk_accounts(w: World, registry: bytes) -> None:
+    """baton's accounts as claude.ai sign-ins with the ids of DESK (the mock still answers by
+    key): the desktop app keeps a list of sessions per account, and a sign-in per account."""
+    reg = json.loads(registry)
+    for a in reg["accounts"]:
+        acct, org = DESK[a["id"]]
+        a.update(auth_method="claude.ai", account_uuid=acct, org_id=org, email=a["id"] + "@example.com")
+    with open(os.path.join(w.home, "accounts.json"), "w", encoding="utf-8") as f:
+        json.dump(reg, f, indent=1)
+
+
+def profiles_signed_in(w: World) -> None:
+    """Each profile's .claude.json names its Claude account, as Claude Code notes a sign-in."""
+    for prof, k in ((w.a, "acct-a"), (w.b, "acct-b")):
+        put_json(prof.claude_json, {"oauthAccount": {"accountUuid": DESK[k][0], "organizationUuid": DESK[k][1],
+                                                     "emailAddress": k + "@example.com"}})
+
+
+def window_checked(w: World) -> BatonWindow:
+    """The window, once its first sign-in check is done: that rewrites accounts.json."""
+    win = BatonWindow(w)
+    deadline = time.time() + 90
+    st = win.call("GET", "state")[1]
+    while st.get("checking") and time.time() < deadline:
+        time.sleep(0.5)
+        st = win.call("GET", "state")[1]
+    return win
+
+
+def claude_said(w: World, pc: PseudoConsole, text: str, key: str) -> dict | None:
+    """A prompt to a claude the test started itself, and its request to the mock (Enter again
+    while it still boots)."""
+    mark = len(w.mock_rows())
+    pc.submit(text)
+    for _ in range(3):
+        row = w.wait_mock(lambda r: main_turn(r, key, text), 10, since=mark)
+        if row:
+            return row
+        pc.send("\r")
+    return w.wait_mock(lambda r: main_turn(r, key, text), 30, since=mark)
+
+
+def page_texts(js: str) -> dict[str, dict[str, str]]:
+    """The page's two string tables (T.ko and T.en in app.js), key -> text, for its plain strings."""
+    ko, en = js.find("\n  ko: {"), js.find("\n  en: {")
+    end = js.find("\n};", en)
+    rx = re.compile(r"(?<![\w.])([a-z][a-z0-9_]*): '((?:[^'\\\n]|\\.)*)'")
+    return {lang: {m.group(1): m.group(2) for m in rx.finditer(part)}
+            for lang, part in (("ko", js[ko:en]), ("en", js[en:end]))}
+
+
+def texts_missing(js: str, keys: list[str]) -> list[str]:
+    """The keys the page has no English and Korean words for (Korean that is Korean, and not the
+    English again)."""
+    t = page_texts(js)
+    hangul = re.compile(r"[가-힣]")
+    return [k for k in keys if not (t["en"].get(k) and t["ko"].get(k) and t["en"][k] != t["ko"][k] and hangul.search(t["ko"][k]))]
+
+
+def login_notice_problems(js: str) -> list[str]:
+    """How the page breaks its promise for the notice that turns switching the desktop app's sign-in
+    on (openLoginsNotice in app.js): its box is never ticked for the user, and Turn on stays disabled
+    until they tick it. The API cannot tell whether a box was ticked (the page sends acknowledge:true
+    either way), and the test build cannot click the page, so this reads the page's own code."""
+    start = js.find("\nfunction openLoginsNotice(")
+    if start < 0:
+        return ["no function openLoginsNotice"]
+    end = js.find("\nfunction ", start + 1)
+    body = js[start:end if end > 0 else len(js)]
+
+    def line(head: str) -> str:
+        i = body.find(head)
+        return body[i:body.find("\n", i)] if i >= 0 else ""
+
+    ack, go = line("const ack = h('input'"), line("const go = h('button'")
+    bad = []
+    if not ack:
+        bad.append("no `const ack = h('input'` (the box)")
+    elif re.search(r"\b(checked|defaultChecked)\s*:", ack):
+        bad.append("the box is made ticked: " + ack.strip())
+    if re.search(r"\back\.(checked|defaultChecked)\s*=(?!=)|\back\.click\(", body):
+        bad.append("the box is ticked by code, not by the user")
+    if not go:
+        bad.append("no `const go = h('button'` (Turn on)")
+    elif not re.search(r"\bdisabled:\s*true\b", go):
+        bad.append("Turn on is not disabled until the box is ticked: " + go.strip())
+    if "go.disabled = !e.target.checked" not in ack:
+        bad.append("ticking the box does not enable Turn on (or unticking it disable it): " + ack.strip())
+    return bad
+
+
+def delete_text_key(b: dict) -> str:
+    """The page's words for a refused delete (delText in app.js)."""
+    if b.get("code") == "in_baton":
+        return "del_in_baton"  # err_in_baton is a start's
+    if b.get("code") == "desktop_app" and b.get("detail") == "prior":
+        return "err_desktop_app_prior"
+    if b.get("code") == "open_elsewhere" and b.get("holder") == "claude-desktop":
+        return "err_open_elsewhere_desktop"
+    return "err_" + str(b.get("code"))
+
+
+def strings_in(v) -> list[str]:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        return [s for x in v.values() for s in strings_in(x)]
+    if isinstance(v, list):
+        return [s for x in v for s in strings_in(x)]
+    return []
+
+
+def scenario_delete(w: World, res: list) -> dict:
+    """Deleting a conversation from the window (internal/convdel), into the run's stand-in for the
+    Recycle Bin (BATON_RECYCLE): nothing is ever deleted for good. A session runs on acct-a, goes on
+    on acct-b, and is shown in both accounts' desktop app lists (the app counts as quit). While it
+    runs a delete is refused (in_baton, naming the run) and nothing moves. Once it ended, the plan
+    says it comes off both lists and names no file of baton's; the delete takes baton's records off
+    the lists, the conversation's second name goes, and its file, its run and what Claude Code kept
+    by its id go to the bin; its Recent row goes, while the folder's memory and another
+    conversation stay. A conversation made in the user's own Claude Code (outside baton) is refused
+    while a record of the desktop app's own names it, and while a Claude Code has it open (a
+    registry entry of a live process: open_elsewhere); the CLI says so in English and Korean, and
+    then deletes it. The page has every refusal's words in both languages.
+    The project folder is a short one in %TEMP%, removed afterwards: the Recycle Bin takes no path
+    of MAX_PATH (260) or more, and a conversation's file in a profile under this run's folder would
+    be longer. Claude Code's temporary folders (%TEMP%\\claude\\*\\<id>) go to a folder of the run."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto", on_exhausted="stop")
+    proj = os.path.join(long_path(tempfile.gettempdir()), "bd-" + os.urandom(2).hex())
+    temp = os.path.join(w.run.root, "temp-delete")
+    os.makedirs(temp, exist_ok=True)
+    data = w.desk_data
+    shutil.rmtree(data, ignore_errors=True)
+    lists = {k: os.path.join(data, "claude-code-sessions", a, o) for k, (a, o) in DESK.items()}
+    for k in ("acct-a", "app"):
+        os.makedirs(lists[k], exist_ok=True)
+    with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
+        json.dump({"lastKnownAccountUuid": DESK["app"][0], "locale": "en-US"}, f)
+    key = {k: "/".join(v) for k, v in DESK.items()}
+    accounts_json = os.path.join(w.home, "accounts.json")
+    home_json = os.path.join(w.run.home, ".claude.json")
+    user_settings, user_json = os.path.join(w.user_claude, "settings.json"), os.path.join(w.user_claude, ".claude.json")
+    # baton's desktop index too: it remembers which lists baton made, which the desktop scenario
+    # must not find made already.
+    keep = keep_bytes(accounts_json, home_json, w.a.claude_json, w.b.claude_json, user_settings, user_json,
+                      os.path.join(w.home, "desktop.json"))
+    holder = os.path.join(w.user_claude, "sessions", f"{os.getpid()}.json")
+
+    def binned() -> list[str]:
+        return [e.get("from") or "" for e in read_jsonl(os.path.join(w.recycle, "manifest.jsonl"))]
+
+    def record(k: str, sid: str) -> dict | None:
+        try:
+            with open(os.path.join(lists[k], "local_" + sid + ".json"), encoding="utf-8") as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
+
+    def plan(sid: str, where: str) -> tuple[int, dict]:
+        return win.call("GET", f"sessions/delete-plan?session_id={sid}&where={where}")
+
+    def first(body: dict) -> dict:
+        return (body.get("blockers") or [{}])[0]
+
+    def said(cp: subprocess.CompletedProcess) -> str:
+        return (cp.stdout or "") + (cp.stderr or "")
+
+    refusals: list[dict] = []
+    win = pc = po = None
+    sid = osid = None
+    went: list[str] = []
+    w.extra_env = {"TEMP": temp, "TMP": temp}
+    made = False  # only a folder made here is removed afterwards
+    try:
+        os.makedirs(proj)
+        made = True
+        with open(os.path.join(proj, "README.md"), "w", encoding="utf-8") as f:
+            f.write("Delete test project.\n")
+        put_json(home_json, {"oauthAccount": {"accountUuid": DESK["app"][0], "organizationUuid": DESK["app"][1],
+                                              "emailAddress": "desk@example.com"}})
+        profiles_signed_in(w)
+        for prof in (w.a, w.b):
+            projects = prof.read_claude_json().get("projects") or {}
+            projects[fwd(proj)] = {"hasTrustDialogAccepted": True, "allowedTools": []}
+            put_json(prof.claude_json, {"projects": projects})
+
+        # A conversation of the user's own Claude Code in the same folder, made outside baton.
+        settings = json.loads(keep[user_settings])
+        settings["env"] = {**(settings.get("env") or {}), "ANTHROPIC_BASE_URL": w.srv.base_url}
+        desk = w.run.profile("desk", KEY_B, w.srv.base_url, trust=[proj], dir=w.user_claude, settings_extra=settings)
+        po = w.run.pty(desk, [], name="delete-outside", extra_env=w.claude_env(), cwd=proj)
+        po.start()
+        try:
+            time.sleep(6.0)
+            row = claude_said(w, po, "dl outside one", KEY_B)
+            if not row:
+                raise Fail("delete: the user's own Claude Code did not answer")
+            osid = row["headers"].get("x-claude-code-session-id")
+            time.sleep(1.5)
+            quit_claude(po)
+        finally:
+            po.close()
+            po = None
+        put_back({p: keep[p] for p in (user_settings, user_json)})
+        outside = glob.glob(os.path.join(w.user_claude, "projects", "*", osid + ".jsonl"))
+        if len(outside) != 1:
+            raise Fail(f"delete: the outside conversation has no single file ({outside})")
+        outside = outside[0]
+
+        win = window_checked(w)
+        desk_accounts(w, keep[accounts_json])
+        check(win.call("GET", "state")[1].get("desktop") is True, "delete: the window offers the desktop app", res)
+
+        # A session of baton's on acct-a, then acct-b, shown in both accounts' desktop app lists.
+        old = w.run_dirs()
+        pc = w.start("delete", ["--account", "acct-a"], cwd=proj)
+        d = w.wait_session_starts(1, 60, old=old)
+        if not d:
+            raise Fail("delete: no SessionStart")
+        run_id = os.path.basename(d)
+        time.sleep(3.0)
+        submit(w, pc, "dl one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dl one"), 60) is not None, "delete: A answers", res)
+        time.sleep(1.5)
+        sid = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))["session_id"]
+        cp = w.baton_cmd("switch", "acct-b")
+        check(cp.returncode == 0, f"delete: `baton switch acct-b` accepted ({cp.stderr.strip()})", res)
+        submit_when_ready(w, pc, 2, "dl two on b")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_B, "dl two on b"), 60) is not None, "delete: the session goes on on acct-b", res)
+        time.sleep(1.5)
+        tr = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))["transcript_path"]
+        memory = os.path.join(os.path.dirname(tr), "memory", "MEMORY.md")
+        os.makedirs(os.path.dirname(memory), exist_ok=True)
+        with open(memory, "w", encoding="utf-8") as f:
+            f.write("- the folder's memory stays\n")
+        status, r = win.call("POST", "desktop/apply", {"session_id": sid, "places": [key["acct-a"], key["acct-b"]]})
+        check(status == 200 and sorted(r.get("added") or []) == sorted([key["acct-a"], key["acct-b"]]),
+              f"delete: shown in acct-a's and acct-b's desktop app lists ({status} {r})", res)
+        second = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(tr)), sid + ".jsonl")
+        check(record("acct-a", sid) is not None and record("acct-b", sid) is not None
+              and os.path.isfile(second) and os.path.samefile(second, tr),
+              "delete: baton's records are in both lists, and the conversation has its second name", res)
+
+        # While it runs: refused, nothing moves.
+        status, p = plan(sid, "acct-a")
+        check(status == 200 and p.get("ok") is False and first(p).get("code") == "in_baton" and first(p).get("run_id") == run_id,
+              f"delete: while it runs the plan says it runs in baton, naming the run ({status} {p.get('blockers')})", res)
+        status, r = win.call("POST", "sessions/delete", {"session_id": sid, "where": "acct-a"})
+        refusals.append(r.get("blocker") or {"code": r.get("code")})
+        check(status == 409 and r.get("code") == "in_baton" and (r.get("blocker") or {}).get("run_id") == run_id
+              and not binned() and os.path.isfile(tr) and record("acct-a", sid) is not None and record("acct-b", sid) is not None,
+              f"delete: a delete while it runs is refused, and nothing moves ({status} {r})", res)
+        time.sleep(1.0)
+        check(quit_claude(pc) == 0, "delete: baton exits 0", res)
+        pc.close()
+        pc = None
+        def ended() -> bool:
+            try:
+                with open(os.path.join(d, "run.json"), encoding="utf-8") as f:
+                    return json.load(f).get("state") == "done"
+            except (OSError, ValueError):
+                return False
+
+        check(bool(wait_until(ended, 15)), "delete: the run ended", res)
+
+        def recent() -> dict | None:
+            st = win.call("GET", "state")[1]
+            return next((x for x in st.get("recent_sessions") or [] if x.get("session_id") == sid), None)
+
+        row = wait_until(recent, 20)
+        check(row is not None, "delete: the ended session has its Recent row", res)
+        where = (row or {}).get("where") or "acct-a"
+        status, p = plan(sid, where)
+        leaks = [s for s in strings_in(p) if w.run.root.lower() in s.lower() or s.lower().endswith(".jsonl")]
+        check(status == 200 and p.get("ok") is True and p.get("made_in") == "baton" and bool(p.get("title"))
+              and sorted(p.get("desktop_off") or []) == ["acct-a", "acct-b"] and (p.get("items") or {}).get("runs") == 1,
+              f"delete: once it ended, the plan says it comes off both desktop lists, with its run ({status} {p})", res)
+        check(not leaks and same_path(p.get("cwd") or "", proj), f"delete: the plan names its folder and no file of baton's ({leaks})", res)
+
+        other, notes = sha(outside), sha(memory)
+        status, r = win.call("POST", "sessions/delete", {"session_id": sid, "where": where})
+        went = binned()
+        check(status == 200 and r.get("ok") is True and sorted(r.get("desktop_off") or []) == ["acct-a", "acct-b"]
+              and r.get("moved") == len(went) and not r.get("warning"),
+              f"delete: deleted, and taken off both desktop lists ({status} {r})", res)
+        check(any(same_path(x, tr) for x in went) and any(same_path(x, d) for x in went)
+              and not os.path.exists(tr) and not os.path.exists(d),
+              f"delete: its file and its run went to the Recycle Bin ({went})", res)
+        check(not os.path.exists(second) and not glob.glob(os.path.join(w.home, "profiles", "*", "projects", "*", sid + ".jsonl")),
+              "delete: no name of the conversation is left, the second name included", res)
+        roots = [os.path.normcase(x) + os.sep for x in (w.home, w.user_claude, temp)]
+        check(all((sid in x.lower() or same_path(x, d)) and any(os.path.normcase(x).startswith(r_) for r_ in roots) for x in went),
+              f"delete: only what is named by its id went (and its run), from baton's, Claude Code's and the temporary folders ({went})", res)
+        check(record("acct-a", sid) is None and record("acct-b", sid) is None, "delete: baton's records are off both lists", res)
+        check(bool(wait_until(lambda: recent() is None, 15)), "delete: its Recent row goes", res)
+        check(sha(outside) == other and sha(memory) == notes, "delete: the other conversation and the folder's memory stay as they were", res)
+        status, r = win.call("POST", "sessions/delete", {"session_id": sid, "where": where})
+        status2, p = plan(sid, where)
+        refusals.append(r.get("blocker") or {"code": r.get("code")})
+        check(status == 404 and r.get("code") == "gone" and status2 == 404 and p.get("code") == "gone",
+              f"delete: once deleted it is gone ({status} {r.get('code')}, {status2} {p.get('code')})", res)
+        check(sid not in w.baton_cmd("sessions").stdout, "delete: `baton sessions` no longer lists it", res)
+
+        # Made outside baton: refused while the desktop app has it as its own...
+        n = len(binned())
+        own = os.path.join(lists["app"], "local_0e0e0e0e-0000-4000-8000-000000000000.json")
+        with open(own, "w", encoding="utf-8") as f:
+            json.dump({"sessionId": "local_0e0e0e0e-0000-4000-8000-000000000000", "cliSessionId": osid, "cwd": proj,
+                       "originCwd": proj, "title": "made in the app", "isArchived": False}, f)
+        status, p = plan(osid, "claude-code")
+        check(status == 200 and p.get("made_in") == "outside" and p.get("ok") is False
+              and first(p).get("code") == "desktop_app" and first(p).get("detail") == "own",
+              f"delete: a conversation the desktop app has as its own is refused ({status} {p.get('blockers')})", res)
+        status, r = win.call("POST", "sessions/delete", {"session_id": osid, "where": "claude-code"})
+        refusals.append(r.get("blocker") or {"code": r.get("code")})
+        en = w.baton_cmd("sessions", "delete", osid, "--dry-run")
+        ko = w.baton_cmd("sessions", "delete", osid, "--dry-run", extra_env={"BATON_LANG": "ko"})
+        check(status == 409 and r.get("code") == "desktop_app" and en.returncode != 0 and ko.returncode != 0
+              and "delete it in the desktop app" in said(en) and "데스크톱 앱에서 삭제하세요" in said(ko)
+              and len(binned()) == n and os.path.isfile(outside),
+              f"delete: ... by the window and the CLI, in English and Korean, and nothing moves ({status} {r.get('code')}; {said(en).strip()[-120:]!r})", res)
+        os.remove(own)
+
+        # ... and while a Claude Code has it open.
+        os.makedirs(os.path.dirname(holder), exist_ok=True)
+        with open(holder, "w", encoding="utf-8") as f:
+            json.dump({"pid": os.getpid(), "sessionId": osid, "cwd": proj, "kind": "interactive", "status": "idle",
+                       "entrypoint": "cli", "startedAt": process_started_ms(os.getpid())}, f)
+        status, p = plan(osid, "claude-code")
+        status2, r = win.call("POST", "sessions/delete", {"session_id": osid, "where": "claude-code"})
+        refusals.append(r.get("blocker") or {"code": r.get("code")})
+        check(status == 200 and first(p).get("code") == "open_elsewhere" and first(p).get("holder") == "cli"
+              and status2 == 409 and r.get("code") == "open_elsewhere" and (r.get("blocker") or {}).get("holder") == "cli"
+              and len(binned()) == n and os.path.isfile(outside),
+              f"delete: a conversation a Claude Code has open is refused ({status} {p.get('blockers')}, {status2} {r})", res)
+        os.remove(holder)
+
+        # Then the CLI: what it would do, in English and Korean, and the delete.
+        en = w.baton_cmd("sessions", "delete", osid, "--dry-run")
+        ko = w.baton_cmd("sessions", "delete", osid, "--dry-run", extra_env={"BATON_LANG": "ko"})
+        check(en.returncode == 0 and "It was made outside baton" in en.stdout and "Nothing was changed (--dry-run)" in en.stdout
+              and ko.returncode == 0 and "baton 밖(" in ko.stdout and "아무것도 바꾸지 않았습니다" in ko.stdout
+              and len(binned()) == n and os.path.isfile(outside),
+              f"delete: `baton sessions delete --dry-run` says what would go, in English and Korean, and changes nothing ({said(en).strip()[:200]!r})", res)
+        cp = w.baton_cmd("sessions", "delete", osid, "--yes")
+        check(cp.returncode == 0 and "Moved the conversation to the Recycle Bin" in cp.stdout and not os.path.exists(outside)
+              and any(same_path(x, outside) for x in binned()),
+              f"delete: `baton sessions delete --yes` moves it to the Recycle Bin ({said(cp).strip()[-200:]!r})", res)
+        status, listed = win.call("GET", "conversations?all=1")
+        status2, p = plan(osid, "claude-code")
+        check(status == 200 and not any(c.get("session_id") == osid for c in listed or []) and status2 == 404,
+              "delete: the window no longer lists it to bring in", res)
+
+        # What the window says to each refusal, and in the dialog, in both languages.
+        keys = ["del_btn", "del_title", "del_body", "del_desktop_off", "del_kept", "del_go", "del_done"]
+        keys += sorted({delete_text_key(b) for b in refusals})
+        missing = texts_missing(win.page_file("app.js"), keys)
+        check(not missing, f"delete: the page words the dialog and every refusal in English and Korean ({keys}; missing {missing})", res)
+    finally:
+        w.extra_env = {}
+        if os.path.exists(holder):
+            os.remove(holder)
+        for c in (pc, po):
+            if c is not None:
+                c.close()
+        if win is not None:
+            win.close()
+        put_back(keep)
+        if made:
+            shutil.rmtree(proj, ignore_errors=True)
+    rel = [os.path.relpath(x, w.run.root) if os.path.normcase(x).startswith(os.path.normcase(w.run.root)) else x for x in went]
+    return {"session": sid, "outside": osid, "binned": rel, "refusals": refusals}
+
+
+# The desktop app's sign-in as it keeps it (as internal/desklogin knows it): six values of its
+# config.json, and its login set, the site storage and cookies in its data folder.
+DL_KEYS = ["oauth:tokenCache", "oauth:tokenCacheV2", "lastKnownAccountUuid", "bootSideSessions", "bootSidebarPlaceholder",
+           "sshTransportFlagLastAnswer"]
+DL_ITEMS = ["Local Storage", "Session Storage", "IndexedDB", "WebStorage", os.path.join("Network", "Cookies"),
+            os.path.join("Network", "Cookies-journal")]
+# Files of the app's data folder that no switch moves.
+DL_STAY = {"ant-did": "device", "ant-device-registry.json": "{}", os.path.join("Network", "TransportSecurity"): "hsts",
+           "Local State": '{"os_crypt":{"encrypted_key":"k"}}', "window-state.json": "{}"}
+
+
+def dl_files(tag: str) -> dict[str, str]:
+    """The login set of a sign-in tagged tag: file -> content."""
+    return {os.path.join("Local Storage", "leveldb", "000003.log"): "ls-" + tag,
+            os.path.join("Local Storage", "leveldb", "CURRENT"): "MANIFEST-000001\n",
+            os.path.join("Session Storage", "000003.log"): "ss-" + tag,
+            os.path.join("IndexedDB", "https_claude.ai_0.indexeddb.leveldb", "000003.log"): "idb-" + tag,
+            os.path.join("IndexedDB", "https_claude.ai_0.indexeddb.blob", "1", "00", "01"): "blob-" + tag,
+            os.path.join("WebStorage", "2", "IndexedDB", "x"): "ws-" + tag,
+            os.path.join("WebStorage", "QuotaManager"): "qm-" + tag,
+            os.path.join("WebStorage", "QuotaManager-journal"): "",
+            os.path.join("Network", "Cookies"): "cookies-" + tag,
+            os.path.join("Network", "Cookies-journal"): ""}
+
+
+def dl_six(acct: str, tag: str) -> dict:
+    """The six values of config.json the app writes for a sign-in to acct (tag makes them its own)."""
+    return {"oauth:tokenCache": f"sealed-{tag}-1", "oauth:tokenCacheV2": f"sealed2-{tag}-1", "lastKnownAccountUuid": acct,
+            "bootSideSessions": {"items": [1, 2, {"t": tag + " <title> & co"}]}, "bootSidebarPlaceholder": tag + " placeholder",
+            "sshTransportFlagLastAnswer": False}
+
+
+def dl_sign_in(data: str, acct: str, tag: str) -> None:
+    """The desktop app signed in to acct, as it leaves its data folder: the login set tagged tag, and
+    config.json (indented by two, no line end at the end) with the six values among its settings."""
+    for it in DL_ITEMS:
+        p = os.path.join(data, it)
+        if os.path.isdir(p):
+            shutil.rmtree(p)
+        elif os.path.exists(p):
+            os.remove(p)
+    for rel, content in dl_files(tag).items():
+        p = os.path.join(data, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8", newline="") as f:
+            f.write(content)
+    cfg = {"updaterLastSeenVersion": "5.11492.0.0", "locale": "ko-KR", f"dxt:allowlistEnabled:{DESK['acct-a'][1]}": True,
+           "korean": "한국어 ✓", "big": 123456789012345678901234567890, **dl_six(acct, tag),
+           "windowSizeWasSignedIn": {"w": 1200, "h": 800}}
+    with open(os.path.join(data, "config.json"), "w", encoding="utf-8", newline="") as f:
+        f.write(json.dumps(cfg, indent=2, ensure_ascii=False))
+
+
+def dl_config(data: str) -> tuple[dict, list]:
+    """The app's config.json: its six login values, and every other member in order."""
+    with open(os.path.join(data, "config.json"), encoding="utf-8") as f:
+        cfg = json.load(f)
+    return {k: v for k, v in cfg.items() if k in DL_KEYS}, [(k, v) for k, v in cfg.items() if k not in DL_KEYS]
+
+
+def dl_login_set(data: str) -> dict[str, str]:
+    """The login set in the app's data folder now: file -> content."""
+    out = {}
+    for it in DL_ITEMS:
+        root = os.path.join(data, it)
+        if os.path.isfile(root):
+            with open(root, encoding="utf-8") as f:
+                out[it] = f.read()
+        for dp, _, files in os.walk(root):
+            for name in files:
+                with open(os.path.join(dp, name), encoding="utf-8") as f:
+                    out[os.path.relpath(os.path.join(dp, name), data)] = f.read()
+    return out
+
+
+def dl_rest(data: str) -> dict[str, str]:
+    """Every other file of the app's data folder (baton's records in its lists among them), by hash:
+    a switch leaves them all as they are. The app's lockfile and a switch's stage aside."""
+    out = {}
+    for dp, dirs, files in os.walk(data):
+        here = os.path.relpath(dp, data)
+        dirs[:] = [x for x in dirs if not x.startswith(".baton-switch-") and os.path.normpath(os.path.join(here, x)) not in DL_ITEMS]
+        for name in files:
+            rel = os.path.normpath(os.path.join(here, name))
+            if rel not in DL_ITEMS and rel not in ("config.json", "lockfile"):
+                out[rel] = sha(os.path.join(dp, name))
+    return out
+
+
+class hold_lockfile:
+    """Holds <data>\\lockfile as the running desktop app does (Chromium's single-instance lock):
+    open for writing, shared for reading only, gone once closed."""
+
+    def __init__(self, data: str):
+        self.path = os.path.join(data, "lockfile")
+
+    def __enter__(self):
+        import ctypes
+        from ctypes import wintypes
+        self.k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.k32.CreateFileW.restype = wintypes.HANDLE
+        self.k32.CreateFileW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+                                         wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+        generic_write, delete, share_read, open_always = 0x40000000, 0x00010000, 0x1, 4
+        normal, delete_on_close = 0x80, 0x04000000
+        self.h = self.k32.CreateFileW(self.path, generic_write | delete, share_read, None, open_always,
+                                      normal | delete_on_close, None)
+        if self.h in (None, 0, ctypes.c_void_p(-1).value):
+            raise Fail(f"desklogin: could not hold the lockfile ({ctypes.get_last_error()})")
+        return self
+
+    def __exit__(self, *exc):
+        self.k32.CloseHandle(self.h)
+
+
+def scenario_desklogin(w: World, res: list) -> dict:
+    """Switching the Claude desktop app's sign-in between the user's own accounts (opt in), through
+    the window's API and then the CLI. The app's data folder is a scratch one shaped like the real
+    one: config.json with the six login values among its other settings, and the login set (site
+    storage and cookies), signed in to acct-a's Claude account. The app counts as quit
+    (BATON_DESKTOP_RUNNING=0), and baton never opens it here (BATON_DESKTOP_DATA). A session of
+    baton's is shown in acct-a's and acct-b's lists first.
+    Turned off, nothing switches (404). Turning it on needs its notice accepted, whose box the page
+    never ticks for the user and whose Turn on waits for it (read in the page's code). "Add an account"
+    keeps acct-a's sign-in and empties the app's; a sign-in to acct-b (made here as the app would
+    leave it) is kept by switching back to acct-a, whose files come back byte for byte; while the
+    app's own single-instance lock is held (<data>\\lockfile) nothing switches; then acct-b. The
+    app's other files, baton's records in both lists among them, stay as they were, also after the
+    window's reconcile. Turning it off deletes every kept sign-in and leaves the app on its account.
+    Then the same through the CLI, with the notice and the last question answered in a console."""
+    w.reset_state()
+    w.accounts_flip("echo", "echo")
+    w.config(switch_mode="auto", on_exhausted="stop")
+    A, B = DESK["acct-a"][0], DESK["acct-b"][0]
+    data = w.desk_data
+    shutil.rmtree(data, ignore_errors=True)
+    for rel, content in DL_STAY.items():
+        p = os.path.join(data, rel)
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(content)
+    dl_sign_in(data, A, "A")
+    _, settings0 = dl_config(data)
+    lists = {k: os.path.join(data, "claude-code-sessions", *DESK[k]) for k in ("acct-a", "acct-b")}
+    key = {k: "/".join(DESK[k]) for k in ("acct-a", "acct-b")}
+    store = os.path.join(w.home, "desktop-logins")
+    baton_config = os.path.join(w.home, "config.json")
+    accounts_json = os.path.join(w.home, "accounts.json")
+    # baton's desktop index too: it remembers which lists baton made, which the desktop scenario
+    # must not find made already.
+    keep = keep_bytes(accounts_json, os.path.join(w.run.home, ".claude.json"), w.a.claude_json, w.b.claude_json,
+                      os.path.join(w.home, "desktop.json"))
+
+    def on() -> dict:
+        with open(baton_config, encoding="utf-8") as f:
+            c = json.load(f)
+        return {"on": bool(c.get("desktop_logins")), "ack": c.get("desktop_logins_acknowledged") or 0}
+
+    def kept(acct: str) -> bool:
+        return os.path.isfile(os.path.join(store, acct, "keys.json"))
+
+    def app_is(acct: str | None, tag: str | None) -> bool:
+        """The app holds the sign-in to acct tagged tag (None: signed out), its other settings as they were."""
+        six, settings = dl_config(data)
+        want = dl_six(acct, tag) if acct else {}
+        return (dl_login_set(data) == (dl_files(tag) if acct else {}) and six == want and settings == settings0
+                and not glob.glob(os.path.join(data, ".baton-switch-*")))
+
+    def said(cp: subprocess.CompletedProcess) -> str:
+        return (cp.stdout or "") + (cp.stderr or "")
+
+    def accounts(st: dict) -> dict:
+        return {a.get("id"): a.get("desktop_login") or "" for a in st.get("accounts") or []}
+
+    def places(sid: str) -> dict:
+        v = win.call("GET", "desktop/places?session_id=" + sid)[1]
+        return {x.get("key"): x for x in v.get("places") or []}
+
+    def console(name: str, *args: str) -> tuple[bool, int | None, str]:
+        """A baton command in a console, answering its question with y."""
+        pc = PseudoConsole([w.baton, *args], cwd=w.run.root, env=w.env(), log_dir=w.run.logs, name=name)
+        pc.start()
+        try:
+            asked = pc.wait_for(r"\[y/N\]", 30) is not None
+            if asked:
+                pc.send("y\r")
+            code = pc.wait_exit(30)
+            return asked, code, pc.plain()
+        finally:
+            pc.close()
+
+    codes: list[str] = []
+    win = pc = None
+    sid = None
+    try:
+        profiles_signed_in(w)
+        win = window_checked(w)
+        desk_accounts(w, keep[accounts_json])
+
+        # A session of baton's, shown in both accounts' lists.
+        old = w.run_dirs()
+        pc = w.start("desklogin", ["--account", "acct-a"])
+        d = w.wait_session_starts(1, 60, old=old)
+        if not d:
+            raise Fail("desklogin: no SessionStart")
+        time.sleep(3.0)
+        submit(w, pc, "dl session one")
+        check(w.wait_mock(lambda r: main_turn(r, KEY_A, "dl session one"), 60) is not None, "desklogin: A answers", res)
+        time.sleep(1.5)
+        j = json.load(open(os.path.join(d, "run.json"), encoding="utf-8"))
+        sid, tr = j["session_id"], j["transcript_path"]
+        check(quit_claude(pc) == 0, "desklogin: baton exits 0", res)
+        pc.close()
+        pc = None
+        status, r = win.call("POST", "desktop/apply", {"session_id": sid, "places": [key["acct-a"], key["acct-b"]]})
+        check(status == 200 and sorted(r.get("added") or []) == sorted(key.values()),
+              f"desklogin: the session is shown in acct-a's and acct-b's lists ({status} {r})", res)
+        records = [os.path.join(lists[k], "local_" + sid + ".json") for k in lists]
+        time.sleep(2.0)
+        rest = dl_rest(data)
+        check(all(os.path.relpath(p, data) in rest for p in records), "desklogin: baton's records are in the app's folder", res)
+
+        # Off: nothing switches.
+        status, r = win.call("POST", "desktop/logins/use", {"account": A, "open": False})
+        status2, r2 = win.call("POST", "desktop/logins/add", {"open": False})
+        codes += [r.get("code"), r2.get("code")]
+        st = win.call("GET", "state")[1]
+        check(status == 404 and r.get("code") == "dl_off" and status2 == 404 and r2.get("code") == "dl_off"
+              and app_is(A, "A") and dl_rest(data) == rest and not os.path.exists(store)
+              and (st.get("desktop_logins") or {}).get("on") is False and (st.get("config") or {}).get("desktop_logins") is False,
+              f"desklogin: while it is off, switching is refused (404) and nothing changes ({status} {r}, {status2} {r2})", res)
+
+        # On: only with the notice accepted. The window's half of that (the box never ticked for the
+        # user, Turn on disabled until it is) lives in the page, which posts acknowledge:true as
+        # below once the box is ticked; so it is checked in the page's code as the window serves it.
+        bad = login_notice_problems(win.page_file("app.js"))
+        check(not bad, f"desklogin: the page's notice box is never ticked for the user, and Turn on waits for it ({bad})", res)
+        status, r = win.call("POST", "config", {"key": "desktop_logins", "value": "true"})
+        codes.append(r.get("code"))
+        check(status == 409 and r.get("code") == "needs_desktop_ack" and on() == {"on": False, "ack": 0},
+              f"desklogin: turning it on without the notice accepted is refused ({status} {r})", res)
+        status, r = win.call("POST", "config", {"key": "desktop_logins", "value": "true", "acknowledge": True})
+        st = win.call("GET", "state")[1]
+        dl, cfg = st.get("desktop_logins") or {}, st.get("config") or {}
+        check(status == 200 and on()["on"] and cfg.get("desktop_logins") is True and cfg.get("desktop_logins_ack") is True
+              and dl.get("on") is True and dl.get("active") == "acct-a" and same_path(dl.get("store") or "", store)
+              and accounts(st).get("acct-a") == "active",
+              f"desklogin: with the notice accepted it is on; the app is on acct-a ({status} {r}, {dl}, {accounts(st)})", res)
+        status, v = win.call("GET", "desktop/logins")
+        la = next((g for g in v.get("logins") or [] if g.get("account") == A), {})
+        check(status == 200 and la.get("active") is True and la.get("kept") is False and la.get("baton") == ["acct-a"],
+              f"desklogin: the card has acct-a's sign-in, signed in now and not kept yet ({la})", res)
+
+        # Add an account: acct-a's sign-in is kept, the app's emptied.
+        status, r = win.call("POST", "desktop/logins/add", {"open": False})
+        check(status == 200 and r.get("from") == A and r.get("to") == "" and r.get("kept") is True
+              and app_is(None, None) and dl_rest(data) == rest and kept(A),
+              f"desklogin: Add an account keeps acct-a's sign-in and empties the app's; nothing else changes ({status} {r})", res)
+        status, v = win.call("GET", "desktop/logins")
+        st = win.call("GET", "state")[1]
+        check(status == 200 and v.get("active") == "" and "sealed" not in json.dumps(v)
+              and any(g.get("account") == A and g.get("kept") and not g.get("active") for g in v.get("logins") or [])
+              and accounts(st).get("acct-a") == "kept",
+              f"desklogin: the card has it kept, and holds no token ({v.get('logins')}, {accounts(st)})", res)
+
+        # The user signs in to acct-b in the app; switching back to acct-a keeps it.
+        dl_sign_in(data, B, "B")
+        status, r = win.call("POST", "desktop/logins/use", {"account": A, "open": False})
+        check(status == 200 and r.get("from") == B and r.get("to") == A and r.get("kept") is True and app_is(A, "A") and kept(B),
+              f"desklogin: switching to acct-a keeps acct-b's sign-in and puts acct-a's back, byte for byte ({status} {r})", res)
+        check(dl_rest(data) == rest, "desklogin: ... every other file of the app's stays as it was, baton's records included", res)
+        st = win.call("GET", "state")[1]
+        rows = places(sid)
+        check(accounts(st) == {"acct-a": "active", "acct-b": "kept"} and rows.get(key["acct-a"], {}).get("active")
+              and rows.get(key["acct-a"], {}).get("checked") and rows.get(key["acct-b"], {}).get("checked"),
+              f"desklogin: the window has acct-a signed in now and acct-b kept; the session still shows on both ({accounts(st)})", res)
+
+        # While the app holds its own lock (it runs, whatever else says), nothing switches.
+        with hold_lockfile(data):
+            status, r = win.call("POST", "desktop/logins/use", {"account": B, "open": False})
+        codes.append(r.get("code"))
+        check(status == 409 and r.get("code") == "dl_app_running" and r.get("details") == "lockfile"
+              and app_is(A, "A") and dl_rest(data) == rest,
+              f"desklogin: while the app holds its lockfile nothing switches ({status} {r})", res)
+
+        status, r = win.call("POST", "desktop/logins/use", {"account": B, "open": False})
+        check(status == 200 and r.get("from") == A and r.get("to") == B and app_is(B, "B") and kept(A),
+              f"desklogin: then switching to acct-b puts its sign-in back ({status} {r})", res)
+        status, r = win.call("POST", "desktop/logins/use", {"account": B, "open": False})
+        codes.append(r.get("code"))
+        check(status == 409 and r.get("code") == "dl_already", f"desklogin: switching to it again says so ({status} {r})", res)
+        time.sleep(3.0)  # the window's own desktop loop looks again meanwhile
+        rows = places(sid)
+        check(dl_rest(data) == rest and rows.get(key["acct-b"], {}).get("active")
+              and rows.get(key["acct-a"], {}).get("checked") and rows.get(key["acct-b"], {}).get("checked"),
+              "desklogin: baton's records stay in both lists, and its reconcile changes nothing of the app's", res)
+        status, r = win.call("POST", "desktop/logins/rename", {"account": A, "label": "work"})
+        v = win.call("GET", "desktop/logins")[1]
+        check(status == 200 and any(g.get("account") == A and g.get("label") == "work" for g in v.get("logins") or []),
+              f"desklogin: a kept sign-in can be renamed ({status} {r})", res)
+
+        # Off again: every kept sign-in goes, the app stays on its account.
+        status, r = win.call("POST", "config", {"key": "desktop_logins", "value": "false"})
+        st = win.call("GET", "state")[1]
+        check(status == 200 and r.get("deleted") == 2 and not os.path.exists(store) and on() == {"on": False, "ack": 0}
+              and app_is(B, "B") and dl_rest(data) == rest and (st.get("desktop_logins") or {}).get("on") is False,
+              f"desklogin: turning it off deletes both kept sign-ins; the app stays on acct-b ({status} {r})", res)
+
+        # The same through the CLI.
+        cp = w.baton_cmd("desktop", "login", "use", "acct-a")
+        check(cp.returncode != 0 and "turned off" in said(cp) and app_is(B, "B"),
+              f"desklogin: CLI: while it is off, nothing switches ({said(cp).strip()!r})", res)
+        en = w.baton_cmd("config", "desktop_logins", "true")
+        ko = w.baton_cmd("config", "desktop_logins", "true", extra_env={"BATON_LANG": "ko"})
+        check(en.returncode != 0 and "Before baton switches" in said(en) and store in said(en) and "not a console" in said(en)
+              and ko.returncode != 0 and "꼭 읽어 주세요" in said(ko) and store in said(ko) and on()["on"] is False,
+              f"desklogin: CLI: turning it on shows the notice, in English and Korean, and needs a console to ask ({said(en).strip()[-120:]!r})", res)
+        asked, code, out = console("desklogin-on", "config", "desktop_logins", "true")
+        check(asked and code == 0 and on() == {"on": True, "ack": 1}, f"desklogin: CLI: ... and turns it on once answered ({code}; {out.strip()[-160:]!r})", res)
+        cp = w.baton_cmd("desktop", "login")
+        check(cp.returncode == 0 and "acct-b" in cp.stdout and "signed in now" in cp.stdout and "not kept yet" in cp.stdout,
+              f"desklogin: CLI: the list has acct-b, signed in now, not kept yet ({cp.stdout.strip()[:300]!r})", res)
+        cp = w.baton_cmd("desktop", "login", "add")
+        check(cp.returncode == 0 and app_is(None, None) and kept(B) and dl_rest(data) == rest,
+              f"desklogin: CLI: add keeps acct-b's sign-in and empties the app's ({said(cp).strip()[-160:]!r})", res)
+        dl_sign_in(data, A, "A2")
+        cp = w.baton_cmd("desktop", "login", "use", "acct-b")
+        check(cp.returncode == 0 and app_is(B, "B") and kept(A) and dl_rest(data) == rest,
+              f"desklogin: CLI: use acct-b keeps acct-a's new sign-in and puts acct-b's back ({said(cp).strip()[-160:]!r})", res)
+        with hold_lockfile(data):
+            cp = w.baton_cmd("desktop", "login", "use", "acct-a")
+            ko = w.baton_cmd("desktop", "login", "use", "acct-a", extra_env={"BATON_LANG": "ko"})
+        check(cp.returncode != 0 and "still running" in said(cp) and ko.returncode != 0 and "아직 실행 중입니다" in said(ko)
+              and app_is(B, "B") and dl_rest(data) == rest,
+              f"desklogin: CLI: while the app holds its lockfile nothing switches, in English and Korean ({said(cp).strip()!r})", res)
+        cp = w.baton_cmd("desktop", "login", "use", "acct-a")
+        ko = w.baton_cmd("desktop", "login", extra_env={"BATON_LANG": "ko"})
+        check(cp.returncode == 0 and app_is(A, "A2") and dl_rest(data) == rest and ko.returncode == 0 and "지금 로그인됨" in ko.stdout,
+              f"desklogin: CLI: use acct-a puts its new sign-in back; the list in Korean ({said(cp).strip()[-160:]!r})", res)
+        asked, code, out = console("desklogin-off", "config", "desktop_logins", "false")
+        check(asked and code == 0 and not os.path.exists(store) and on() == {"on": False, "ack": 0} and app_is(A, "A2")
+              and dl_rest(data) == rest and all(os.path.isfile(p) for p in records),
+              f"desklogin: CLI: turning it off asks, deletes every kept sign-in, and leaves the app and baton's records ({code}; {out.strip()[-160:]!r})", res)
+        # After all these switches baton still takes its own records off (and then the second name).
+        status, r = win.call("POST", "desktop/apply", {"session_id": sid, "places": []})
+        second = os.path.join(w.user_claude, "projects", os.path.basename(os.path.dirname(tr)), sid + ".jsonl")
+        check(status == 200 and sorted(r.get("removed") or []) == sorted(key.values()) and not any(os.path.exists(p) for p in records)
+              and bool(wait_until(lambda: not os.path.exists(second), 20)) and app_is(A, "A2"),
+              f"desklogin: unticked, baton's records leave both lists, and then the second name ({status} {r})", res)
+
+        keys = ["dl_set", "dl_notice_title", "dl_notice_ack", "dl_on", "dl_title", "dl_now", "dl_use", "dl_new", "dl_no_logout",
+                "dl_off_body"] + sorted({"err_" + c for c in codes if c})
+        missing = texts_missing(win.page_file("app.js"), keys)
+        check(not missing, f"desklogin: the page words the card and every refusal in English and Korean ({keys}; missing {missing})", res)
+    finally:
+        if pc is not None:
+            pc.close()
+        if win is not None:
+            # Whatever happened, nothing kept is left on for the scenarios after this one.
+            try:
+                if os.path.exists(store) or on()["on"]:
+                    win.call("POST", "config", {"key": "desktop_logins", "value": "false"})
+            except (OSError, ValueError):
+                pass
+            win.close()
+        put_back(keep)
+    return {"session": sid, "refusals": codes}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("root")
@@ -2502,7 +3329,7 @@ def main() -> int:
     ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "remotetwo,busytrust,elsewhere,rules,restore,office,desktop")
+                                      "remotetwo,busytrust,elsewhere,rules,restore,office,desktop,delete,desklogin")
     a = ap.parse_args()
     w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

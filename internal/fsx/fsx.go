@@ -144,6 +144,47 @@ func ReadFileShared(path string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
+// LinkCount is how many names (hard links) the file at path has, 0 when that
+// cannot be read. A name is removed on its own only from a file that has
+// another one; a name elsewhere keeps a file alive that looks gone.
+func LinkCount(path string) uint32 {
+	fi, err := byHandle(path)
+	if err != nil {
+		return 0
+	}
+	return fi.NumberOfLinks
+}
+
+// FileID tells the file at path apart from every other on the machine,
+// whatever its name: its volume's serial number and its index there. ok is
+// false when it can't be read.
+func FileID(path string) (id [2]uint64, ok bool) {
+	fi, err := byHandle(path)
+	if err != nil {
+		return id, false
+	}
+	return [2]uint64{uint64(fi.VolumeSerialNumber), uint64(fi.FileIndexHigh)<<32 | uint64(fi.FileIndexLow)}, true
+}
+
+// byHandle reads what Windows keeps about the file at path, without
+// keeping anyone else from it.
+func byHandle(path string) (windows.ByHandleFileInformation, error) {
+	var fi windows.ByHandleFileInformation
+	p, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return fi, err
+	}
+	h, err := windows.CreateFile(p, windows.FILE_READ_ATTRIBUTES,
+		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE|windows.FILE_SHARE_DELETE, nil,
+		windows.OPEN_EXISTING, windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if err != nil {
+		return fi, err
+	}
+	defer windows.CloseHandle(h)
+	err = windows.GetFileInformationByHandle(h, &fi)
+	return fi, err
+}
+
 // StripBOM drops a leading UTF-8 byte-order mark, which Windows editors and
 // PowerShell 5.1 often write and which claude itself accepts.
 func StripBOM(data []byte) []byte {

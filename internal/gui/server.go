@@ -151,6 +151,20 @@ type Server struct {
 	closed     bool
 	deskSt     deskState  // the desktop app feature, for the state poll
 	deskMu     sync.Mutex // one pass over the desktop app's lists at a time
+	// moveMu: one change at a time that moves conversations' files (a
+	// delete, an account removal); gates: by conversation id, see convGate.
+	moveMu sync.Mutex
+	gates  map[string]*sync.RWMutex
+	// delTemp is where a delete looks for Claude Code's temporary folders
+	// ("" is os.TempDir(); a test's own).
+	delTemp string
+	// loginsSt: the last look at the desktop app's kept sign-ins (see
+	// desklogins.go).
+	loginsSt loginsState
+	// bg counts the desktop passes a tick started in the background: they
+	// write into baton's folder after the answer went, so a test waits for
+	// them before its folders go (see waitBackground).
+	bg sync.WaitGroup
 }
 
 // page is one load of the page in a window or browser tab. A reload, or a

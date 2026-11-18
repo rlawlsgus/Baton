@@ -721,6 +721,13 @@ func TestFindDataDir(t *testing.T) {
 	if DataDir() != a {
 		t.Fatal("BATON_DESKTOP_DATA")
 	}
+	// The test build's default: no desktop app, not a folder named "none".
+	for _, v := range []string{"none", "None"} {
+		t.Setenv("BATON_DESKTOP_DATA", v)
+		if d := DataDir(); d != "" {
+			t.Fatalf("BATON_DESKTOP_DATA=%s: %q", v, d)
+		}
+	}
 	t.Setenv("BATON_DESKTOP_DATA", "")
 	if DataDir() != "" {
 		t.Fatal("a test binary looked for the real data folder")

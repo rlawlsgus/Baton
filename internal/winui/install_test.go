@@ -50,6 +50,18 @@ func TestInstallAndRemoveEntries(t *testing.T) {
 	if !Installed(app) || Installed(filepath.Join(src, "baton-app.exe")) {
 		t.Fatal("Installed() wrong")
 	}
+	// An uninstall run with another LOCALAPPDATA (a test, a portable copy)
+	// leaves the installed-apps entry of the baton installed here.
+	t.Setenv("LOCALAPPDATA", filepath.Join(root, "elsewhere"))
+	RemoveInstallEntries()
+	if _, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE); err != nil {
+		t.Fatal("removed the installed-apps entry of another install folder")
+	}
+	t.Setenv("LOCALAPPDATA", filepath.Join(root, "local"))
+	// The shortcut went above; install again for the checks below.
+	if _, err := Install(src, "9.9.9", "baton.test"); err != nil {
+		t.Fatal(err)
+	}
 	RemoveInstallEntries()
 	if _, err := os.Stat(ShortcutPath()); !os.IsNotExist(err) {
 		t.Fatal("shortcut left")

@@ -11,6 +11,7 @@ import (
 	"baton/internal/accounts"
 	"baton/internal/claude"
 	"baton/internal/desktop"
+	"baton/internal/run"
 )
 
 // The window's part in showing sessions in the Claude desktop app
@@ -44,7 +45,9 @@ func (s *Server) deskIndex() (string, desktop.Index, map[string]desktop.Badge) {
 		d.ix, d.badges, d.ixSize, d.ixMod = desktop.Index{}, nil, 0, time.Time{}
 	case fi.Size() != d.ixSize || !fi.ModTime().Equal(d.ixMod):
 		if ix, err := desktop.LoadIndex(s.opt.Paths.Desktop()); err == nil {
-			d.ix, d.badges = ix, ix.Badges()
+			// The app's accounts none of baton's are named by what is kept of
+			// them, once its sign-in can be switched (two of them can show).
+			d.ix, d.badges = ix, ix.BadgesKnown(s.loginsKnown())
 			d.ixSize, d.ixMod = fi.Size(), fi.ModTime()
 		}
 	}
@@ -60,7 +63,9 @@ func (s *Server) deskNow() (bool, map[string]desktop.Badge, []*desktop.Thread) {
 
 func (s *Server) desk() *desktop.Desk {
 	reg, _ := accounts.Load(s.opt.Paths.Accounts())
-	return desktop.New(s.opt.Paths, reg)
+	d := desktop.New(s.opt.Paths, reg)
+	d.Known = s.loginsKnown()
+	return d
 }
 
 // conversationOf finds the file of conversation id: the one the newest run
@@ -115,6 +120,18 @@ func (s *Server) apiDesktopApply(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad_session", "unknown session", "")
 		return
 	}
+	// Not while it is being deleted, here or by the CLI: the delete has
+	// taken it off the desktop app, or is about to, and its files are going.
+	g := s.convGate(id)
+	if !g.TryRLock() {
+		fail(w, http.StatusConflict, "deleting", "this conversation is being deleted", "")
+		return
+	}
+	defer g.RUnlock()
+	if run.Deleting(s.opt.Paths.Root, id) {
+		fail(w, http.StatusConflict, "deleting", "this conversation is being deleted", "")
+		return
+	}
 	t := s.conversationOf(id)
 	if t == "" {
 		fail(w, http.StatusConflict, "no_file", "the session has no conversation yet", "")
@@ -125,7 +142,11 @@ func (s *Server) apiDesktopApply(w http.ResponseWriter, r *http.Request) {
 		deskFail(w, err)
 		return
 	}
-	go s.ReconcileDesktop()
+	s.bg.Add(1)
+	go func() {
+		defer s.bg.Done()
+		s.ReconcileDesktop()
+	}()
 	writeJSON(w, http.StatusOK, res)
 }
 

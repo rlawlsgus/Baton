@@ -163,7 +163,15 @@ func (t *Tracker) discover(now time.Time) {
 		}
 		return i
 	}
+	for id, at := range t.forgot {
+		if now.Sub(at) >= forgetFor {
+			delete(t.forgot, id)
+		}
+	}
 	for _, c := range t.recent {
+		if t.forgotten(c.SessionID, now) {
+			continue // being deleted: a list read before its files went still has it
+		}
 		i := get(c.SessionID)
 		i.title, i.firstPrompt, i.cwd, i.path, i.entry, i.last = c.Title, c.FirstPrompt, c.Cwd, c.Path, c.Source, c.Modified
 		i.account = t.accountOf(c.ConfigDir)

@@ -18,7 +18,10 @@ import (
 	"baton/internal/winproc"
 )
 
-const riskNotice = `
+// riskNotice is what the user reads before baton switches accounts, in the
+// window's language.
+func riskNotice() string {
+	return say(`
 Read this before baton switches accounts for you:
 
   * When the account in use hits its usage limit, baton stops Claude Code and
@@ -32,9 +35,30 @@ Read this before baton switches accounts for you:
     notice. No Anthropic source says this use is allowed. Use it at your own risk.
   * Each switch makes the next account read the whole conversation again
     (prompt caches are per account), which uses part of its quota.
-  * baton never reads or stores your credentials; every account is signed in
-    and refreshed by Claude Code itself.
-`
+  * baton never reads or stores the credentials of its accounts; Claude Code
+    signs in and refreshes each account itself. If you turn on switching the
+    desktop app's sign-in, baton keeps copies of the app's sign-in files as
+    they are, never decrypted or sent anywhere.
+`, `
+baton이 계정을 전환하기 전에 꼭 읽어 주세요:
+
+  * 사용 중인 계정이 한도에 걸리면 baton은 Claude Code를 멈추고 같은 대화를
+    추가해 둔 다른 계정에서 이어 갑니다.
+  * 본인 소유의 계정만 추가하세요. 다른 사람과 계정을 공유하는 것은 Anthropic
+    약관 위반입니다.
+  * Anthropic 이용 정책은 허가 없이 제품의 제한을 의도적으로 우회하거나 여러
+    계정으로 안전장치를 피하는 것을 금지합니다. 한도에 걸린 뒤 다른 계정으로
+    이어 쓰는 것이 이에 해당한다고 판단될 수 있고, Anthropic은 계정을 예고 없이
+    정지할 수 있습니다. 이를 허용한다는 Anthropic의 공식 입장은 없습니다. 본인
+    판단과 책임으로 사용하세요.
+  * 전환할 때마다 다음 계정이 대화 전체를 다시 읽으므로(프롬프트 캐시는 계정마다
+    따로입니다) 그 계정의 한도를 그만큼 사용합니다.
+  * baton은 baton 계정의 로그인 정보를 읽거나 저장하지 않습니다. 로그인과
+    갱신은 Claude Code가 계정마다 직접 합니다. 데스크톱 앱 로그인 전환을 켜면
+    baton은 앱의 로그인 파일을 있는 그대로 복사해 보관하며, 복호화하거나
+    어디로도 보내지 않습니다.
+`)
+}
 
 const modeChoice = `
 How should baton switch accounts?
@@ -123,7 +147,9 @@ func cmdRun(args []string) (int, error) {
 		return 1, err
 	}
 	if cut == nil {
-		resolveResume(&cargs, e, cwd)
+		if err := resolveResume(&cargs, e, cwd); err != nil {
+			return 1, err
+		}
 	}
 	self, err := os.Executable()
 	if err != nil {
@@ -157,6 +183,9 @@ func cutOffRun(e *env, id string) (run.Journal, error) {
 	}
 	if !j.CutOff(supervisorAlive(j.SupervisorPID, j.SupervisorCreated)) {
 		return run.Journal{}, fmt.Errorf("run %s was not cut off, or was reopened already; continue its conversation with: baton run -- --resume \"%s\"", id, j.TranscriptPath)
+	}
+	if err := refuseDeleting(e, j.SessionID, sessionOf(j.TranscriptPath)); err != nil {
+		return run.Journal{}, err
 	}
 	if j.TranscriptPath == "" || !isFile(j.TranscriptPath) {
 		return run.Journal{}, fmt.Errorf("run %s has no conversation to reopen", id)
@@ -242,18 +271,25 @@ func holdNewConsole(succeeded bool) {
 // wherever it lives. claude itself only looks inside the current account's
 // profile, but a conversation stays in the profile of the account that
 // started it, or in the normal setup (~/.claude) if it began before baton.
-func resolveResume(a *claude.Args, e *env, cwd string) {
+// It refuses a conversation that is being deleted.
+func resolveResume(a *claude.Args, e *env, cwd string) error {
 	dirs, _ := conversationDirs(e)
 	home := share.UserHome(e.paths.ProfilesDir())
 	switch {
 	case a.Continue:
 		if p := claude.LatestTranscriptFor(dirs, cwd); p != "" {
+			if err := refuseDeleting(e, sessionOf(p)); err != nil {
+				return err
+			}
 			a.ReplaceResume(p)
 		}
 	case a.ResumeArg != "":
 		v := a.ResumeArg
 		if strings.EqualFold(filepath.Ext(v), ".jsonl") || strings.ContainsAny(v, `\/`) {
-			return // already a path
+			return refuseDeleting(e, sessionOf(v)) // already a path
+		}
+		if err := refuseDeleting(e, v); err != nil {
+			return err
 		}
 		if p := claude.FindTranscript(dirs, v); p != "" {
 			a.ReplaceResume(p)
@@ -262,6 +298,7 @@ func resolveResume(a *claude.Args, e *env, cwd string) {
 				"(session names are not looked up across accounts; pass the .jsonl path instead)\n", v, orDash(home))
 		}
 	}
+	return nil
 }
 
 // ensureSwitchMode shows the risk notice (again, whenever it changed) and
@@ -270,7 +307,7 @@ func ensureSwitchMode(e *env) error {
 	if e.cfg.SwitchMode != "" && (e.cfg.SwitchMode == config.ModeOff || e.cfg.RiskAcknowledged >= config.DisclosureVersion) {
 		return nil
 	}
-	fmt.Fprint(os.Stderr, riskNotice+modeChoice)
+	fmt.Fprint(os.Stderr, riskNotice()+modeChoice)
 	for {
 		ans, err := ask("Choose [a/c/o] (default c): ")
 		if err != nil {

@@ -106,6 +106,9 @@ func (d *Desk) Follow(oldID, newID, transcript string) error {
 		return nil
 	}
 	return d.update(func(ix *Index) error {
+		if d.deleting(newID) {
+			return fail("deleting", newID)
+		}
 		t := ix.Thread(oldID)
 		if t == nil || ix.Thread(newID) != nil && !strings.EqualFold(oldID, newID) {
 			return nil

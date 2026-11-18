@@ -8,7 +8,7 @@
 When the account in use hits its usage limit, baton continues the *same conversation*
 on your next signed-in account. You don't need to copy anything or explain it again.
 
-[![Release](https://img.shields.io/badge/release-v0.8.2-2b4c7e)](../../releases/latest)
+[![Release](https://img.shields.io/badge/release-v0.9.0-2b4c7e)](../../releases/latest)
 ![Windows 10 | 11](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D6)
 ![x64 | arm64](https://img.shields.io/badge/arch-x64%20%7C%20arm64-555)
 ![Go](https://img.shields.io/badge/Go-1.27-00ADD8?logo=go&logoColor=white)
@@ -20,6 +20,8 @@ on your next signed-in account. You don't need to copy anything or explain it ag
 [Getting started](#getting-started) ·
 [Bring in a conversation](#bring-in-a-conversation-from-the-desktop-app) ·
 [Show in the desktop app](#show-a-session-in-the-claude-desktop-app) ·
+[Delete a conversation](#delete-a-conversation) ·
+[Desktop app sign-in](#switch-the-desktop-apps-sign-in-unofficial) ·
 [The office](#the-office) ·
 [How it works](#how-it-works) ·
 [Command line](#command-line) ·
@@ -45,13 +47,19 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   the limit is not lost. A switch takes about 5–10 seconds.
 - 🔐 **Sign in once per account.** Each account signs in once (two-factor authentication
   included) and stays signed in. Claude Code itself signs in and refreshes each account,
-  and baton never reads or stores credentials.
+  and baton never reads their credentials.
 - 🖥️ **Made for Claude desktop app users.** baton uses the Claude Code that comes with the
   desktop app, so there is nothing else to install. It has a window in English and Korean.
 - 📥 **Bring in conversations you already have.** Pick a session from the desktop app's
   Code tab, a terminal or VS Code and continue it under baton.
 - 🗂️ **Show baton's sessions in the desktop app.** Choose, per session, which accounts'
   Claude desktop app lists it in its Code tab, and go on with it there too.
+- 🗑️ **Delete conversations you no longer need.** A conversation and what Claude Code saved
+  with it go to the Recycle Bin, from baton, the desktop app's lists and Claude Code's resume
+  list alike. Nothing is deleted for good.
+- 🔀 **Switch the desktop app between your accounts (optional).** baton can keep each of your
+  accounts' sign-in to the Claude desktop app and put back the one you choose, so switching the
+  app needs no email code. It is unofficial and off unless you turn it on.
 - 📊 **See each account's limits.** The Accounts tab shows how much of the 5-hour and
   weekly limits each account has used and when they reset, and every session shows its
   account and usage under the prompt (`baton · work · 5h 34% · week 12%`).
@@ -110,8 +118,9 @@ For Claude desktop app users on Windows 10/11.
 6. *Optional:* **Help → Install to the Start menu** adds baton to the Start menu, and a
    taskbar pin keeps working after updates.
 
-The Claude desktop app's own sign-in does not change. baton's accounts are signed in
-separately from the app.
+The Claude desktop app's own sign-in does not change unless you switch it yourself (see
+[Switch the desktop app's sign-in](#switch-the-desktop-apps-sign-in-unofficial)). baton's
+accounts are signed in separately from the app.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/accounts-dark.png">
@@ -216,6 +225,102 @@ From the command line (account names, comma-separated; with neither option it on
 baton desktop 2cd067ab-193c-4e56-baa2-0b34dc203160 --show personal,work
 ```
 
+## Delete a conversation
+
+Choose **Delete conversation** on a row of *Recent sessions*, or pick a conversation in **Bring
+in a conversation** and choose **Delete conversation** there. baton first shows what would go:
+the conversation, what Claude Code saved with it (its subagents, saved tool outputs and `/rewind`
+checkpoints), baton's records of its sessions, and the desktop app's lists it is taken off.
+**Move to Recycle Bin** moves all of it to the Windows Recycle Bin, where you can restore it.
+It then disappears from baton, from Claude Code's resume list and from the office.
+
+- **Nothing is deleted for good.** If the Recycle Bin cannot take something (a drive without
+  one, a path too long for it, a file another program is using), baton deletes nothing and says
+  why. If it stops halfway, it says what is left, and deleting again takes the rest. A
+  conversation whose file is in a folder reached through a link or junction, or also has a name
+  outside Claude Code's folders, is left as it is.
+- **What stays:** your project files, the folder's memory, Claude Code's prompt history,
+  plans, and your other conversations. A copy baton made of a conversation is a conversation of
+  its own and stays too; it keeps everything said, but large tool outputs saved with the
+  deleted one no longer open from it (the dialog says when that is the case).
+- **It must not be open anywhere.** A baton session running it (end it first, and close its
+  window if it is still open), Claude Code in a terminal or an IDE, or the desktop app (quit it
+  completely, also from its tray icon) keeps it from going; *Check again* looks once more.
+- **The desktop app's own sessions are deleted in the desktop app.** If the desktop app lists a
+  conversation as a session of its own (made there, or one you went on with there), delete it in
+  the app; baton can then delete what the app left behind. Entries baton put in the desktop app
+  are taken off with the conversation.
+
+From the command line (`--dry-run` only shows what would go):
+
+```bash
+baton sessions delete 2cd067ab-193c-4e56-baa2-0b34dc203160
+```
+
+## Switch the desktop app's sign-in (unofficial)
+
+The Claude desktop app is signed in to one account at a time, and signing in to another asks for
+an email code every time. baton can keep each of your accounts' sign-in to the desktop app on
+this PC and put back the one you choose while the app is quit, so you switch without a code.
+
+> [!IMPORTANT]
+> This is not an Anthropic feature, and no Anthropic source says it is allowed. Anthropic may
+> treat switching accounts, especially after a usage limit, as getting around its limits, and can
+> suspend accounts. It can stop working with any update of the desktop app. It is off unless you
+> turn it on, and the risk to your accounts is yours. Use only accounts you personally own.
+
+1. Turn on **Settings → Switch the Claude desktop app between your accounts (unofficial)**, read
+   the notice and tick that you accept it (or run `baton config desktop_logins true`). The
+   Accounts tab then has a **Claude desktop app sign-in** card.
+2. Quit the desktop app completely (also from its tray icon). **Add an account to the desktop
+   app** keeps the app's sign-in and empties it on this PC only. Open the app, sign in to your
+   other account (one email code), and quit it completely again.
+3. From then on, **Switch the desktop app to this account** on a row of the card switches it.
+   With *Open the desktop app afterwards* ticked, baton opens the app for you.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/desktop-logins-dark.png">
+  <img src="docs/images/desktop-logins-light.png" alt="The Claude desktop app sign-in card on the Accounts tab: the desktop app is signed in to work now (not kept yet), and personal's sign-in was kept just now, so it can be switched to">
+</picture>
+
+- **Never use the desktop app's Log out to change accounts.** Log out ends that sign-in on
+  Claude's servers too, so baton's copy of it stops working (signing in again needs an email
+  code). Use *Add an account to the desktop app* instead, and Log out only of an account you want
+  to stop using.
+- **Only when you ask, only while the app is quit.** baton never switches the desktop app on its
+  own, and never because of a usage limit. It refuses while the app runs.
+- **What baton moves:** the app's cookies, its site storage and six entries of its settings file
+  (two of them encrypted tokens), as they are. baton never decrypts them and never sends them
+  anywhere; the cookies and tokens stay encrypted as the app keeps them, usable only from your
+  Windows account on this PC. The site storage is not encrypted (the app does not encrypt it
+  either), and some of the app's own preferences kept there follow the account. They are kept in
+  `%LOCALAPPDATA%\baton\desktop-logins`. Everything else of the app (its Code tab's lists, its
+  other settings) stays as it is.
+- **The desktop app uses the limits of the account it is signed in to.** Switching it does not
+  change baton's accounts or sessions.
+- **If a switch is cut off** (a crash, a power cut), baton shows *Put it back* until you do: quit
+  the desktop app completely, then choose it (or run `baton desktop login recover`). If the app
+  was used since, baton will not put it back over that sign-in when it cannot keep it: choose
+  *Leave it as it is* (or `baton desktop login recover --leave-as-is`), and the app stays on the
+  account it is on.
+- **Turning it off, or uninstalling baton, deletes every sign-in baton kept.** The desktop app
+  stays signed in to the account it is on. This signs nothing out on Claude's servers: to end a
+  sign-in too, switch the app to it, use Log out there, then *Forget* it in baton.
+
+From the command line (`--open` opens the desktop app afterwards):
+
+```bash
+baton desktop login
+```
+
+```bash
+baton desktop login add
+```
+
+```bash
+baton desktop login use work --open
+```
+
 ## The office
 
 Turn on **Settings → Show the office (just for fun)**, or run `baton config office true`, and
@@ -262,8 +367,8 @@ sequenceDiagram
 ```
 
 - **One profile per account.** Each account is its own Claude Code profile
-  (`CLAUDE_CONFIG_DIR`). Claude Code signs it in and refreshes it, so baton never reads,
-  stores or sends credentials.
+  (`CLAUDE_CONFIG_DIR`). Claude Code signs it in and refreshes it, so baton never reads or
+  sends its credentials.
 - **The real Claude Code.** `baton run` starts the interactive `claude.exe` in your
   console with a settings file that adds hooks. When a turn ends on a usage limit, the
   `StopFailure` hook tells baton.
@@ -287,7 +392,7 @@ both in the same folder), the READMEs and the licenses. You can check a download
 `checksums.txt`:
 
 ```bash
-Get-FileHash baton_0.8.2_windows_amd64.zip -Algorithm SHA256
+Get-FileHash baton_0.9.0_windows_amd64.zip -Algorithm SHA256
 ```
 
 **Help → Install to the Start menu** in the window copies baton to
@@ -337,7 +442,7 @@ go build -trimpath -ldflags "-H windowsgui -X main.guiBuild=1" -o bin/baton-app.
 For a release, write its notes in `docs/releases/v<version>.md` first, then run the command below. It builds the zips (x64 and arm64) and `checksums.txt`, plus `RELEASE_NOTES.md`, the notes with the checksums for the release page. `dist\` then holds only those:
 
 ```bash
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.8.2
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1 -Version 0.9.0
 ```
 
 `go run ./tools/winres -version <v>` regenerates the icon, manifest and version resources.
@@ -400,7 +505,15 @@ Claude Code reads every word that follows as one of their values.
 | `baton run --restore <run>` | reopen a session that was cut off (`baton status` lists them); in a copy if its conversation is open elsewhere by now |
 | `baton sessions [--max N]` | list your conversations in every folder, the desktop app's included |
 | `baton resume <id> [--account <name>] [--copy]` | continue one of them in its folder: in a copy when it is open elsewhere, and one already running in baton brings that session's window to the front instead (`--copy` always leaves the original as it is) |
+| `baton sessions delete <id> [--dry-run] [--yes]` | move a conversation, and what Claude Code saved with it, to the Recycle Bin (`--dry-run` only shows what would go) |
 | `baton desktop <id> [--show <accounts>] [--hide <accounts>]` | say in which accounts' Claude desktop app a session is listed, or change that (account names, comma-separated) |
+| `baton desktop login` | list the desktop app sign-ins baton keeps and the account the app is on (needs `desktop_logins` on) |
+| `baton desktop login add [--open]` | keep the desktop app's sign-in and empty it on this PC, to sign in to another account in the app |
+| `baton desktop login use <name> [--open]` | switch the desktop app to a kept sign-in (a baton account name, or the label you gave it) while the app is quit |
+| `baton desktop login label <name> <label>` | name a kept sign-in |
+| `baton desktop login forget <name> \| --all [--yes]` | delete one kept sign-in, or all of them |
+| `baton desktop login recover [--open] [--leave-as-is]` | put back a switch of the desktop app's sign-in that was cut off, or leave the app as it is instead |
+| `baton desktop login tidy` | delete the copies a switch that stopped early left in the desktop app's folder |
 | `baton switch [<name>] [--run <id>]` | from another terminal, move a running session to another account once its current turn ends |
 | `baton stop [--run <id>]` | end a running session the careful way; you can continue it later |
 | `baton status` | show accounts, running sessions, sessions that were cut off and recent switches |
@@ -409,7 +522,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton rules [set <folder> <account>[,<account>...] \| remove <folder>]` | show, add or remove folder rules (see Things to know) |
 | `baton doctor` | check Claude Code (every copy found, the one in use marked `*`), the console, image paste and every sign-in |
 | `baton update [--check]` | install the newest baton from GitHub (`--check` only says whether one is out) |
-| `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data and its Start menu entry |
+| `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data (the desktop app sign-ins it kept included) and its Start menu entry |
 
 **Settings** (`baton config`):
 
@@ -428,6 +541,7 @@ Claude Code reads every word that follows as one of their values.
 | `notifications` | Windows notifications from sessions: `all` (default), `important` (all but finished responses) or `off` |
 | `keep_awake` | keep the PC from sleeping by itself while a session works or waits for a limit to reset (default `true`) |
 | `office` | show the Office tab: Claude's work, live, as people in an office (default `false`) |
+| `desktop_logins` | switch the Claude desktop app's sign-in between your accounts (default `false`; `true` shows a notice to accept first, `false` deletes the kept sign-ins) |
 | `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
 | `gui_language` | the window's language: `auto` (as Windows has it), `ko` or `en` |
 | `gui_theme` | the window's colours: `auto` (as Windows has them), `light` or `dark`; also in the window's header |
@@ -469,6 +583,8 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
 - `runs\<id>\`: hook events and a log for each session
 - `logs\gui.log`: the window's own log
 - `desktop.json`: the entries baton put in the Claude desktop app
+- `desktop-logins\`: the desktop app sign-ins baton keeps, only while switching them is on
+- `deleting\`: a short-lived mark while a conversation is being deleted
 
 </details>
 
@@ -487,7 +603,8 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   exits). baton never uses a blocked account automatically. Once the problem is resolved,
   `baton enable <name>` or a successful `baton login <name>` clears the mark.
 - **Account changes refuse to run inside a session.** `baton switch`, `add`, `login`,
-  `remove`, `sync` and `config …` refuse to run from inside a supervised session. This makes
+  `remove`, `sync`, `config …`, `sessions delete` and `desktop login …` refuse to run from
+  inside a supervised session. This makes
   it harder for the model in that session to move it, but it is not a security boundary,
   because the session runs as you.
 - **Confirm mode asks in the session's window.** In `confirm` mode every switch needs your
@@ -576,7 +693,8 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   a git repository; it lists uncommitted work against the last commit, new files included.
 - **Sessions open in a Claude Code window, not in the desktop app.** baton runs Claude Code
   itself so it can move the session between accounts; the Claude desktop app has one
-  sign-in of its own, which baton does not touch. *Settings → Advanced → Claude Code to
+  sign-in of its own, which baton does not touch unless you switch it yourself (see
+  [Switch the desktop app's sign-in](#switch-the-desktop-apps-sign-in-unofficial)). *Settings → Advanced → Claude Code to
   use* only picks which `claude.exe` runs (the installed CLI or the desktop app's copy). To
   list a baton session in the desktop app's Code tab as well, see
   [Show a session in the Claude desktop app](#show-a-session-in-the-claude-desktop-app).
@@ -623,10 +741,11 @@ baton uninstall
 The uninstaller first moves the conversations that started in baton into your own Claude
 Code (`%USERPROFILE%\.claude`), so `claude --resume` opens them again. If one cannot be moved,
 it stops and deletes nothing. Then it signs every account out through Claude Code and deletes
-baton's data folder (`%LOCALAPPDATA%\baton`, each account's profile). It also removes the
-Start menu entry, the entry in Windows' installed apps, the notification registration and the
-install folder. End running
-sessions first. Your Claude accounts, your own Claude Code setup and the sessions the Claude
+baton's data folder (`%LOCALAPPDATA%\baton`, each account's profile). It also deletes the
+desktop app sign-ins baton kept, after settling a switch of them that was cut off (the
+desktop app stays signed in to the account it is on), and removes the Start menu entry, the
+entry in Windows' installed apps, the notification registration and the install folder. End
+running sessions first, and let a conversation that is being deleted finish. Your Claude accounts, your own Claude Code setup and the sessions the Claude
 desktop app made are not touched. Entries baton put in the desktop app stay there and open
 their conversations from your own Claude Code; untick them in baton first if you do not want
 them listed.
@@ -653,9 +772,11 @@ python -I test/e2e/e2e_baton.py <empty dir>
 go build -tags batontest -o bin/baton-test.exe ./cmd/baton
 ```
 
-The first command runs the unit tests. The end-to-end test (third command) drives the real
-`baton.exe` and `claude.exe` in a ConPTY against the mock Messages API from
-`spikes/phase0/harness`, with no real account. It covers:
+The first command runs the unit tests. Of the desktop app sign-in switching's state matrix it
+covers about two states in five; `BATON_MATRIX=all` covers every state and `BATON_MATRIX=full`
+every action on each (add `-timeout 40m`: they take longer than `go test`'s ten minutes). The
+end-to-end test (third command) drives the real `baton.exe` and `claude.exe` in a ConPTY against
+the mock Messages API from `spikes/phase0/harness`, with no real account. It covers:
 
 - switches: automatic, manual and in confirm mode, plus waiting for a turn before a switch
 - every account exhausted
@@ -681,10 +802,19 @@ The first command runs the unit tests. The end-to-end test (third command) drive
 - showing a session in two accounts' desktop app, in a scratch data folder shaped like the
   app's: the entries, the second name, `/clear`, the app opening it while baton runs it (baton
   goes on in a copy) and unticking
+- deleting a conversation into a stand-in Recycle Bin: refused while it runs or is open
+  elsewhere or is the desktop app's own, then from the window and the command line, with only
+  that conversation's files moved
+- switching the desktop app's sign-in in a scratch data folder: the notice, adding an account,
+  switching byte for byte, refusing while the app's lock file is held, and turning it off
 
 The window's server has its own unit tests in `internal/gui`. The test build (last
 command) adds `baton gui --no-window --test-spawn`, which serves the page for a browser.
-There, sign-ins run hidden against a fake claude and sessions are only recorded.
+There, sign-ins run hidden against a fake claude and sessions are only recorded. The test
+build also stands in for the Recycle Bin (`BATON_RECYCLE`, `<BATON_HOME>\test-recycle-bin`) and
+leaves the Claude desktop app out (`BATON_DESKTOP_DATA=none`, `BATON_DESKTOP_RUNNING=0`: no
+desktop app is installed) unless those variables name other folders; without `BATON_HOME`, the
+bin's base is `%TEMP%\baton-test`.
 `spikes/phase0/RESULTS.md` records the verified Claude Code behaviour the design relies on.
 
 ## License

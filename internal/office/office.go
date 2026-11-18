@@ -34,6 +34,11 @@ const (
 	// followLinger: in follow mode, a conversation whose turn just ended is
 	// kept a moment before the office moves to another that is busy.
 	followLinger = 10 * time.Second
+	// forgetFor: how long a conversation let go of for a delete stays out of
+	// the office. Longer than a read of the conversation list (scanEvery)
+	// plus the delete, so a list read just before its files went cannot
+	// bring it back; if the delete did not happen, it comes back after.
+	forgetFor = time.Minute
 )
 
 // Options set a tracker up.
@@ -181,6 +186,7 @@ type Tracker struct {
 	bDigest   uint64
 	sessions  map[string]*session
 	missing   map[string]time.Time // ids asked for that have nothing to show, and when
+	forgot    map[string]time.Time // conversations being deleted (Forget), and when
 }
 
 type foundPath struct {
@@ -203,7 +209,8 @@ func newTracker(opt Options) *Tracker {
 	return &Tracker{opt: opt, seq: 1, wake: make(chan struct{}, 1), done: make(chan struct{}), ready: make(chan struct{}),
 		found: map[string]foundPath{}, changed: make(chan struct{}), info: map[string]*sessionInfo{},
 		procs: map[string]string{}, successor: map[string]string{}, clears: map[string]string{},
-		floors: loadFloors(filepath.Join(opt.Root, "office.json")), sessions: map[string]*session{}, missing: map[string]time.Time{}}
+		floors: loadFloors(filepath.Join(opt.Root, "office.json")), sessions: map[string]*session{}, missing: map[string]time.Time{},
+		forgot: map[string]time.Time{}}
 }
 
 // Close stops the tracker; polls being held answer at once.
@@ -230,6 +237,34 @@ func (t *Tracker) closed() bool {
 func (t *Tracker) Refresh() {
 	t.rescan.Store(true)
 	t.kick()
+}
+
+// Forget lets go of a conversation that is about to be deleted (an unknown
+// id is fine). Windows cannot move a folder to the Recycle Bin while a file
+// in it is open, and the office reads a watched conversation's transcripts,
+// its subagents' too, every tick: they are open only during a read, under
+// mu, so once it is dropped here none of them is open or opened again. It
+// leaves the building at the next look around, not at the next read of the
+// conversation list, and is not shown again for forgetFor, even by a read
+// of the list made before its files went.
+func (t *Tracker) Forget(id string) {
+	t.mu.Lock()
+	delete(t.sessions, id)
+	delete(t.info, id)
+	if t.follow == id {
+		t.follow = ""
+	}
+	t.forgot[id] = time.Now()
+	t.scanAt = time.Time{}
+	t.mu.Unlock()
+	t.Refresh()
+}
+
+// forgotten says whether id was let go of (Forget) less than forgetFor
+// ago. Call with mu held.
+func (t *Tracker) forgotten(id string, now time.Time) bool {
+	at, ok := t.forgot[id]
+	return ok && now.Sub(at) < forgetFor
 }
 
 func (t *Tracker) kick() {
@@ -332,7 +367,7 @@ func (t *Tracker) viewFor(pinned string, now time.Time) *session {
 	if pinned != "" {
 		id = t.resolve(pinned)
 	}
-	if id == "" {
+	if id == "" || t.forgotten(id, now) {
 		return nil
 	}
 	if s := t.sessions[id]; s != nil {

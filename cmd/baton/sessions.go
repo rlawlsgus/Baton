@@ -61,13 +61,16 @@ func holderName(entrypoint string) string {
 // ones on baton's accounts and the ones in the normal Claude Code setup,
 // the desktop app's sessions included.
 func cmdSessions(args []string) error {
-	fs := newFlags("sessions", "baton sessions [--max N]")
+	if len(args) > 0 && args[0] == "delete" {
+		return cmdSessionsDelete(args[1:])
+	}
+	fs := newFlags("sessions", "baton sessions [--max N]   (or: "+deleteUsage+")")
 	max := fs.Int("max", 20, "how many to show")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
-		return errors.New("usage: baton sessions [--max N]")
+		return errors.New("usage: baton sessions [--max N]   or: " + deleteUsage)
 	}
 	e, err := load()
 	if err != nil {
@@ -106,6 +109,8 @@ func cmdSessions(args []string) error {
 	fmt.Println()
 	fmt.Println(say("Continue one in its folder:  baton resume <id>   (--copy goes on in a copy, leaving the original as it is)",
 		"이어 가기 (그 대화의 폴더에서 시작):  baton resume <id>   (--copy: 원래 대화는 그대로 두고 사본으로 이어 가기)"))
+	fmt.Println(say("Delete one (to the Recycle Bin):  baton sessions delete <id>   (--dry-run says what would go)",
+		"삭제 (휴지통으로):  baton sessions delete <id>   (--dry-run: 무엇이 옮겨지는지만 보기)"))
 	return nil
 }
 
@@ -189,6 +194,9 @@ func planResume(e *env, id string, copyIt bool) (resumePlan, int, error) {
 		return resumePlan{}, 2, errors.New(say("a session id looks like 1b2c3d4e-...; see: baton sessions", "세션 id는 1b2c3d4e-... 형식입니다. baton sessions로 확인하세요"))
 	}
 	id = strings.ToLower(id) // Claude Code names the files in lower case
+	if err := refuseDeleting(e, id); err != nil {
+		return resumePlan{}, 1, err
+	}
 	dirs, _ := conversationDirs(e)
 	p := claude.FindTranscript(dirs, id)
 	if p == "" {

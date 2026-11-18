@@ -595,15 +595,35 @@ func cmdRemove(args []string) error {
 	return nil
 }
 
-// profileInUse refuses while claude runs on the profile, or while any running
-// session (on any account) still writes a transcript stored in it.
+// profileInUse refuses while a conversation is being deleted, while claude
+// runs on the profile, or while any running session (on any account) still
+// writes or will open a transcript stored in it.
 func profileInUse(e *env, name, dir string) error {
+	// Its conversations are moved to the user's own Claude Code: not while a
+	// delete (here or in the window) moves one to the Recycle Bin, which
+	// would plan files on the move.
+	if run.AnyDeleting(e.paths.Root) {
+		return errors.New(say("a conversation is being deleted right now; try again in a moment",
+			"지금 대화를 삭제하는 중입니다. 잠시 뒤 다시 시도하세요"))
+	}
 	if claude.BusyProfile(dir) {
 		return fmt.Errorf(say("%q is in use by a running claude; quit it first",
 			"%q 계정을 쓰는 Claude Code가 실행 중입니다. 먼저 끝내세요"), name)
 	}
+	// Every file a run will open counts, not only the one it writes now: a run
+	// waiting for its first account names its conversation only in Opens (or
+	// ForkOf for a copy), and moving that file away would make it say the
+	// conversation was deleted once it starts.
 	for _, j := range run.Active(e.paths.RunsDir(), supervisorAlive) {
-		if j.TranscriptPath != "" && fsx.IsWithin(j.TranscriptPath, dir) {
+		for _, p := range []string{j.TranscriptPath, j.Opens, j.ForkOf} {
+			if p == "" || !fsx.IsWithin(p, dir) {
+				continue
+			}
+			if j.Account == "" {
+				return fmt.Errorf(say("baton run %s is waiting to continue a conversation stored in %q's profile; end that session first",
+					"대기 중인 세션 %s가 %q 계정에 저장된 대화를 이어 가려고 기다리는 중입니다. 먼저 그 세션을 끝내세요"),
+					j.RunID, name)
+			}
 			return fmt.Errorf(say("baton run %s (now on %q) is continuing a conversation stored in %q's profile; finish it first",
 				"실행 중인 세션 %s(현재 %q 계정)가 %q 계정에 저장된 대화를 이어 가는 중입니다. 먼저 그 세션을 끝내세요"),
 				j.RunID, j.Account, name)

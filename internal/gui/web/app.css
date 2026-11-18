@@ -166,6 +166,8 @@ dialog::backdrop { background: rgba(20, 18, 15, .45); }
 .notice { background: var(--off-soft); border-radius: 10px; padding: 12px 14px; margin: 8px 0 12px; }
 .notice ul { margin: 0; padding-left: 18px; }
 .notice li { margin-bottom: 6px; }
+/* The sign-in notice names baton's folder, a long path with no spaces. */
+.dl-notice li { overflow-wrap: anywhere; }
 .check { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; cursor: pointer; }
 .check input { margin-top: 3px; }
 .tip { background: var(--warn-soft); border-radius: 10px; padding: 10px 12px; margin: 8px 0; font-size: 13px; }
@@ -267,3 +269,15 @@ html[lang="ko"] .dk-intro, html[lang="ko"] .choice.dk, html[lang="ko"] .dk-tips,
 html[lang="ko"] #dialog .tip.warn-tip { word-break: keep-all; overflow-wrap: anywhere; }
 /* A recent session's buttons go under its name in a narrow window. */
 @media (max-width: 560px) { .row.recent { flex-wrap: wrap; } .row.recent > .grow { flex-basis: 100%; } .row.recent > .actions { margin-left: auto; } }
+
+/* Switching the Claude desktop app's sign-in: the card on the Accounts tab, whose rows
+   carry a long button, and the setting, greyed out where it cannot work. */
+.dl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dl-foot { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dl-foot .check { margin: 10px 0 0; }
+.dl-foot .tip { margin-bottom: 0; }
+.row.dl { flex-wrap: wrap; row-gap: 8px; }
+.row.dl > .grow { flex: 1 1 260px; }
+.row.dl > .actions { margin-left: auto; }
+.check.off { cursor: default; color: var(--muted); }
+html[lang="ko"] .dl-card, html[lang="ko"] .dl-notice { word-break: keep-all; overflow-wrap: anywhere; }

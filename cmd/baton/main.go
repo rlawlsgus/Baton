@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.8.2-dev"
+var version = "0.9.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -37,9 +37,17 @@ Usage:
                                      the Claude desktop app's
   baton resume <id> [--copy]         continue one of them in its folder (in a copy when it
                                      is open elsewhere; --copy always leaves the original)
+  baton sessions delete <id> [--dry-run] [--yes]
+                                     move a conversation, and what Claude Code keeps with
+                                     it, to the Recycle Bin (--dry-run only says what goes)
   baton desktop <id> [--show <accounts>] [--hide <accounts>]
                                      list a session in these accounts' Claude desktop app
                                      (Code tab), or take it off; without options, say where
+  baton desktop login [use <name> | add | label <name> <label> | forget <name>|--all |
+                       recover [--leave-as-is] | tidy]
+                                     switch the Claude desktop app's sign-in between your own
+                                     accounts while it is quit (off unless you turn it on:
+                                     baton config desktop_logins true); without one, list them
   baton switch [<name>] [--run <id>] move a running session to another account
                                      (once its current turn ends)
   baton stop [--run <id>]            end a running session (it can be continued later)
@@ -221,7 +229,7 @@ func main() {
 		err, code = nil, 0 // `baton <cmd> --help` printed its usage; that is not a failure
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "baton:", err)
+		fmt.Fprintln(os.Stderr, errLine(err))
 		if code == 0 {
 			code = 1
 		}
@@ -230,4 +238,14 @@ func main() {
 	// close. Anything else waits for Enter so the message can be read.
 	holdNewConsole(err == nil && (cmd != "run" && cmd != "resume" || code == 0 && !runNeedsAttention))
 	os.Exit(code)
+}
+
+// errLine is how a command's error is printed: after "baton: ", unless its
+// text names baton first already ("baton keeps…", "baton이 …"), which would
+// read "baton: baton …".
+func errLine(err error) string {
+	if s := err.Error(); strings.HasPrefix(s, "baton") {
+		return s
+	}
+	return "baton: " + err.Error()
 }

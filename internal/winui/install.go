@@ -108,10 +108,23 @@ func Install(srcDir, version, appID string) (string, error) {
 }
 
 // RemoveInstallEntries removes the Start menu entry and the installed-apps
-// entry (the install folder itself goes after the program exits).
+// entry (the install folder itself goes after the program exits). The
+// installed-apps entry goes only when it names this user's install folder
+// (InstallDir): an uninstall run with another LOCALAPPDATA, as the tests do,
+// must not remove the real entry of the baton installed on this PC.
 func RemoveInstallEntries() {
 	if p := ShortcutPath(); p != "" {
 		_ = os.Remove(p)
+	}
+	k, err := registry.OpenKey(registry.CURRENT_USER, uninstallKey, registry.QUERY_VALUE)
+	if err != nil {
+		return
+	}
+	loc, _, err := k.GetStringValue("InstallLocation")
+	k.Close()
+	dir := InstallDir()
+	if err != nil || dir == "" || !strings.EqualFold(filepath.Clean(loc), filepath.Clean(dir)) {
+		return
 	}
 	_ = registry.DeleteKey(registry.CURRENT_USER, uninstallKey)
 }

@@ -321,14 +321,38 @@ type Badge struct {
 
 // Badges are the window's badges, by conversation id in lower case: for
 // every session shown in the desktop app, or whose file split.
-func (ix Index) Badges() map[string]Badge {
+func (ix Index) Badges() map[string]Badge { return ix.BadgesKnown(nil) }
+
+// BadgesKnown are Badges, with the desktop app's accounts none of baton's
+// named by what known (Desk.Known) says of them: once the app's sign-in is
+// switched, a session can show for two such accounts, which "" alone cannot
+// tell apart. One known by no email is named by the start of its id then.
+func (ix Index) BadgesKnown(known func(acct string) (org, email string, kept bool)) map[string]Badge {
 	out := map[string]Badge{}
 	for _, t := range ix.Threads {
 		b := Badge{Places: []string{}, Split: t.Split}
+		var apps []string // accounts of the app's own, none of baton's
 		for _, p := range t.Places {
-			if p.State == stateShown || p.State == stateReleased {
-				b.Places = append(b.Places, p.Label)
+			if (p.State == stateShown || p.State == stateReleased) && p.Label == "" {
+				if acct, _, _ := strings.Cut(p.Key, "/"); !slices.Contains(apps, acct) {
+					apps = append(apps, acct)
+				}
 			}
+		}
+		for _, p := range t.Places {
+			if p.State != stateShown && p.State != stateReleased {
+				continue
+			}
+			label := p.Label
+			if label == "" && known != nil {
+				acct, _, _ := strings.Cut(p.Key, "/")
+				if _, email, _ := known(acct); email != "" {
+					label = email
+				} else if len(apps) > 1 && len(acct) >= 8 {
+					label = acct[:8]
+				}
+			}
+			b.Places = append(b.Places, label)
 		}
 		slices.Sort(b.Places)
 		if len(b.Places) > 0 || b.Split {

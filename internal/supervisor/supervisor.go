@@ -99,6 +99,7 @@ type Supervisor struct {
 	in        *bufio.Reader
 	signals   chan os.Signal
 	logf      func(format string, a ...any)
+	logFile   *os.File // baton.log, closed when the run is done (finish)
 
 	acct       accounts.Account
 	child      *winproc.Child
@@ -159,6 +160,10 @@ type Supervisor struct {
 	// Claude desktop app moves to it (desktop.go).
 	followFrom string
 	desk       *deskWork
+	// opens: the conversation file the first launch opens (resumes, or
+	// forks a copy from), named in the journal before the run waits for an
+	// account (nameWhatItOpens). "" for a new conversation.
+	opens string
 
 	// The permission mode this session's claude reported itself (ownMode):
 	// the mode its last Stop hook gave, and the transcript and its size then.
@@ -266,6 +271,7 @@ func (s *Supervisor) prepareRun() error {
 	if err != nil {
 		return err
 	}
+	s.logFile = logFile
 	s.logf = func(format string, a ...any) {
 		fmt.Fprintf(logFile, "%s "+format+"\n", append([]any{time.Now().Format("15:04:05.000")}, a...)...)
 	}
@@ -300,6 +306,13 @@ func (s *Supervisor) finish() {
 	s.journal.State = run.StateDone
 	s.saveJournal()
 	s.desk.wait(3 * time.Second) // the desktop app's records catch up with the last turn
+	// The process can live on a while (its window shows the last of the
+	// session until the user closes it), and an open log keeps the run's
+	// folder from moving: a delete of the conversation takes it to the
+	// Recycle Bin. A line the desktop worker logs after this is lost.
+	if s.logFile != nil {
+		s.logFile.Close()
+	}
 }
 
 func (s *Supervisor) saveJournal() {
@@ -307,6 +320,11 @@ func (s *Supervisor) saveJournal() {
 	s.journal.SwitchMode = s.opt.Config.SwitchMode // this run's own: it only ever gets stricter
 	s.journal.SessionID = s.session
 	s.journal.TranscriptPath = s.transcr
+	// What a copy that has no file yet starts from: a delete of it waits.
+	s.journal.ForkOf = s.forkSource
+	if s.journal.ForkOf == "" {
+		s.journal.ForkOf = s.copyOf
+	}
 	s.journal.PermissionMode = s.permissionMode(s.transcr) // for a restore: see restoreArgs
 	s.journal.Owed = s.owed()
 	if s.child != nil {
@@ -324,6 +342,7 @@ func (s *Supervisor) notice(format string, a ...any) {
 }
 
 func (s *Supervisor) loop() (int, error) {
+	s.nameWhatItOpens()
 	first, ok := s.initialAccount()
 	if !ok {
 		if s.userEnded {
@@ -337,6 +356,20 @@ func (s *Supervisor) loop() (int, error) {
 	args, err := s.firstArgs()
 	if errors.Is(err, errInBaton) {
 		s.userEnded = true // nothing went wrong: that session goes on in its own window
+		return 0, nil
+	}
+	if errors.Is(err, errDeleted) {
+		s.notice("this conversation was deleted while the session waited, so it did not start")
+		s.endNoted, s.abandoned = true, true // the notification says why; the window stays to be read
+		s.notify(noteProblem, s.say("The conversation was deleted while this session waited, so the session did not start.",
+			"세션이 기다리는 동안 대화가 삭제되어 세션을 시작하지 않았습니다."))
+		return 0, nil
+	}
+	if errors.Is(err, errGone) {
+		s.notice("the conversation file is no longer at %s (deleted or moved while the session waited), so the session did not start", s.opens)
+		s.endNoted, s.abandoned = true, true
+		s.notify(noteProblem, s.say("The conversation file was deleted or moved while this session waited, so the session did not start.",
+			"세션이 기다리는 동안 대화 파일이 삭제되었거나 옮겨져서 세션을 시작하지 않았습니다."))
 		return 0, nil
 	}
 	if err != nil {
@@ -424,6 +457,11 @@ func (s *Supervisor) childExited() int {
 // variadic options greedily, so regrouping could swallow the prompt), with
 // baton's generated --session-id in front.
 func (s *Supervisor) firstArgs() ([]string, error) {
+	if s.opens != "" {
+		if err := s.opensStill(); err != nil {
+			return nil, err
+		}
+	}
 	if r := s.opt.Restore; r != nil {
 		return s.restoreArgs(r)
 	}
@@ -764,6 +802,7 @@ func (s *Supervisor) launch(args []string, withPrompt bool) error {
 	s.stopMode, s.stopFile, s.stopAt, s.foreignFile, s.foreignAt = "", "", 0, "", 0
 	s.contOwed = withPrompt
 	s.journal.State, s.journal.Moving = run.StateRunning, false
+	s.journal.Opens = "" // the session's own fields name what it has open from now on
 	s.saveJournal()
 	_ = ledger.Update(s.opt.Paths.State(), s.opt.Paths.StateLock(), func(st *ledger.State) error {
 		a := st.Account(s.acct.ID)
@@ -919,7 +958,13 @@ func (s *Supervisor) adoptTranscript(p run.Payload) {
 	}
 	if p.TranscriptPath != "" && fileExists(p.TranscriptPath) {
 		s.transcr = p.TranscriptPath
-		s.forkSource = "" // a fork that has its own file is resumed like any session
+		if s.forkSource != "" {
+			// A fork that has its own file is resumed like any session; the
+			// journal stops naming its source at once, which a delete of the
+			// source waits for.
+			s.forkSource = ""
+			s.saveJournal()
+		}
 	}
 }
 
@@ -1490,6 +1535,95 @@ func (s *Supervisor) goOnInCopy(o claude.LiveSession) bool {
 // errInBaton: the conversation a start would open is running in another
 // baton session; that session's window was brought forward instead.
 var errInBaton = errors.New("the conversation is running in another baton session")
+
+// errDeleted: a delete of the conversation a start would open holds on at
+// the launch: it went to the Recycle Bin while the run waited for an
+// account, or is going there now.
+var errDeleted = errors.New("the conversation was deleted while the session waited")
+
+// errGone: the conversation a start would open is no longer where the run
+// named it, nor anywhere baton looks. Something deleted or moved it (baton's
+// own delete refuses while the run's journal names it, and leaves nothing
+// to tell by once it is done), so which of the two is unknown.
+var errGone = errors.New("the conversation file is no longer there")
+
+// nameWhatItOpens names the conversation the first launch opens in the
+// journal, before anything else: the wait for a first account can be long
+// (every account limited), and a delete of the conversation meanwhile must
+// wait for this run, as it does for one that runs it. A delete that began
+// before is seen at the launch (firstArgs). A file that is not there now is
+// left to claude, as before.
+func (s *Supervisor) nameWhatItOpens() {
+	if r := s.opt.Restore; r != nil {
+		if r.TranscriptPath == "" || !fileExists(r.TranscriptPath) {
+			return
+		}
+		s.opens, s.journal.Opens = r.TranscriptPath, r.TranscriptPath
+	} else if a := s.opt.ClaudeArgs; a.Resumes {
+		p := a.ResumeArg
+		if p == "" || !strings.EqualFold(filepath.Ext(p), ".jsonl") || !fileExists(p) {
+			return
+		}
+		s.opens = p
+		if claude.HasFlag(a.FirstOnly, "--fork-session") {
+			s.forkSource = p // a copy starts from it: the journal says so (ForkOf)
+		} else {
+			s.journal.Opens = p
+		}
+	}
+	if s.opens != "" {
+		s.saveJournal()
+	}
+}
+
+// deletingWait is how long a start waits out a delete of the conversation
+// it opens before it looks whether the file is still there.
+var deletingWait = 10 * time.Second
+
+// opensStill checks the conversation the run named before its wait
+// (nameWhatItOpens) at the first launch. A delete holds its marker for a
+// moment even when it refuses (this run's journal stops it), so the marker
+// is waited out briefly; one that holds on is deleting it (errDeleted). A
+// file no longer where the run named it may only have moved: removing an
+// account keeps its conversations in the user's own folder. The start then
+// goes on from where baton finds it now. Found nowhere, or what is left of a
+// delete that stopped half way (the rest of it is the delete's to finish),
+// it does not start (errGone).
+func (s *Supervisor) opensStill() error {
+	p := s.opens
+	id := strings.ToLower(strings.TrimSuffix(filepath.Base(p), filepath.Ext(p)))
+	for end := time.Now().Add(deletingWait); run.Deleting(s.opt.Paths.Root, id) && time.Now().Before(end); {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if run.Deleting(s.opt.Paths.Root, id) {
+		return errDeleted
+	}
+	if fileExists(p) {
+		return nil
+	}
+	found := claude.FindTranscript(s.holderDirs(), id)
+	if found == "" || run.Left(s.opt.Paths.Root, id) {
+		return errGone
+	}
+	s.logf("%s moved to %s while the run waited", p, found)
+	s.notice("the conversation moved while the session waited; it goes on from where it is now, %s", found)
+	if r := s.opt.Restore; r != nil {
+		r.TranscriptPath = found
+	} else {
+		s.opt.ClaudeArgs.ReplaceResume(found)
+	}
+	// The journal names it where it is now, as nameWhatItOpens did: a delete
+	// of it waits for this run.
+	s.opens = found
+	if s.journal.Opens != "" {
+		s.journal.Opens = found
+	}
+	if s.forkSource != "" {
+		s.forkSource = found
+	}
+	s.saveJournal()
+	return nil
+}
 
 // startHeld checks the conversation a start would open in place. When
 // another Claude Code has it open, the start goes on in a copy (copyIt), and

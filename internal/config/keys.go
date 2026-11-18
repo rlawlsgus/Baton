@@ -13,11 +13,27 @@ import (
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
 	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control", "notifications",
-	"keep_awake", "office", "check_updates", "gui_language", "gui_theme"}
+	"keep_awake", "office", "check_updates", "gui_language", "gui_theme", "desktop_logins"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
 // first (see DisclosureVersion).
 var ErrNeedsAcknowledgement = errors.New("the risk notice has to be accepted before baton switches accounts")
+
+// ErrNeedsDesktopAcknowledgement: turning on switching the desktop app's
+// sign-in needs its own notice accepted first (see DesktopLoginsDisclosure).
+var ErrNeedsDesktopAcknowledgement = errors.New("the notice for switching the desktop app's sign-in has to be accepted first")
+
+// ErrDesktopLoginsTurnOff: desktop_logins is never set to false here.
+// Turning it off deletes every sign-in baton kept, which desklogin.TurnOff
+// does under its lock; a caller that forgot that fails loudly instead of
+// leaving them behind.
+var ErrDesktopLoginsTurnOff = errors.New("desktop_logins is turned off through desklogin.TurnOff")
+
+// ErrDesktopLoginsTurnOn: nor is desktop_logins set to true here.
+// desklogin.TurnOn first checks that the sign-ins would stay on this PC and
+// that the desktop app is one baton knows, then applies
+// DesktopLoginsOnSetter; a caller that skipped those checks fails loudly.
+var ErrDesktopLoginsTurnOn = errors.New("desktop_logins is turned on through desklogin.TurnOn")
 
 // Get returns one setting as text.
 func (c Config) Get(key string) (string, bool) {
@@ -60,6 +76,9 @@ func (c Config) Get(key string) (string, bool) {
 			return "auto", true
 		}
 		return c.GUITheme, true
+	case "desktop_logins":
+		// As it works: on with an older notice than the one now is off.
+		return strconv.FormatBool(c.DesktopLoginsOn()), true
 	}
 	return "", false
 }
@@ -67,7 +86,8 @@ func (c Config) Get(key string) (string, bool) {
 // Setter checks value for key (as current is now) and returns the change to
 // apply to a freshly loaded config under the lock, so a slow question in
 // between cannot undo another command's change. acknowledged says the user
-// has just accepted the risk notice.
+// has just accepted the notice for key (the risk notice for switch_mode,
+// the desktop app's sign-in notice for desktop_logins).
 func Setter(current Config, key, value string, acknowledged bool) (func(*Config), error) {
 	positive := func() (int, error) {
 		n, err := strconv.Atoi(strings.TrimSpace(value))
@@ -208,6 +228,31 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			return nil, errors.New("gui_theme must be auto, light or dark")
 		}
 		return func(c *Config) { c.GUITheme = v }, nil
+	case "desktop_logins":
+		b, err := boolean()
+		if err != nil {
+			return nil, err
+		}
+		if !b {
+			return nil, ErrDesktopLoginsTurnOff
+		}
+		return nil, ErrDesktopLoginsTurnOn
 	}
 	return nil, fmt.Errorf("unknown key %q (keys: %s)", key, strings.Join(Keys, ", "))
+}
+
+// DesktopLoginsOnSetter is the change that turns desktop_logins on, for
+// desklogin.TurnOn alone, once its own checks passed. acknowledged says the
+// user has just accepted the notice for it; without that, and with the
+// notice as it reads now never accepted, it is ErrNeedsDesktopAcknowledgement.
+func DesktopLoginsOnSetter(current Config, acknowledged bool) (func(*Config), error) {
+	if current.DesktopLoginsAcknowledged < DesktopLoginsDisclosure && !acknowledged {
+		return nil, ErrNeedsDesktopAcknowledgement
+	}
+	return func(c *Config) {
+		if acknowledged {
+			c.DesktopLoginsAcknowledged = DesktopLoginsDisclosure
+		}
+		c.DesktopLogins = true
+	}, nil
 }

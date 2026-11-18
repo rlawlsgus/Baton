@@ -48,6 +48,7 @@ func TestDesktopDialog(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.login()
+	t.Cleanup(r.srv.waitBackground) // before the settings above are put back
 	key := acct + "/" + org
 
 	code, body := r.do("GET", "/api/desktop/places?session_id="+sid, "", nil)

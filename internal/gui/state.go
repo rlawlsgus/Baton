@@ -40,6 +40,12 @@ type accountView struct {
 	// Usage: the 5-hour and weekly limits as a baton session on this
 	// account last saw them (nil until one has).
 	Usage *usage.Usage `json:"usage,omitempty"`
+	// While switching the desktop app's sign-in is on: DesktopLogin is
+	// "active" when the app is signed in to this Claude account now, "kept"
+	// when baton keeps its sign-in (only a pill: switching is on the card,
+	// never beside a limit); DesktopKept, whether baton keeps one.
+	DesktopLogin string `json:"desktop_login,omitempty"`
+	DesktopKept  bool   `json:"desktop_kept,omitempty"`
 }
 
 type runView struct {
@@ -124,6 +130,11 @@ type configView struct {
 	GUILanguage           string `json:"gui_language"`
 	GUITheme              string `json:"gui_theme"`
 	RiskAcknowledged      bool   `json:"risk_acknowledged"`
+	// DesktopLogins: switching the desktop app's sign-in is on (and its
+	// notice, as it reads now, accepted); DesktopLoginsAck: that notice is
+	// accepted, so turning it on asks nothing more.
+	DesktopLogins    bool `json:"desktop_logins"`
+	DesktopLoginsAck bool `json:"desktop_logins_ack"`
 	// OfficeLayout is how the office's side columns were left in each kind
 	// of window, there before the office is first drawn.
 	OfficeLayout officeLayoutView `json:"office_layout"`
@@ -184,6 +195,9 @@ type stateView struct {
 	// Desktop: the Claude desktop app is on this PC, so sessions can be
 	// shown in it.
 	Desktop bool `json:"desktop"`
+	// DesktopLogins: switching the desktop app's sign-in (nil without the
+	// app and with nothing kept).
+	DesktopLogins *loginsSummary `json:"desktop_logins,omitempty"`
 }
 
 func (s *Server) state() stateView {
@@ -203,6 +217,7 @@ func (s *Server) state() stateView {
 		ClaudePath: cfg.ClaudePath, RemoteControl: cfg.RemoteControl, Notifications: cfg.NotifyLevel(), KeepAwake: cfg.KeepAwakeOn(),
 		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage, GUITheme: cfg.GUITheme,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
+		DesktopLogins:    cfg.DesktopLoginsOn(), DesktopLoginsAck: cfg.DesktopLoginsAcknowledged >= config.DesktopLoginsDisclosure,
 	}
 	if ov := cfg.OfficeView; ov != nil {
 		v.Config.OfficeLayout = officeLayoutView{Tab: ov.Tab, Popout: ov.Popout}
@@ -305,6 +320,7 @@ func (s *Server) state() stateView {
 	var badges map[string]desktop.Badge
 	var threads []*desktop.Thread
 	v.Desktop, badges, threads = s.deskNow()
+	v.DesktopLogins = s.loginsNow(cfg, v.Desktop, v.Accounts)
 	badge := func(id string) *desktop.Badge {
 		if b, ok := badges[strings.ToLower(id)]; ok && id != "" {
 			return &b

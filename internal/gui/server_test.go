@@ -102,7 +102,10 @@ func newRig(t *testing.T) *rig {
 	}
 	hs := &http.Server{Handler: srv}
 	go func() { _ = hs.Serve(ln) }()
-	t.Cleanup(func() { _ = hs.Close() })
+	// Before the folder goes: a desktop pass a tick started may still write
+	// into it. A rig that sets more up afterwards waits again in its own
+	// cleanup, which runs first.
+	t.Cleanup(func() { _ = hs.Close(); srv.waitBackground() })
 	// Switching set up, as after onboarding (sessions refuse to start before).
 	if _, err := config.Update(paths.Config(), paths.ConfigLock(), func(c *config.Config) error {
 		c.SwitchMode, c.RiskAcknowledged = config.ModeConfirm, config.DisclosureVersion
@@ -112,6 +115,10 @@ func newRig(t *testing.T) *rig {
 	}
 	return &rig{t: t, srv: srv, spawn: sp, client: &http.Client{}, paths: paths}
 }
+
+// waitBackground waits for the desktop passes ticks started in the
+// background. No request comes after a test's body, so none starts meanwhile.
+func (s *Server) waitBackground() { s.bg.Wait() }
 
 // exchange trades a window URL's one-time code for a session token, as the
 // page does.

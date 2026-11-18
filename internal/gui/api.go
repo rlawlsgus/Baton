@@ -79,12 +79,14 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	get := map[string]func(http.ResponseWriter, *http.Request){
-		"state":          s.apiState,
-		"conversations":  s.apiConversations,
-		"changes":        s.apiChanges,
-		"folder/info":    s.apiFolderInfo,
-		"office":         s.apiOffice,
-		"desktop/places": s.apiDesktopPlaces,
+		"state":                s.apiState,
+		"conversations":        s.apiConversations,
+		"changes":              s.apiChanges,
+		"folder/info":          s.apiFolderInfo,
+		"office":               s.apiOffice,
+		"desktop/places":       s.apiDesktopPlaces,
+		"desktop/logins":       s.apiLogins,
+		"sessions/delete-plan": s.apiDeletePlan,
 	}
 	post := map[string]func(http.ResponseWriter, *http.Request){
 		"accounts/add":     s.apiAddOrLogin("add"),
@@ -101,6 +103,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"sessions/focus":   s.apiFocus,
 		"sessions/restore": s.apiRestore,
 		"sessions/dismiss": s.apiDismiss,
+		"sessions/delete":  s.apiDelete,
 		"notify/test":      s.apiNotifyTest,
 		"folder/pick":      s.apiPickFolder,
 		"config":           s.apiConfig,
@@ -118,6 +121,15 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"office/layout":    s.apiOfficeLayout,
 		"office/hide":      s.apiOfficeHide,
 		"desktop/apply":    s.apiDesktopApply,
+		// Switching the desktop app's sign-in (desklogins.go).
+		"desktop/logins/use":      s.apiLoginsUse,
+		"desktop/logins/add":      s.apiLoginsAdd,
+		"desktop/logins/recover":  s.apiLoginsRecover,
+		"desktop/logins/settle":   s.apiLoginsSettle,
+		"desktop/logins/tidy":     s.apiLoginsTidy,
+		"desktop/logins/drop":     s.apiLoginsDrop,
+		"desktop/logins/drop-all": s.apiLoginsDropAll,
+		"desktop/logins/rename":   s.apiLoginsRename,
 	}
 	switch r.Method {
 	case http.MethodGet:
@@ -245,7 +257,10 @@ func (s *Server) apiRemove(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "bad_name", err.Error(), "")
 		return
 	}
-	// The account's conversations are moved to the user's own Claude Code.
+	// The account's conversations are moved to the user's own Claude Code:
+	// not while a delete moves files (see apiDelete).
+	s.moveMu.Lock()
+	defer s.moveMu.Unlock()
 	s.hidden(w, []string{"remove", req.Name, "--yes"})
 }
 
@@ -433,6 +448,11 @@ func (s *Server) apiStart(w http.ResponseWriter, r *http.Request) {
 		sid, where = latest[0].SessionID, s.whereOf(latest[0].ConfigDir)
 		fallthrough
 	case "resume":
+		// A copy too: it would start from files going to the Recycle Bin.
+		if run.Deleting(s.opt.Paths.Root, sid) {
+			fail(w, http.StatusConflict, "deleting", "this conversation is being deleted", "")
+			return
+		}
 		t, code := s.findTranscript(sid, where)
 		if code != "" {
 			fail(w, http.StatusBadRequest, code, "that conversation cannot be opened", "")
@@ -794,6 +814,14 @@ func (s *Server) apiRestore(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// Said here, not in the session window that `baton run --restore` would
+	// open only to refuse: it would resume files going to the Recycle Bin.
+	for _, j := range cut {
+		if run.Deleting(s.opt.Paths.Root, j.SessionID) || run.Deleting(s.opt.Paths.Root, sessionOfFile(j.TranscriptPath)) {
+			fail(w, http.StatusConflict, "deleting", "this conversation is being deleted", "")
+			return
+		}
+	}
 	for _, j := range cut {
 		if err := s.console("run", j.Cwd, j.Cwd, []string{"run", "--restore", j.RunID}); err != nil {
 			fail(w, http.StatusInternalServerError, "spawn", err.Error(), "")
@@ -887,6 +915,12 @@ func (s *Server) apiConfig(w http.ResponseWriter, r *http.Request) {
 	if !readJSON(w, r, &req) {
 		return
 	}
+	if req.Key == "desktop_logins" {
+		// On checks the PC and needs its own notice; off deletes every kept
+		// sign-in. The plain setter refuses both.
+		s.configDesktopLogins(w, req.Value, req.Acknowledge)
+		return
+	}
 	cur, err := config.Load(s.opt.Paths.Config())
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "config", err.Error(), "")
@@ -951,6 +985,15 @@ func (s *Server) apiUninstall(w http.ResponseWriter, r *http.Request) {
 	// holds its log in baton's data folder, which would stop the deletion.
 	if code, msg := s.replaceRefusal(); code != "" {
 		fail(w, http.StatusConflict, code, msg, "")
+		return
+	}
+	// It moves the conversations to the user's own Claude Code: not while a
+	// delete (here or in a terminal) moves one to the Recycle Bin.
+	if run.AnyDeleting(s.opt.Paths.Root) {
+		fail(w, http.StatusConflict, "deleting_any", "a conversation is being deleted", "")
+		return
+	}
+	if s.uninstallRefused(w) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

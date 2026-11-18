@@ -2,10 +2,11 @@ package desktop
 
 import (
 	"encoding/json"
-	"io"
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,13 +28,29 @@ const sessionsDir = "claude-code-sessions"
 // BATON_DESKTOP_DATA names it instead (tests and the end-to-end test); a Go
 // test binary never looks for the real one.
 func DataDir() string {
-	if d := os.Getenv("BATON_DESKTOP_DATA"); d != "" {
-		return filepath.Clean(d)
+	if d, set := dataOverride(); set {
+		return d
 	}
 	if testing.Testing() {
 		return ""
 	}
 	return findDataDir(os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"))
+}
+
+// dataOverride is the data folder BATON_DESKTOP_DATA names instead of the
+// real one. "none" names none: there is no desktop app (the test build's
+// default, where a folder that is not there would still count as the app's,
+// and offer what then fails). set: the variable is set, to a folder or to
+// none.
+func dataOverride() (dir string, set bool) {
+	switch v := os.Getenv("BATON_DESKTOP_DATA"); {
+	case v == "":
+		return "", false
+	case strings.EqualFold(v, "none"):
+		return "", true
+	default:
+		return filepath.Clean(v), true
+	}
 }
 
 // findDataDir looks where the desktop app keeps its data: a folder of
@@ -80,19 +97,69 @@ func findDataDir(localAppData, appData string) string {
 	return ""
 }
 
+// allData are every data folder of the desktop app whose lists a delete
+// looks through: the one baton shows sessions in (Data), and every other
+// one the app may read lists from again (another build, or an older
+// install it may go back to). BATON_DESKTOP_DATA names the only other one
+// instead, or none ("none"; tests and the end-to-end test); a Go test binary
+// never looks for the real ones. unread: a folder that holds data folders
+// could not be read right now.
+func (d *Desk) allData() (dirs []string, unread bool) {
+	add := func(p string) {
+		if p != "" && !slices.ContainsFunc(dirs, func(q string) bool { return samePath(q, p) }) {
+			dirs = append(dirs, p)
+		}
+	}
+	add(d.Data())
+	if v, set := dataOverride(); set {
+		add(v)
+		return dirs, false
+	}
+	if testing.Testing() {
+		return dirs, false
+	}
+	more, unread := dataDirs(os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"))
+	for _, p := range more {
+		add(p)
+	}
+	return dirs, unread
+}
+
+// dataDirs are the folders the desktop app may keep lists in, whichever
+// findDataDir picks: every folder of %LOCALAPPDATA%\Claude-Data, that folder
+// itself, and %APPDATA%\Claude, also after the app moved its data from there
+// (what it left there is still on disk). A folder that holds no lists is
+// harmless to name.
+func dataDirs(localAppData, appData string) (out []string, unread bool) {
+	if localAppData != "" {
+		root := filepath.Join(localAppData, "Claude-Data")
+		ents, err := os.ReadDir(root)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			unread = true
+		}
+		for _, e := range ents {
+			if d := filepath.Join(root, e.Name()); isDir(d) {
+				out = append(out, d)
+			}
+		}
+		out = append(out, root)
+	}
+	if appData != "" {
+		out = append(out, filepath.Join(appData, "Claude"))
+	}
+	return out, unread
+}
+
 // Active is the account the desktop app is signed in to now
 // (lastKnownAccountUuid in its config.json, the only key read there), or "".
+// It reads the way a delete still can replace the file meanwhile: it is
+// asked every second, and a switch of the app's sign-in writes that file.
 func Active(dataDir string) string {
 	if dataDir == "" {
 		return ""
 	}
-	f, err := os.Open(filepath.Join(dataDir, "config.json"))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, 16<<20))
-	if err != nil {
+	data, err := fsx.ReadFileShared(filepath.Join(dataDir, "config.json"))
+	if err != nil || len(data) > 16<<20 {
 		return ""
 	}
 	var c struct {
@@ -112,6 +179,10 @@ var uuidRx = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4
 // validID accepts an account, organization or conversation id: a lower
 // case uuid, which is safe as a folder or file name.
 func validID(s string) bool { return uuidRx.MatchString(s) }
+
+// ValidID is validID, for the packages beside this one that name folders by
+// account id (internal/desklogin).
+func ValidID(s string) bool { return validID(s) }
 
 // AppRunning reports whether the Claude desktop app runs now. While it does,
 // it keeps the list of the account it is signed in to in memory: a record

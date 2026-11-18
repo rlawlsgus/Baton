@@ -35,6 +35,7 @@ import (
 	"baton/internal/accounts"
 	"baton/internal/app"
 	"baton/internal/claude"
+	"baton/internal/fsx"
 	"baton/internal/run"
 	"baton/internal/share"
 	"baton/internal/winproc"
@@ -49,6 +50,12 @@ type Desk struct {
 	Accounts  []accounts.Account
 	Running   func() bool      // whether the desktop app runs (AppRunning)
 	Now       func() time.Time // the time records are written at
+	// Known is what baton keeps of the desktop app's sign-in for account acct
+	// (internal/desklogin, when switching it is on): its organization and
+	// email, and whether a sign-in is kept for it. nil: nothing kept. After a
+	// switch to an account none of baton's, the user's own Claude Code still
+	// names the account before, so this is the only place that names it.
+	Known func(acct string) (org, email string, kept bool)
 
 	dataOnce sync.Once
 	data     string
@@ -86,7 +93,7 @@ type Conversation struct {
 
 // Error says why a change cannot be made, in a word the window explains.
 type Error struct {
-	Code   string // no_desktop | no_file | unknown_place | split | conflict | other_drive | link_failed
+	Code   string // no_desktop | no_file | unknown_place | split | conflict | other_drive | link_failed | deleting
 	Detail string
 }
 
@@ -98,6 +105,15 @@ func (e *Error) Error() string {
 }
 
 func fail(code, detail string) error { return &Error{Code: code, Detail: detail} }
+
+// deleting: a delete of conversation id is under way. Apply and Follow
+// refuse then (code deleting), under desktop.lock: the delete takes its
+// marker before it takes baton's records off under that lock, so a record
+// and a second name written after that would be ones it never sees, and the
+// conversation would outlive it in the desktop app.
+func (d *Desk) deleting(id string) bool {
+	return d.IndexPath != "" && run.Deleting(filepath.Dir(d.IndexPath), id)
+}
 
 // about is what a record says about a conversation.
 type about struct {
@@ -269,7 +285,7 @@ func (d *Desk) dropLinks(ix *Index, t *Thread) {
 			delete(t.Links, id)
 			continue
 		}
-		if !sameFile(l.Path, l.File) || linkCount(l.Path) < 2 {
+		if !sameFile(l.Path, l.File) || fsx.LinkCount(l.Path) < 2 {
 			continue
 		}
 		if d.linkUsed(ix, id, l.Path) {
@@ -300,8 +316,9 @@ func (d *Desk) dropLinks(ix *Index, t *Thread) {
 //   - a Claude Code that has id open: in the user's own folder (the desktop
 //     app's), in an account's profile (one of baton's sessions, unless its
 //     run says it writes by another name), and a run of baton's that writes
-//     by path, also while its claude is being started again, or that was
-//     cut off and is offered for reopening by that path.
+//     by path, also while its claude is being started again, that waits
+//     for its first account to open it (or start a copy from it) by path,
+//     or that was cut off and is offered for reopening by that path.
 //
 // A name one of these keeps is asked about at every look, for as long as it
 // is kept, so the looks are cheap first: the record that kept it last time
@@ -323,7 +340,8 @@ func (ix *Index) linkNeeded(id string) bool {
 // the user's own folder opens it from there. One in an account's profile
 // is a session of baton's: it may have been resumed by that path, so it
 // counts unless its run (started it, and still runs) names another file.
-// One whose registry entry cannot be read counts too. A run that was cut
+// One whose registry entry cannot be read counts too. A run that waits to
+// open it by path, or to start a copy from it, counts. A run that was cut
 // off counts while baton offers to reopen it, which it does by the path its
 // journal names.
 func (d *Desk) claudeHas(id, path string) bool {
@@ -343,7 +361,10 @@ func (d *Desk) claudeHas(id, path string) bool {
 		}
 	}
 	for _, j := range runs {
-		if samePath(j.TranscriptPath, path) {
+		// Opens and ForkOf: a run that waits for its first account (every
+		// one limited) resumes the conversation, or starts a copy from it,
+		// by that path once one frees up.
+		if samePath(j.TranscriptPath, path) || samePath(j.Opens, path) || samePath(j.ForkOf, path) {
 			return true
 		}
 	}
