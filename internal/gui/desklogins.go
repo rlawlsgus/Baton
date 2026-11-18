@@ -21,8 +21,8 @@ import (
 // notice, the card on the Accounts tab, and the banner for a switch that
 // was cut off. Only these handlers switch, and only on the user's click:
 // nothing in the window does it on its own (desklogin's rules test holds
-// every caller of Use, Blank, Recover, Settle and Launch to this file and the
-// CLI's).
+// every caller of Use, Blank, Recover, Settle and Launch, and of the
+// switches that quit the app first, to this file and the CLI's).
 
 // loginsState is the last look at the kept sign-ins (desklogin.View). A
 // look stats every file of every kept sign-in and lists the app's
@@ -198,17 +198,26 @@ func (s *Server) apiLogins(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiLoginsUse switches the desktop app to the sign-in kept for an account
-// (its id), and opens the app afterwards when asked.
+// (its id), and opens the app afterwards when asked. With quit (the user
+// agreed to it, the app running), the app is quit first when nothing in it
+// is working, and opened again after.
 func (s *Server) apiLoginsUse(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Account string `json:"account"`
 		Open    bool   `json:"open"`
+		Quit    bool   `json:"quit"`
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	l := s.logins()
-	res, err := l.Use(req.Account)
+	var res desklogin.Switched
+	var err error
+	if req.Quit {
+		res, err = l.UseAfterQuit(req.Account)
+	} else {
+		res, err = l.Use(req.Account)
+	}
 	s.switched(w, l, res, err, req.Open)
 }
 
@@ -217,12 +226,19 @@ func (s *Server) apiLoginsUse(w http.ResponseWriter, r *http.Request) {
 func (s *Server) apiLoginsAdd(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Open bool `json:"open"`
+		Quit bool `json:"quit"`
 	}
 	if !readJSON(w, r, &req) {
 		return
 	}
 	l := s.logins()
-	res, err := l.Blank()
+	var res desklogin.Switched
+	var err error
+	if req.Quit {
+		res, err = l.BlankAfterQuit()
+	} else {
+		res, err = l.Blank()
+	}
 	s.switched(w, l, res, err, req.Open)
 }
 
@@ -230,10 +246,20 @@ func (s *Server) apiLoginsAdd(w http.ResponseWriter, r *http.Request) {
 // the account the app is on now before it opens, not in the background as
 // after a tick: the app reads them as it starts. Opening it is a
 // convenience; when baton cannot, the user does (open_error says why).
+//
+// An app baton quit for the switch (res.Quit) opens again whatever was
+// asked, also when the switch then failed or was refused: on the sign-in
+// it has then. The answer says so (quit, and opened or open_error).
 func (s *Server) switched(w http.ResponseWriter, l *desklogin.Logins, res desklogin.Switched, err error, open bool) {
 	s.loginsChanged()
 	if err != nil {
-		s.loginsFail(w, err)
+		var extra map[string]any
+		if res.Quit {
+			s.ReconcileDesktop()
+			extra = map[string]any{"quit": true}
+			s.launchAfter(l, true, extra)
+		}
+		s.loginsFailWith(w, err, extra)
 		return
 	}
 	s.ReconcileDesktop()
@@ -241,7 +267,10 @@ func (s *Server) switched(w http.ResponseWriter, l *desklogin.Logins, res desklo
 	if res.Stashed != "" {
 		out["stashed"] = res.Stashed
 	}
-	s.launchAfter(l, open, out)
+	if res.Quit {
+		out["quit"] = true
+	}
+	s.launchAfter(l, open || res.Quit, out)
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -410,16 +439,53 @@ func (s *Server) uninstallRefused(w http.ResponseWriter) bool {
 // loginsFail answers a refused change: turned off is 404 (like the office
 // turned off), any other refusal 409, with desklogin's detail (key and item
 // names only, never a value of the app's settings) for the page to word.
-func (s *Server) loginsFail(w http.ResponseWriter, err error) {
+func (s *Server) loginsFail(w http.ResponseWriter, err error) { s.loginsFailWith(w, err, nil) }
+
+// loginsFailWith is loginsFail, its answer with extra's fields as well; a
+// refusal because the app is working lists its sessions (working).
+func (s *Server) loginsFailWith(w http.ResponseWriter, err error, extra map[string]any) {
 	var de *desktop.Error
+	var we *desklogin.WorkingError
 	switch {
 	case !errors.As(err, &de) || !strings.HasPrefix(de.Code, "dl_"):
+		if len(extra) > 0 {
+			s.logf("desktop app sign-ins: %v", err)
+			out := map[string]any{"error": err.Error(), "code": "desktop_logins"}
+			for k, v := range extra {
+				out[k] = v
+			}
+			writeJSON(w, http.StatusInternalServerError, out)
+			return
+		}
 		s.loginsBroke(w, err)
-	case de.Code == desklogin.CodeOff:
-		fail(w, http.StatusNotFound, de.Code, err.Error(), "")
-	default:
-		fail(w, http.StatusConflict, de.Code, err.Error(), de.Detail)
+		return
+	case errors.As(err, &we):
+		extra = withField(extra, "working", we.Sessions)
 	}
+	status, detail := http.StatusConflict, de.Detail
+	if de.Code == desklogin.CodeOff {
+		status, detail = http.StatusNotFound, ""
+	}
+	if len(extra) == 0 {
+		fail(w, status, de.Code, err.Error(), detail)
+		return
+	}
+	out := map[string]any{"error": err.Error(), "code": de.Code}
+	if detail != "" {
+		out["details"] = detail
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	writeJSON(w, status, out)
+}
+
+func withField(m map[string]any, k string, v any) map[string]any {
+	if m == nil {
+		m = map[string]any{}
+	}
+	m[k] = v
+	return m
 }
 
 // loginsBroke answers a failure that is no refusal (baton's settings file

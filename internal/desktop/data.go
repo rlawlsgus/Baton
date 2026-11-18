@@ -187,13 +187,17 @@ func ValidID(s string) bool { return validID(s) }
 // AppRunning reports whether the Claude desktop app runs now. While it does,
 // it keeps the list of the account it is signed in to in memory: a record
 // written there shows only after it is opened again, and one removed can be
-// written back. BATON_DESKTOP_RUNNING=0 or 1 says instead (tests).
+// written back. BATON_DESKTOP_RUNNING=0 or 1 says instead (tests), or
+// file:<path>: it runs while that file is there (QuitApp deletes it).
 func AppRunning() bool {
 	switch os.Getenv("BATON_DESKTOP_RUNNING") {
 	case "1":
 		return true
 	case "0":
 		return false
+	}
+	if p, ok := runningFile(); ok {
+		return isFile(p)
 	}
 	if testing.Testing() {
 		return false

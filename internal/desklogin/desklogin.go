@@ -6,13 +6,17 @@
 // app is fully quit, a switch keeps what the app has now under its account
 // in baton's store, then moves the chosen account's items in and splices its
 // six values into config.json, the account last. Nothing is ever decrypted,
-// read for its meaning or sent anywhere: the files move as they are.
+// read for its meaning or sent anywhere: the files move as they are. When
+// the user agrees to it, a switch for an app that runs quits it first, the
+// way Windows asks a program to quit, but only when nothing in it is
+// working (Working); the caller opens it again.
 //
 // A switch is staged in the app's own folder (one volume, so each move is a
 // rename) with a journal, and one that is cut off is undone (Recover), never
 // finished on its own; only when the user chooses to is the app left as it
 // is instead (Settle). Nothing here runs on its own: only the window's and
-// the CLI's handlers call Use, Blank, Recover and Settle (see the rules test).
+// the CLI's handlers call Use, Blank (and those that quit the app first),
+// Recover and Settle (see the rules test).
 package desklogin
 
 import (
@@ -41,6 +45,8 @@ import (
 const (
 	CodeOff               = "dl_off"                // turned off, or its notice not accepted (as it reads now)
 	CodeAppRunning        = "dl_app_running"        // the desktop app runs, or holds its lockfile
+	CodeAppWorking        = "dl_app_working"        // the desktop app runs, and works in a session quitting it would stop (*WorkingError lists them)
+	CodeQuitFailed        = "dl_quit_failed"        // the desktop app was asked to quit, and did not (Detail: refused when it said it must not now)
 	CodeBusy              = "dl_busy"               // another change of the sign-in, or of baton's desktop lists, is under way
 	CodeNotKept           = "dl_not_kept"           // baton keeps no sign-in for that account (or no account goes by that name)
 	CodeAmbiguous         = "dl_ambiguous"          // the name fits more than one account (Detail lists them)
@@ -90,22 +96,31 @@ type Logins struct {
 	UserHome   string // the user's own Claude Code folder, which may name the account
 	Accounts   []accounts.Account
 	Running    func() bool // whether the desktop app runs (desktop.AppRunning)
-	Elevated   func() bool // whether baton runs as administrator
-	Now        func() time.Time
+	// QuitApp asks the desktop app to quit and waits until it has
+	// (desktop.QuitApp), for UseAfterQuit and BlankAfterQuit.
+	QuitApp  func() error
+	Elevated func() bool // whether baton runs as administrator
+	Now      func() time.Time
 
 	dataFn      func() string
 	wait        time.Duration // for each lock
 	appLockWait time.Duration // for the app's lockfile, which it lets go of as it quits
 	failAt      func(step string) error
 	afterGate   func()
+	workingFn   func() []Working // instead of Working's look (tests)
 }
+
+// quitWait is how long a switch waits for the desktop app to quit: it
+// saves what it keeps and stops its sessions first.
+const quitWait = 60 * time.Second
 
 // New is the switching of baton's data folder p, for the accounts in reg.
 func New(p app.Paths, reg accounts.Registry) *Logins {
 	return &Logins{Store: p.DesktopLogins(), Lock: p.DesktopLoginsLock(), DeskLock: p.DesktopLock(),
 		ConfigPath: p.Config(), ConfigLock: p.ConfigLock(), UserHome: share.UserHome(p.ProfilesDir()),
 		Accounts: reg.Accounts, Running: desktop.AppRunning, Elevated: elevated, Now: time.Now,
-		dataFn: desktop.DataDir, wait: 10 * time.Second, appLockWait: 1500 * time.Millisecond}
+		QuitApp: func() error { return desktop.QuitApp(quitWait) },
+		dataFn:  desktop.DataDir, wait: 10 * time.Second, appLockWait: 1500 * time.Millisecond}
 }
 
 func elevated() bool { return windows.GetCurrentProcessToken().IsElevated() }

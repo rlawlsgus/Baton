@@ -220,8 +220,31 @@ const livePageChecks = `
     await turnLoginsOn({ config: { desktop_logins_ack: true } });
     out.store_perm_on = document.getElementById('toast').textContent;
 
+    // Switching while the desktop app runs asks first; what is working is listed, session by
+    // session; a switch that failed after the quit says the app is open again.
+    openQuitSwitch({ account: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', label: 'home' });
+    out.quit_ask = dialog();
+    answer('desktop/logins/use', 409, { error: 'x', code: 'dl_app_working',
+      working: [{ title: 'fix the bug', what: 'turn' }, { title: '', what: 'command' }, { title: 'x', what: 'later' }] });
+    click('.btn.primary');
+    await settle();
+    out.quit_working = dialog();
+    out.quit_working_items = String(document.querySelectorAll('#dialog li').length);
+    answer('desktop/logins/use', 409, { error: 'x', code: 'dl_switch_failed', quit: true, opened: true });
+    click('.btn.primary');
+    await settle();
+    out.quit_reopened = dialog();
+    answer('desktop/logins/use', 200, { ok: true, to: 'b', quit: true, opened: true });
+    click('.btn.primary');
+    await settle();
+    out.quit_done = document.getElementById('toast').textContent;
+    out.quit_refused = loginErr({ code: 'dl_quit_failed', details: 'refused' });
+    out.quit_late = loginErr({ code: 'dl_quit_failed' });
+    out.working_toast = loginErr({ code: 'dl_app_working', data: { working: [{ title: 'loop', what: 'wakeup' }] } });
+
     S.lang = 'ko';
     out.ko_forget = t('dl_forget_body', { a: '개인' });
+    out.ko_working = loginErr({ code: 'dl_app_working', data: { working: [{ title: '루프', what: 'wakeup' }] } });
     out.ko_used = t('err_dl_used_since');
     out.ko_inside = errText({ code: 'cut_off_inside_claude' });
     out.ko_dl_inside = loginErr({ code: 'dl_inside_claude' });
@@ -384,6 +407,19 @@ func TestLivePage(t *testing.T) {
 	has("ko_dl_inside", "이 창을 닫고 시작 메뉴(또는 baton 폴더)에서 baton을 다시 여세요")
 	has("store_perm", "permissions of its own", "kept nothing and changed nothing")
 	has("layout_several", "More than one folder in Claude-Data", "it changes nothing")
+	// Switching while the desktop app runs.
+	has("quit_ask", "Quit the desktop app and switch it to home?", "checks that nothing in it is working", "Quit and switch")
+	has("quit_working", "Something in the desktop app is still working", "fix the bug: Claude is working",
+		"(untitled): a command runs in the background", "x: baton cannot tell now whether it is working")
+	if got := out["quit_working_items"]; got != "3" {
+		t.Errorf("quit_working_items = %v, want 3", got)
+	}
+	has("quit_reopened", "The desktop app was opened again, on the account it was on.")
+	has("quit_done", "baton quit the desktop app and switched it to home. Opening it again.")
+	has("quit_refused", "would not quit now", "nothing was changed")
+	has("quit_late", "did not quit in time", "sign-in was not changed", "still be closing")
+	has("working_toast", "Something in the desktop app is still working", "loop: Claude is to wake up again")
+	has("ko_working", "데스크톱 앱에서 아직 작업이 돌고 있어", "루프: Claude가 다시 깨어날 예정")
 	has("layout_other", "not supported for this kind of Claude desktop app install yet")
 	has("ko_layout_no_app", "데이터 폴더를 찾지 못했습니다", "한 번 연 뒤 다시 시도하세요")
 	has("store_perm_on", "permissions of its own", "kept nothing and changed nothing")

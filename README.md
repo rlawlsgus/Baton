@@ -261,7 +261,8 @@ baton sessions delete 2cd067ab-193c-4e56-baa2-0b34dc203160
 
 The Claude desktop app is signed in to one account at a time, and signing in to another asks for
 an email code every time. baton can keep each of your accounts' sign-in to the desktop app on
-this PC and put back the one you choose while the app is quit, so you switch without a code.
+this PC and put back the one you choose while the app is quit, so you switch without a code. If
+the app runs, baton quits it for the switch and opens it again, once nothing in it is working.
 
 > [!IMPORTANT]
 > This is not an Anthropic feature, and no Anthropic source says it is allowed. Anthropic may
@@ -272,11 +273,11 @@ this PC and put back the one you choose while the app is quit, so you switch wit
 1. Turn on **Settings → Switch the Claude desktop app between your accounts (unofficial)**, read
    the notice and tick that you accept it (or run `baton config desktop_logins true`). The
    Accounts tab then has a **Claude desktop app sign-in** card.
-2. Quit the desktop app completely (also from its tray icon). **Add an account to the desktop
-   app** keeps the app's sign-in and empties it on this PC only. Open the app, sign in to your
-   other account (one email code), and quit it completely again.
+2. **Add an account to the desktop app** keeps the app's sign-in and empties it on this PC only.
+   Sign in to your other account in the app (one email code).
 3. From then on, **Switch the desktop app to this account** on a row of the card switches it.
-   With *Open the desktop app afterwards* ticked, baton opens the app for you.
+   If the app runs, baton asks first, then quits it, switches it and opens it again. With *Open
+   the desktop app afterwards* ticked, baton also opens an app that was quit.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/desktop-logins-dark.png">
@@ -287,8 +288,14 @@ this PC and put back the one you choose while the app is quit, so you switch wit
   Claude's servers too, so baton's copy of it stops working (signing in again needs an email
   code). Use *Add an account to the desktop app* instead, and Log out only of an account you want
   to stop using.
-- **Only when you ask, only while the app is quit.** baton never switches the desktop app on its
-  own, and never because of a usage limit. It refuses while the app runs.
+- **Only when you ask, never while the app is working.** baton never switches the desktop app on
+  its own, and never because of a usage limit. The switch itself happens with the app fully quit:
+  if it runs, baton quits it first, the way Windows asks a program to quit before an update
+  (`--quit` on the command line). It does not quit it while, in one of the Claude Code sessions
+  the app runs, Claude is working or waiting for your answer, or something runs in the background
+  (a command, an agent, a workflow, a `/loop` or a scheduled job); it names those sessions
+  instead, and changes nothing. If the app does not quit within a minute (it may be asking you
+  something), baton changes nothing either.
 - **What baton moves:** the app's cookies, its site storage and six entries of its settings file
   (two of them encrypted tokens), as they are. baton never decrypts them and never sends them
   anywhere; the cookies and tokens stay encrypted as the app keeps them, usable only from your
@@ -310,7 +317,8 @@ this PC and put back the one you choose while the app is quit, so you switch wit
   stays signed in to the account it is on. This signs nothing out on Claude's servers: to end a
   sign-in too, switch the app to it, use Log out there, then *Forget* it in baton.
 
-From the command line (`--open` opens the desktop app afterwards):
+From the command line (`--open` opens the desktop app afterwards; `--quit` quits a running app
+first, when nothing in it is working, and opens it again):
 
 ```bash
 baton desktop login
@@ -321,7 +329,7 @@ baton desktop login add
 ```
 
 ```bash
-baton desktop login use work --open
+baton desktop login use work --quit
 ```
 
 ## The office

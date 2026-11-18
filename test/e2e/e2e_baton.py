@@ -3082,7 +3082,11 @@ def scenario_desklogin(w: World, res: list) -> dict:
     app's own single-instance lock is held (<data>\\lockfile) nothing switches; then acct-b. The
     app's other files, baton's records in both lists among them, stay as they were, also after the
     window's reconcile. Turning it off deletes every kept sign-in and leaves the app on its account.
-    Then the same through the CLI, with the notice and the last question answered in a console."""
+    Then the same through the CLI, with the notice and the last question answered in a console; and
+    with the app running (a stand-in file baton is told of, which quitting deletes), use refuses and
+    names --quit, use --quit quits nothing while Claude works in a session of the app's (a sleeper
+    registered as one, in the user's own Claude Code folder) and names it, and then quits, switches
+    and opens the app again."""
     w.reset_state()
     w.accounts_flip("echo", "echo")
     w.config(switch_mode="auto", on_exhausted="stop")
@@ -3292,6 +3296,40 @@ def scenario_desklogin(w: World, res: list) -> dict:
         ko = w.baton_cmd("desktop", "login", extra_env={"BATON_LANG": "ko"})
         check(cp.returncode == 0 and app_is(A, "A2") and dl_rest(data) == rest and ko.returncode == 0 and "지금 로그인됨" in ko.stdout,
               f"desklogin: CLI: use acct-a puts its new sign-in back; the list in Korean ({said(cp).strip()[-160:]!r})", res)
+
+        # The app runs: a switch names --quit; with it, nothing is quit while Claude works in a
+        # session of the app's; then it is quit, switched and opened again.
+        running = os.path.join(w.run.root, "desk-app-running")
+        open(running, "w").close()
+        renv = {"BATON_DESKTOP_RUNNING": "file:" + running}
+        cp = w.baton_cmd("desktop", "login", "use", "acct-b", extra_env=renv)
+        check(cp.returncode != 0 and "still running" in said(cp) and "--quit" in said(cp) and os.path.exists(running)
+              and app_is(A, "A2") and dl_rest(data) == rest,
+              f"desklogin: CLI: while the app runs a switch is refused, and says --quit does it ({said(cp).strip()!r})", res)
+        sleeper = subprocess.Popen([sys.executable, "-I", "-c", "import time; time.sleep(300)"], stdin=subprocess.DEVNULL)
+        try:
+            reg_dir = os.path.join(w.user_claude, "sessions")
+            os.makedirs(reg_dir, exist_ok=True)
+            entry = os.path.join(reg_dir, f"{sleeper.pid}.json")
+            with open(entry, "w", encoding="utf-8") as f:
+                json.dump({"pid": sleeper.pid, "sessionId": "dl-busy", "cwd": w.run.proj, "startedAt": process_started_ms(sleeper.pid),
+                           "kind": "interactive", "entrypoint": "claude-desktop", "name": "fix the login bug", "status": "busy"}, f)
+            cp = w.baton_cmd("desktop", "login", "use", "acct-b", "--quit", extra_env=renv)
+            ko = w.baton_cmd("desktop", "login", "use", "acct-b", "--quit", extra_env={**renv, "BATON_LANG": "ko"})
+            check(cp.returncode != 0 and "still working" in said(cp) and "fix the login bug: Claude is working" in said(cp)
+                  and ko.returncode != 0 and "fix the login bug: Claude가 작업 중" in said(ko)
+                  and os.path.exists(running) and app_is(A, "A2") and dl_rest(data) == rest,
+                  f"desklogin: CLI: use --quit quits nothing while Claude works in a session of the app's, and names it ({said(cp).strip()!r})", res)
+            os.remove(entry)
+        finally:
+            sleeper.kill()
+            sleeper.wait()
+        cp = w.baton_cmd("desktop", "login", "use", "acct-b", "--quit", extra_env=renv)
+        check(cp.returncode == 0 and not os.path.exists(running) and app_is(B, "B") and kept(A) and "Opening it" in said(cp)
+              and dl_rest(data) == rest,
+              f"desklogin: CLI: then use --quit quits the app, switches it to acct-b, and opens it again ({said(cp).strip()[-200:]!r})", res)
+        cp = w.baton_cmd("desktop", "login", "use", "acct-a")
+        check(cp.returncode == 0 and app_is(A, "A2"), f"desklogin: CLI: and back to acct-a ({said(cp).strip()[-120:]!r})", res)
         asked, code, out = console("desklogin-off", "config", "desktop_logins", "false")
         check(asked and code == 0 and not os.path.exists(store) and on() == {"on": False, "ack": 0} and app_is(A, "A2")
               and dl_rest(data) == rest and all(os.path.isfile(p) for p in records),
@@ -3304,7 +3342,8 @@ def scenario_desklogin(w: World, res: list) -> dict:
               f"desklogin: unticked, baton's records leave both lists, and then the second name ({status} {r})", res)
 
         keys = ["dl_set", "dl_notice_title", "dl_notice_ack", "dl_on", "dl_title", "dl_now", "dl_use", "dl_new", "dl_no_logout",
-                "dl_off_body"] + sorted({"err_" + c for c in codes if c})
+                "dl_off_body", "dl_quit_title", "dl_quit_go", "dl_work_turn", "dl_work_command", "err_dl_app_working",
+                "err_dl_quit_failed"] + sorted({"err_" + c for c in codes if c})
         missing = texts_missing(win.page_file("app.js"), keys)
         check(not missing, f"desklogin: the page words the card and every refusal in English and Korean ({keys}; missing {missing})", res)
     finally:

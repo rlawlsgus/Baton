@@ -372,7 +372,7 @@ const T = {
       '방법: 데스크톱 앱이 완전히 종료된 동안 baton이 앱의 로그인(쿠키, 사이트 저장소, 설정 파일의 항목 6개 — 그중 2개는 암호화된 토큰)을 {path} 폴더로 옮겨 보관하고, 고른 계정의 것을 되돌려 놓습니다. baton은 이 파일들을 있는 그대로 복사하고 옮기기만 하며, 복호화하거나 어디로도 보내지 않습니다. 쿠키와 토큰은 앱이 저장한 그대로 암호화되어 이 PC의 내 Windows 계정에서만 쓸 수 있습니다. 사이트 저장소는 앱에서도 암호화되어 있지 않습니다. 사이트 저장소에 있는 앱 설정 일부도 계정을 따라갑니다.',
       '이것은 Anthropic의 기능이 아닙니다. 이를 허용한다는 Anthropic의 공식 입장은 없고, 앱이 의도한 사용 방식도 아닙니다. 특히 사용 한도에 걸린 뒤 계정을 바꾸는 것은 제품이나 한도를 우회하는 것으로 볼 수 있으며, Anthropic은 계정을 정지할 수 있습니다. baton은 한 PC에서 여러 계정을 쓴다는 사실을 숨기지 않습니다. 계정에 대한 위험은 본인이 집니다.',
       '비공식 방식이라 데스크톱 앱이 업데이트되면 언제든 작동하지 않을 수 있고, 그러면 앱이 다시 로그인(이메일 코드)을 요청할 수 있습니다. 앱이 baton이 아는 모습과 다르면 baton은 아무것도 바꾸지 않습니다.',
-      '내가 요청할 때만, 그리고 데스크톱 앱이 완전히 종료된 동안(트레이 아이콘에서도)만 바꿉니다. 스스로 바꾸거나 사용 한도 때문에 바꾸는 일은 없습니다.',
+      '내가 요청할 때만, 그리고 데스크톱 앱이 완전히 종료된 동안에만 바꿉니다. 앱이 실행 중이면, 그 안에서 돌고 있는 작업이 없을 때만 baton이 앱을 종료했다가 바꾼 뒤 다시 엽니다. 스스로 바꾸거나 사용 한도 때문에 바꾸는 일은 없습니다.',
       '본인 소유의 계정만 쓰세요. 이 기능을 켠 동안에는, 더 쓰지 않을 계정이 아니라면 Claude 데스크톱 앱에서 로그아웃하지 마세요. 로그아웃하면 Claude 서버에서도 로그인이 끝나 baton이 보관한 로그인도 작동하지 않습니다(다시 로그인하려면 이메일 코드가 필요합니다). 계정을 추가하려면 baton 계정 탭의 ‘데스크톱 앱에 계정 추가’를 쓰세요.',
       '이 기능을 끄거나 baton을 제거하면 baton이 보관한 로그인은 모두 지워집니다. 데스크톱 앱은 그때 로그인된 계정에 그대로 남습니다. 보관 삭제는 Claude 서버의 로그인을 끝내지 않습니다. 로그인까지 끝내려면 앱을 그 계정으로 바꾼 뒤 앱에서 로그아웃하고, baton에서 보관을 삭제하세요.',
     ],
@@ -386,9 +386,10 @@ const T = {
     dl_off_go: '끄고 보관한 로그인 지우기', dl_off_go_none: '끄기', dl_off_done: '데스크톱 앱 로그인 전환을 껐습니다.',
     dl_not_revoked: '지워도 Claude 서버의 로그인은 끝나지 않습니다.',
     dl_title: 'Claude 데스크톱 앱 로그인',
-    dl_sub: 'Claude 데스크톱 앱이 로그인할 계정을 고르세요. 앱이 완전히 종료된 동안에만 바꿀 수 있습니다.',
-    dl_pill_running: '실행 중: 바꾸려면 완전히 종료하세요', dl_pill_quit: '종료됨',
-    dl_running: '데스크톱 앱이 실행 중입니다. 바꾸려면 완전히 종료(트레이 아이콘에서도)하세요.',
+    dl_sub: 'Claude 데스크톱 앱이 로그인할 계정을 고르세요. 앱이 실행 중이면 baton이 앱에서 돌고 있는 작업이 없는지 확인한 뒤 종료했다가, 바꾸고 다시 엽니다.',
+    dl_pill_running: '실행 중', dl_pill_quit: '종료됨',
+    dl_running: '데스크톱 앱이 실행 중입니다. 바꿀 때 baton이 앱에서 돌고 있는 작업이 없는지 확인한 뒤 앱을 종료했다가 다시 엽니다.',
+    dl_running_quit_it: '데스크톱 앱이 실행 중입니다. 먼저 완전히 종료(트레이 아이콘에서도)하세요.',
     dl_loading: '데스크톱 앱 로그인을 살펴보는 중…', dl_switching: '데스크톱 앱 로그인을 바꾸는 중…',
     dl_now: '지금 로그인됨', dl_baton: 'baton: {a}', dl_not_baton: 'baton 계정 아님',
     dl_kept: '{t} 보관', dl_not_kept_pill: '아직 보관 안 함', dl_not_kept: '아직 보관하지 않았습니다. 다른 계정으로 바꿀 때 보관합니다.',
@@ -397,14 +398,27 @@ const T = {
     dl_none: '아직 보관한 데스크톱 앱 로그인이 없습니다.',
     dl_use: '데스크톱 앱을 이 계정으로 바꾸기', dl_use_now: '데스크톱 앱이 지금 이 계정입니다.', dl_use_not_kept: '아직 이 계정의 로그인을 보관하지 않았습니다.',
     dl_new: '데스크톱 앱에 계정 추가', dl_new_title: '데스크톱 앱에 계정 추가',
-    dl_new_body: '{a}의 로그인을 보관한 뒤 이 PC에 있는 데스크톱 앱의 로그인만 비웁니다. Claude에는 아무것도 보내지 않으므로 보관한 {a}의 로그인은 그대로 유지됩니다. 그다음 데스크톱 앱을 열어 다른 계정으로 로그인(이메일 코드)하고, 앱을 완전히 종료(트레이 아이콘에서도)한 뒤 여기서 두 계정 사이를 바꾸세요.',
-    dl_new_blank: '데스크톱 앱에는 보관할 로그인이 없습니다. 이 PC에 남은 것만 따로 보관하고 비웁니다. 그다음 데스크톱 앱을 열어 추가할 계정으로 로그인(이메일 코드)하고, 앱을 완전히 종료(트레이 아이콘에서도)한 뒤 여기서 계정 사이를 바꾸세요.',
+    dl_new_body: '{a}의 로그인을 보관한 뒤 이 PC에 있는 데스크톱 앱의 로그인만 비웁니다. Claude에는 아무것도 보내지 않으므로 보관한 {a}의 로그인은 그대로 유지됩니다. 그다음 데스크톱 앱에서 다른 계정으로 로그인(이메일 코드)하면, 여기서 두 계정 사이를 바꿀 수 있습니다.',
+    dl_new_blank: '데스크톱 앱에는 보관할 로그인이 없습니다. 이 PC에 남은 것만 따로 보관하고 비웁니다. 그다음 데스크톱 앱에서 추가할 계정으로 로그인(이메일 코드)하면, 여기서 계정 사이를 바꿀 수 있습니다.',
     dl_new_no_logout: '이때 앱의 로그아웃은 쓰지 마세요. Claude 서버에서도 로그인이 끝나 보관한 로그인이 작동하지 않게 됩니다.',
     dl_new_go: '보관하고 앱 로그인 비우기',
     dl_done: '데스크톱 앱이 이제 {a} 계정입니다. 앱을 열어 확인하세요.', dl_done_open: '데스크톱 앱이 이제 {a} 계정입니다. 앱을 엽니다.',
-    dl_done_blank: '데스크톱 앱이 이 PC에서 로그아웃되었습니다. 앱을 열어 다른 계정으로 로그인한 뒤 완전히 종료하세요.',
-    dl_done_blank_open: '데스크톱 앱이 이 PC에서 로그아웃되었고, 지금 앱을 엽니다. 다른 계정으로 로그인한 뒤 완전히 종료하세요.',
+    dl_done_blank: '데스크톱 앱이 이 PC에서 로그아웃되었습니다. 앱을 열어 다른 계정으로 로그인하세요.',
+    dl_done_blank_open: '데스크톱 앱이 이 PC에서 로그아웃되었고, 지금 앱을 엽니다. 다른 계정으로 로그인하세요.',
     dl_open_yourself: '데스크톱 앱은 직접 여세요.',
+    dl_quit_title: '데스크톱 앱을 종료하고 {a} 계정으로 바꿀까요?',
+    dl_quit_body: '데스크톱 앱이 실행 중입니다. baton이 앱에서 돌고 있는 작업이 없는지 확인한 뒤 앱을 종료하고, {a} 계정으로 바꾼 다음 다시 엽니다.',
+    dl_quit_check: '앱의 세션에서 Claude가 작업 중이거나 내 답을 기다리고 있으면, 또는 백그라운드 작업(명령, 에이전트, 워크플로, /loop)이 돌고 있으면 종료하지 않고 그 세션을 알려 드립니다.',
+    dl_quit_go: '종료하고 바꾸기',
+    dl_new_quit: '데스크톱 앱이 실행 중입니다. 앱에서 돌고 있는 작업이 없으면 baton이 앱을 종료한 뒤 로그인을 비우고 다시 엽니다.',
+    dl_done_quit: '데스크톱 앱을 종료하고 {a} 계정으로 바꿨습니다. 앱을 다시 엽니다.',
+    dl_done_blank_quit: '데스크톱 앱을 종료하고 이 PC에서 로그아웃시킨 뒤 다시 엽니다. 다른 계정으로 로그인하세요.',
+    dl_reopened: '데스크톱 앱은 다시 열었고, 원래 계정 그대로입니다.',
+    dl_reopen_yourself: '데스크톱 앱은 원래 계정 그대로입니다. 직접 여세요.',
+    dl_untitled: '(제목 없음)',
+    dl_work_turn: 'Claude가 작업 중', dl_work_waiting: 'Claude가 내 답을 기다리는 중', dl_work_command: '백그라운드 명령 실행 중',
+    dl_work_agent: '백그라운드 에이전트나 워크플로 실행 중', dl_work_wakeup: 'Claude가 다시 깨어날 예정(/loop 또는 예약 작업)',
+    dl_work_unknown: '작업 중인지 지금은 알 수 없음(잠시 뒤 다시 시도하세요)',
     dl_recovered_first: '끊긴 전환을 먼저 되돌렸습니다.',
     dl_stashed: '로그아웃 상태의 데스크톱 앱에 남아 있던 것을 따로 보관했습니다(토큰 기록 없음). 계정 탭에서 지울 수 있습니다.',
     dl_rename: '이름 바꾸기', dl_rename_title: '‘{a}’ 이름 바꾸기', dl_rename_label: '이름 (baton에서만 쓰는 이름)',
@@ -455,6 +469,9 @@ const T = {
     err_dl_elevated: 'baton이 관리자 권한으로 실행 중입니다. 데스크톱 앱 로그인을 바꾸려면 일반 권한으로 다시 여세요.',
     err_dl_busy: '데스크톱 앱에 대한 다른 작업이 진행 중입니다. 잠시 뒤 다시 시도하세요.',
     err_dl_app_running: 'Claude 데스크톱 앱이 아직 실행 중입니다. 완전히 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요.',
+    err_dl_app_working: '데스크톱 앱에서 아직 작업이 돌고 있어 앱을 종료하지 않았고 아무것도 바꾸지 않았습니다. 작업을 멈추거나 끝날 때까지 기다린 뒤 다시 시도하세요.',
+    err_dl_quit_failed: 'Claude 데스크톱 앱이 제때 종료되지 않아 로그인을 바꾸지 않았습니다. 앱이 무언가를 묻고 있거나 아직 닫히는 중일 수 있습니다. 직접 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요.',
+    err_dl_quit_failed_refused: 'Claude 데스크톱 앱이 지금은 종료할 수 없다고 해서 아무것도 바꾸지 않았습니다. 직접 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요.',
     err_dl_unknown_format: '데스크톱 앱이 이 baton이 모르는 방식으로 로그인을 저장하고 있습니다(앱이 업데이트되었을 수 있습니다). 아무것도 바꾸지 않았고, 앱은 지금 계정에 그대로 로그인되어 있습니다. 다시 바꾸려면 먼저 baton을 업데이트하세요.',
     err_dl_already: '데스크톱 앱이 이미 그 계정으로 로그인되어 있습니다.',
     err_dl_unsaved_current: '데스크톱 앱의 지금 로그인을 보관하지 못해 아무것도 바꾸지 않았습니다.',
@@ -834,7 +851,7 @@ const T = {
       'How: while the desktop app is fully quit, baton moves the app\'s sign-in (its cookies, its site storage and six entries of its settings file, two of them encrypted tokens) into {path} and puts the chosen account\'s back. baton only copies and moves these files as they are: it never decrypts them and never sends them anywhere. The cookies and tokens stay encrypted as the app keeps them, usable only from your Windows account on this PC; the site storage is not encrypted, in the app either. Some of the app\'s own preferences kept in its site storage follow the account too.',
       'This is not an Anthropic feature. No Anthropic source says it is allowed, and it is not how the app is meant to be used. Anthropic may treat it, especially switching after a usage limit, as getting around its products or limits, and can suspend accounts. baton does not hide that one PC uses several accounts. The risk to your accounts is yours.',
       'It is unofficial and can stop working with any update of the desktop app; the app may then ask you to sign in again (an email code). baton changes nothing when the app looks different from what it knows.',
-      'It switches only when you ask, and only while the desktop app is fully quit (also from its tray icon). It never switches on its own, and never because of a usage limit.',
+      'It switches only when you ask, and only while the desktop app is fully quit. If the app runs, baton quits it first, only when nothing in it is working, and opens it again after. It never switches on its own, and never because of a usage limit.',
       'Only your own accounts. While this is on, use Log out in the Claude desktop app only for an account you want to stop using: Log out ends that sign-in on Claude\'s servers, so baton\'s copy of it stops working too (signing in again needs an email code). To add an account, use “Add an account to the desktop app” on baton\'s Accounts tab.',
       'Turning this off, or uninstalling baton, deletes every sign-in baton kept. The desktop app stays signed in to the account it is on. This does not sign the accounts out on Claude\'s servers: to end a sign-in too, switch the app to it, use Log out there, then forget it in baton.',
     ],
@@ -848,9 +865,10 @@ const T = {
     dl_off_go: 'Turn off and delete them', dl_off_go_none: 'Turn off', dl_off_done: 'Switching the desktop app\'s sign-in is off.',
     dl_not_revoked: 'Deleting them does not sign the accounts out on Claude\'s servers.',
     dl_title: 'Claude desktop app sign-in',
-    dl_sub: 'Choose the account the Claude desktop app signs in with. Switching works only while the app is fully quit.',
-    dl_pill_running: 'Running: quit it completely to switch', dl_pill_quit: 'Not running',
-    dl_running: 'The desktop app is running. Quit it completely (also from its tray icon) to switch.',
+    dl_sub: 'Choose the account the Claude desktop app signs in with. If the app runs, baton checks that nothing in it is working, quits it, switches, and opens it again.',
+    dl_pill_running: 'Running', dl_pill_quit: 'Not running',
+    dl_running: 'The desktop app is running. To switch, baton checks that nothing in it is working, quits it, and opens it again.',
+    dl_running_quit_it: 'The desktop app is running. Quit it completely (also from its tray icon) first.',
     dl_loading: 'Looking at the desktop app\'s sign-ins…', dl_switching: 'Switching the desktop app\'s sign-in…',
     dl_now: 'Signed in now', dl_baton: 'baton: {a}', dl_not_baton: 'Not one of baton\'s accounts',
     dl_kept: 'Kept {t}', dl_not_kept_pill: 'Not kept yet', dl_not_kept: 'Not kept yet: baton keeps it when you switch away.',
@@ -859,14 +877,27 @@ const T = {
     dl_none: 'baton keeps no sign-in of the desktop app yet.',
     dl_use: 'Switch the desktop app to this account', dl_use_now: 'The desktop app is on this account now.', dl_use_not_kept: 'baton keeps no sign-in for it yet.',
     dl_new: 'Add an account to the desktop app', dl_new_title: 'Add an account to the desktop app',
-    dl_new_body: 'baton keeps the sign-in of {a} and empties the desktop app\'s sign-in on this PC only. Nothing is sent to Claude, so {a} stays signed in where baton keeps it. Then open the desktop app, sign in to the other account (an email code), quit it completely (also from its tray icon), and switch between them here.',
-    dl_new_blank: 'The desktop app has no sign-in to keep. baton sets aside what is left of it on this PC and empties it. Then open the desktop app, sign in to the account to add (an email code), quit it completely (also from its tray icon), and switch between your accounts here.',
+    dl_new_body: 'baton keeps the sign-in of {a} and empties the desktop app\'s sign-in on this PC only. Nothing is sent to Claude, so {a} stays signed in where baton keeps it. Then sign in to the other account in the desktop app (an email code), and switch between them here.',
+    dl_new_blank: 'The desktop app has no sign-in to keep. baton sets aside what is left of it on this PC and empties it. Then sign in to the account to add in the desktop app (an email code), and switch between your accounts here.',
     dl_new_no_logout: 'Do not use the app\'s Log out for this: it ends the sign-in on Claude\'s servers too, and the kept copy stops working.',
     dl_new_go: 'Keep it and empty the app\'s sign-in',
     dl_done: 'The desktop app is now on {a}. Open it to check.', dl_done_open: 'The desktop app is now on {a}. Opening it.',
-    dl_done_blank: 'The desktop app is signed out on this PC. Open it, sign in to the other account, then quit it completely.',
-    dl_done_blank_open: 'The desktop app is signed out on this PC and opening now. Sign in to the other account, then quit it completely.',
+    dl_done_blank: 'The desktop app is signed out on this PC. Open it and sign in to the other account.',
+    dl_done_blank_open: 'The desktop app is signed out on this PC and opening now. Sign in to the other account.',
     dl_open_yourself: 'Open the desktop app yourself.',
+    dl_quit_title: 'Quit the desktop app and switch it to {a}?',
+    dl_quit_body: 'The desktop app is running. baton checks that nothing in it is working, quits it, switches it to {a}, and opens it again.',
+    dl_quit_check: 'If Claude is working or waiting for your answer in one of its sessions, or something runs there in the background (a command, an agent, a workflow, a /loop), baton does not quit it and tells you which session.',
+    dl_quit_go: 'Quit and switch',
+    dl_new_quit: 'The desktop app is running. When nothing in it is working, baton quits it, empties its sign-in, and opens it again.',
+    dl_done_quit: 'baton quit the desktop app and switched it to {a}. Opening it again.',
+    dl_done_blank_quit: 'baton quit the desktop app and signed it out on this PC; it is opening again. Sign in to the other account.',
+    dl_reopened: 'The desktop app was opened again, on the account it was on.',
+    dl_reopen_yourself: 'The desktop app is on the account it was on; open it yourself.',
+    dl_untitled: '(untitled)',
+    dl_work_turn: 'Claude is working', dl_work_waiting: 'Claude is waiting for your answer', dl_work_command: 'a command runs in the background',
+    dl_work_agent: 'a background agent or workflow runs', dl_work_wakeup: 'Claude is to wake up again (a /loop or a scheduled job)',
+    dl_work_unknown: 'baton cannot tell now whether it is working (try again in a moment)',
     dl_recovered_first: 'A switch that was cut off was undone first.',
     dl_stashed: 'What the signed-out desktop app had left was set aside (no token recorded); you can delete it on the Accounts tab.',
     dl_rename: 'Rename', dl_rename_title: 'Rename “{a}”', dl_rename_label: 'Name (only used inside baton)',
@@ -917,6 +948,9 @@ const T = {
     err_dl_elevated: 'baton is running as administrator. Open it again normally to switch the desktop app\'s sign-in.',
     err_dl_busy: 'Another change to the desktop app is under way. Try again in a moment.',
     err_dl_app_running: 'The Claude desktop app is still running. Quit it completely (also from its tray icon), then try again.',
+    err_dl_app_working: 'Something in the desktop app is still working, so baton did not quit it and changed nothing. Stop it (or let it finish), then try again.',
+    err_dl_quit_failed: 'The Claude desktop app did not quit in time, so its sign-in was not changed. It may be asking you something, or still be closing: quit it yourself (also from its tray icon), then try again.',
+    err_dl_quit_failed_refused: 'The Claude desktop app would not quit now, so nothing was changed. Quit it yourself (also from its tray icon), then try again.',
     err_dl_unknown_format: 'The desktop app keeps its sign-in in a way this baton does not know (the app may have been updated). Nothing was changed, and the app stays signed in to the account it is on. Update baton before switching again.',
     err_dl_already: 'The desktop app is already signed in to that account.',
     err_dl_unsaved_current: 'baton could not keep the sign-in the desktop app has now, so nothing was changed.',
@@ -1267,9 +1301,9 @@ function renderBanners(st) {
     const why = S.dl.recoverErr, asIs = !!why && leavable(why);
     const text = !why ? t('dl_cutoff') : loginErr(why) + (asIs && why.code !== 'dl_used_since' ? ' ' + t('dl_leave_hint') : '');
     out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow', text }),
-      h('button', { class: 'btn' + (asIs ? '' : ' primary'), text: t('dl_putback'), disabled: dl.running || S.dl.busy, title: dl.running ? t('dl_running') : '',
+      h('button', { class: 'btn' + (asIs ? '' : ' primary'), text: t('dl_putback'), disabled: dl.running || S.dl.busy, title: dl.running ? t('dl_running_quit_it') : '',
         onclick: () => recoverLogins() }),
-      asIs ? h('button', { class: 'btn primary', text: t('dl_leave'), disabled: dl.running || S.dl.busy, title: dl.running ? t('dl_running') : '',
+      asIs ? h('button', { class: 'btn primary', text: t('dl_leave'), disabled: dl.running || S.dl.busy, title: dl.running ? t('dl_running_quit_it') : '',
         onclick: () => openSettle() }) : null));
   } else if (dl) S.dl.recoverErr = null;
   document.getElementById('banners').replaceChildren(...out);
@@ -2322,6 +2356,9 @@ function loginErr(e) {
   if (e.code === 'dl_bad_label') return t(T.en['err_dl_bad_label_' + d] ? 'err_dl_bad_label_' + d : 'err_dl_bad_label');
   if (e.code === 'dl_ambiguous') return t('err_dl_ambiguous', { a: d });
   if (e.code === 'dl_unknown_format') return t('err_dl_unknown_format') + (d ? ' (' + d + ')' : '');
+  // What in the desktop app is working, session by session (workingList shows it as a list).
+  if (e.code === 'dl_app_working') return [t('err_dl_app_working'), ...workingLines(e)].join(' ');
+  if (e.code === 'dl_quit_failed') return t(d === 'refused' ? 'err_dl_quit_failed_refused' : 'err_dl_quit_failed');
   // Which layout of the app's folders it is, when baton can tell.
   if (e.code === 'dl_unsupported_layout' && T.en['err_dl_unsupported_layout_' + d]) return t('err_dl_unsupported_layout_' + d);
   return errText(e);
@@ -2343,7 +2380,8 @@ async function loginsAct(path, body) {
 }
 
 // loginsCard is the Accounts tab's card: the accounts the desktop app was signed in to,
-// the one it is on first, each switched to with one click while the app is fully quit.
+// the one it is on first, each switched to with one click. While the app runs, a switch asks
+// first: baton then quits it (when nothing in it is working), switches, and opens it again.
 function loginsCard(st) {
   const dl = st.desktop_logins;
   if (!dl || !dl.on) return null;
@@ -2369,17 +2407,17 @@ function loginsCard(st) {
     v && !v.active && !dl.problem ? h('p', { class: 'small', text: t('dl_signed_out') }) : null,
     h('div', { class: 'dl-foot' },
       h('div', { class: 'actions start' },
-        h('button', { class: 'btn', text: t('dl_new'), disabled: busy || !v || dl.running || !!dl.problem, title: dl.running ? t('dl_running') : '',
-          onclick: () => openLoginsAdd(v) }),
+        h('button', { class: 'btn', text: t('dl_new'), disabled: busy || !v || !!dl.problem, title: dl.running ? t('dl_running') : '',
+          onclick: () => openLoginsAdd(v, dl.running) }),
         h('button', { class: 'btn ghost danger', text: t('dl_forget_all'), disabled: busy || !left, onclick: () => openForgetAll(dl) })),
       h('label', { class: 'check' }, open, h('span', { text: t('dl_open_after') })),
       h('div', { class: 'tip warn-tip small', text: t('dl_no_logout') })));
 }
 
 // loginRow is one account the desktop app was signed in to. Switching to it needs a
-// whole kept sign-in and the app fully quit; the button says why not otherwise.
+// whole kept sign-in; the button says why not otherwise. While the app runs, it asks first.
 function loginRow(dl, g, busy) {
-  const why = g.active ? t('dl_use_now') : dl.running ? t('dl_running') : !g.kept ? t('dl_use_not_kept')
+  const why = g.active ? t('dl_use_now') : !g.kept ? t('dl_use_not_kept')
     : g.damaged ? t('err_dl_damaged') : dl.problem ? loginErr({ code: dl.problem, details: dl.problem_detail }) : '';
   const baton = g.baton || [];
   const who = [g.email, g.org_name].filter(Boolean).join(' · ');
@@ -2394,7 +2432,8 @@ function loginRow(dl, g, busy) {
       who ? h('div', { class: 'sub', text: who }) : null,
       !g.kept ? h('div', { class: 'sub', text: t('dl_not_kept') }) : null),
     h('div', { class: 'actions' },
-      h('button', { class: 'btn primary', text: t('dl_use'), disabled: busy || !!why, title: why, onclick: () => switchLogin(g) }),
+      h('button', { class: 'btn primary', text: t('dl_use'), disabled: busy || !!why, title: why || (dl.running ? t('dl_running') : ''),
+        onclick: () => (dl.running ? openQuitSwitch(g) : switchLogin(g)) }),
       g.kept ? h('button', { class: 'btn ghost', text: t('dl_rename'), disabled: busy, onclick: () => openLoginRename(g) }) : null,
       g.kept ? h('button', { class: 'btn ghost danger', text: t('dl_forget'), disabled: busy, onclick: () => openLoginForget(g) }) : null));
 }
@@ -2424,26 +2463,63 @@ async function switchLogin(g) {
   } catch (e) { toast(loginErr(e), true); }
 }
 
+// openQuitSwitch switches to g while the desktop app runs: it asks first, since baton quits the
+// app (only when nothing in it is working), switches it, and opens it again. What is working is
+// listed in the dialog, session by session.
+function openQuitSwitch(g) {
+  const err = h('div', { class: 'err' });
+  const go = h('button', { class: 'btn primary', text: t('dl_quit_go'), onclick: async () => {
+    go.disabled = true; err.textContent = '';
+    try {
+      const r = await loginsAct('use', { account: g.account, open: true, quit: true });
+      closeDialog();
+      toast(switchSaid(r, t(r.quit && r.opened ? 'dl_done_quit' : r.opened ? 'dl_done_open' : 'dl_done', { a: g.label }), true));
+    } catch (e) { showLoginErr(err, e); go.disabled = false; }
+  } });
+  openDialog(h('h2', { text: t('dl_quit_title', { a: g.label }) }), h('p', { text: t('dl_quit_body', { a: g.label }) }),
+    h('p', { class: 'small muted', text: t('dl_quit_check') }), err,
+    h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
+}
+
+// workingLines are the sessions a refusal to quit the app names (e.data.working), one line each.
+function workingLines(e) {
+  const ws = (e.data && e.data.working) || [];
+  return ws.map((w) => (w.title || t('dl_untitled')) + ': ' + t(T.en['dl_work_' + w.what] ? 'dl_work_' + w.what : 'dl_work_unknown'));
+}
+
+// showLoginErr shows why a switch was refused in box: the sessions at work as a list, and, when
+// baton had quit the app for it, that the app is open again on the account it was on.
+function showLoginErr(box, e) {
+  const lines = e.code === 'dl_app_working' ? workingLines(e) : [];
+  const quit = e.data && e.data.quit;
+  box.replaceChildren(h('div', { text: e.code === 'dl_app_working' ? t('err_dl_app_working') : loginErr(e) }),
+    lines.length ? h('ul', { class: 'small' }, lines.map((x) => h('li', { text: x }))) : null,
+    // Not opened because a switch is cut off: the error says what to do, and the app must not open.
+    quit && e.data.open_error !== 'dl_switch_unrestored' ? h('div', { text: t(e.data.opened ? 'dl_reopened' : 'dl_reopen_yourself') }) : null);
+}
+
 // openLoginsAdd keeps the sign-in the app has, then empties it on this PC, so the user can
 // sign in to another account there: what the app's Log out would do, without ending the
 // kept one on Claude's servers.
-function openLoginsAdd(v) {
+function openLoginsAdd(v, running) {
   const cur = v.logins.find((g) => g.active);
   const err = h('div', { class: 'err' });
   const go = h('button', { class: 'btn primary', text: t('dl_new_go'), onclick: async () => {
     go.disabled = true; err.textContent = '';
-    const open = S.ui.dlOpen !== false;
+    // An app baton quits opens again whatever the box says.
+    const open = S.ui.dlOpen !== false || running;
     try {
-      const r = await loginsAct('add', { open });
+      const r = await loginsAct('add', { open, quit: !!running });
       closeDialog();
-      toast(switchSaid(r, t(r.opened ? 'dl_done_blank_open' : 'dl_done_blank'), open));
+      toast(switchSaid(r, t(r.quit && r.opened ? 'dl_done_blank_quit' : r.opened ? 'dl_done_blank_open' : 'dl_done_blank'), open));
     } catch (e) {
       // Signed out already, with nothing left to set aside: the user signs in in the app.
-      err.textContent = e.code === 'dl_already' ? t('dl_signed_out') : loginErr(e);
+      if (e.code === 'dl_already') err.textContent = t('dl_signed_out'); else showLoginErr(err, e);
       go.disabled = false;
     }
   } });
   openDialog(h('h2', { text: t('dl_new_title') }), h('p', { text: cur ? t('dl_new_body', { a: cur.label }) : t('dl_new_blank') }),
+    running ? h('p', { text: t('dl_new_quit') }) : null,
     h('div', { class: 'tip warn-tip', text: t('dl_new_no_logout') }), err,
     h('div', { class: 'foot' }, h('button', { class: 'btn', text: t('cancel'), onclick: closeDialog }), go));
 }

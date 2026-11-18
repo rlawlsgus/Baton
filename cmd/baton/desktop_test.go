@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -17,6 +19,7 @@ import (
 	"baton/internal/desktop"
 	"baton/internal/fsx"
 	"baton/internal/run"
+	"baton/internal/winproc"
 
 	"golang.org/x/sys/windows"
 )
@@ -251,6 +254,39 @@ func TestDesktopLoginCommand(t *testing.T) {
 	if !strings.Contains(readFile(t, filepath.Join(data, "config.json")), `"lastKnownAccountUuid": "`+work+`"`) ||
 		readFile(t, filepath.Join(data, "Network", "Cookies")) != "cookies-W" || readFile(t, filepath.Join(store, other, "Network", "Cookies")) != "cookies-O" {
 		t.Fatal("use did not put work's sign-in back and keep the other one")
+	}
+
+	// While the app runs (the stand-in file), a switch says how --quit does
+	// it; with --quit, nothing is quit while Claude works in a session of the
+	// app's (this test process stands in for its Claude Code), and then it
+	// is quit, switched and opened again.
+	running := filepath.Join(t.TempDir(), "app-running")
+	if err := os.WriteFile(running, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	renv := append(slices.Clone(env), "BATON_DESKTOP_RUNNING=file:"+running)
+	if out, code := c.run(renv, "desktop", "login", "use", "bbbbbbbb"); code == 0 || !strings.Contains(out, "still running") || !strings.Contains(out, "--quit") {
+		t.Fatalf("use while running: %d\n%s", code, out)
+	}
+	entry := registerDesktopSession(t, filepath.Join(envValue(env, "CLAUDE_CONFIG_DIR"), "sessions"), "fix the bug", "busy")
+	if out, code := c.run(renv, "desktop", "login", "use", "bbbbbbbb", "--quit"); code == 0 || !strings.Contains(out, "still working") ||
+		!strings.Contains(out, "- fix the bug: Claude is working") || !isFile(running) {
+		t.Fatalf("use --quit while working: %d\n%s", code, out)
+	}
+	if out, _ := c.run(append(renv, "BATON_LANG=ko"), "desktop", "login", "use", "bbbbbbbb", "--quit"); !strings.Contains(out, "- fix the bug: Claude가 작업 중") {
+		t.Fatalf("in Korean: %s", out)
+	}
+	if err := os.Remove(entry); err != nil {
+		t.Fatal(err)
+	}
+	if out, code := c.run(renv, "desktop", "login", "use", "bbbbbbbb", "--quit"); code != 0 || !strings.Contains(out, "Opening it.") || isFile(running) {
+		t.Fatalf("use --quit: %d\n%s", code, out)
+	}
+	if !strings.Contains(readFile(t, filepath.Join(data, "config.json")), `"lastKnownAccountUuid": "`+other+`"`) {
+		t.Fatal("use --quit did not switch")
+	}
+	if out, code := c.run(env, "desktop", "login", "use", "work"); code != 0 {
+		t.Fatalf("back to work: %d\n%s", code, out)
 	}
 	if out, code := c.run(env, "desktop", "login", "label", "bbbbbbbb", "My", "laptop"); code != 0 || !strings.Contains(out, "It is called My laptop now.") {
 		t.Fatalf("label: %d\n%s", code, out)
@@ -1005,4 +1041,24 @@ func TestUsageNamesEveryDesktopLoginCommand(t *testing.T) {
 	if n < 8 {
 		t.Fatalf("read only %d words of the desktop login usage", n)
 	}
+}
+
+// registerDesktopSession registers this test process in the Claude Code
+// registry folder dir as a session of the desktop app's, as Claude Code
+// does (named name, in status); it returns the entry's file.
+func registerDesktopSession(t *testing.T, dir, name, status string) string {
+	t.Helper()
+	pid := os.Getpid()
+	born := winproc.ProcessCreated(pid)
+	ft := windows.NsecToFiletime(born.UnixNano())
+	body := fmt.Sprintf(`{"pid":%d,"sessionId":"s1","cwd":"C:\\proj","startedAt":%d,"procStart":"%d","kind":"interactive","entrypoint":"claude-desktop","name":%q,"status":%q}`,
+		pid, born.UnixMilli(), int64(ft.HighDateTime)<<32|int64(ft.LowDateTime), name, status)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(dir, strconv.Itoa(pid)+".json")
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

@@ -61,14 +61,14 @@ func TestNoAutomaticSwitch(t *testing.T) {
 // desktop login` (and uninstall, which puts back or settles a cut-off switch
 // before it deletes baton's folder).
 var callers = map[string][]string{
-	"internal/gui/desklogins.go": {"Use", "Blank", "Recover", "Settle", "Launch"},
-	"cmd/baton/desktop.go":       {"Use", "Blank", "Recover", "Settle", "Launch"},
+	"internal/gui/desklogins.go": {"Use", "UseAfterQuit", "Blank", "BlankAfterQuit", "Recover", "Settle", "Launch"},
+	"cmd/baton/desktop.go":       {"Use", "UseAfterQuit", "Blank", "BlankAfterQuit", "Recover", "Settle", "Launch"},
 	"cmd/baton/install.go":       {"Recover", "Settle"},
 }
 
-// switchers are the methods that change which sign-in the app has, or open
-// it.
-var switchers = []string{"Use", "Blank", "Recover", "Settle", "Launch"}
+// switchers are the methods that change which sign-in the app has, or quit
+// or open it.
+var switchers = []string{"Use", "UseAfterQuit", "Blank", "BlankAfterQuit", "Recover", "Settle", "Launch", "QuitApp"}
 
 // The helpers that hand a *Logins to the window's code, the window's
 // handlers and what they switch or open the app through, and the CLI's

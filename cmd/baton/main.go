@@ -19,7 +19,7 @@ import (
 )
 
 // version is set at build time: -ldflags "-X main.version=..."
-var version = "0.10.0-dev"
+var version = "0.11.0-dev"
 
 const usageText = `baton - continue a Claude Code session on your other accounts when one hits its usage limit
 
@@ -44,10 +44,11 @@ Usage:
                                      list a session in these accounts' Claude desktop app
                                      (Code tab), or take it off; without options, say where
   baton desktop login [use <name> | add | label <name> <label> | forget <name>|--all |
-                       recover [--leave-as-is] | tidy]
+                       recover [--leave-as-is] | tidy] [--quit]
                                      switch the Claude desktop app's sign-in between your own
-                                     accounts while it is quit (off unless you turn it on:
-                                     baton config desktop_logins true); without one, list them
+                                     accounts while it is quit (--quit: quit it first when nothing
+                                     in it is working, and open it again; off unless you turn it
+                                     on: baton config desktop_logins true); without one, list them
   baton switch [<name>] [--run <id>] move a running session to another account
                                      (once its current turn ends)
   baton stop [--run <id>]            end a running session (it can be continued later)

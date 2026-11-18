@@ -26,24 +26,39 @@ type Switched struct {
 	// Stashed names what the signed-out app had left, set aside in the store
 	// first (see stash); "" when there was nothing.
 	Stashed string `json:"stashed,omitempty"`
+	// Quit: the app ran, and baton quit it for this switch (UseAfterQuit,
+	// BlankAfterQuit). The caller opens it again, also when the switch then
+	// failed or was refused: it is on the sign-in it had then.
+	Quit bool `json:"quit,omitempty"`
 }
 
 // Use switches the desktop app to the sign-in kept for account acct. The
 // app must be fully quit; what it had is kept first. The caller brings
 // baton's desktop lists in line (Reconcile) and then, if the user wants,
 // opens the app (Launch).
-func (l *Logins) Use(acct string) (Switched, error) {
+func (l *Logins) Use(acct string) (Switched, error) { return l.use(acct, false) }
+
+// UseAfterQuit is Use for an app that may run: when it does, and nothing
+// in it is working (Working), it is asked to quit first, as Windows asks
+// a program to (QuitApp). Nothing is quit for a switch that would be
+// refused. The caller opens the app again when res.Quit says it was quit.
+func (l *Logins) UseAfterQuit(acct string) (Switched, error) { return l.use(acct, true) }
+
+func (l *Logins) use(acct string, quitFirst bool) (Switched, error) {
 	acct = strings.ToLower(strings.TrimSpace(acct))
 	if !desktop.ValidID(acct) {
 		return Switched{}, fail(CodeNotKept, "")
 	}
-	return l.switchTo(acct)
+	return l.switchTo(acct, quitFirst)
 }
 
 // Blank keeps the sign-in the desktop app has, then empties it on this PC
 // only, so the user can sign in to another account there. Nothing is sent
 // to Claude: the kept sign-in stays good.
-func (l *Logins) Blank() (Switched, error) { return l.switchTo("") }
+func (l *Logins) Blank() (Switched, error) { return l.switchTo("", false) }
+
+// BlankAfterQuit is Blank for an app that may run, as UseAfterQuit is Use.
+func (l *Logins) BlankAfterQuit() (Switched, error) { return l.switchTo("", true) }
 
 // The stage of a switch, in the app's data folder (one volume with what it
 // moves, so every move is a rename):
@@ -89,7 +104,7 @@ type jitem struct {
 	Stamp  string `json:"stamp,omitempty"` // how it looked once moved in
 }
 
-func (l *Logins) switchTo(target string) (res Switched, err error) {
+func (l *Logins) switchTo(target string, quitFirst bool) (res Switched, err error) {
 	res.To = target
 	data, err := l.gate()
 	if err != nil {
@@ -108,6 +123,22 @@ func (l *Logins) switchTo(target string) (res Switched, err error) {
 	if err := l.on(); err != nil {
 		return res, err
 	}
+	if quitFirst && l.Running != nil && l.Running() {
+		if err := l.mayQuit(data, target); err != nil {
+			return res, err
+		}
+		if l.QuitApp == nil {
+			return res, fail(CodeAppRunning, "")
+		}
+		if err := l.QuitApp(); err != nil {
+			detail := ""
+			if errors.Is(err, desktop.ErrQuitRefused) {
+				detail = "refused"
+			}
+			return res, fail(CodeQuitFailed, detail)
+		}
+		res.Quit = true
+	}
 	release, err := l.quit(data)
 	if err != nil {
 		return res, err
@@ -122,22 +153,8 @@ func (l *Logins) switchTo(target string) (res Switched, err error) {
 		return res, err
 	}
 	res.From = cfg.account
-	cookies := exists(filepath.Join(data, "Network", "Cookies"))
-	switch {
-	case target != "" && cfg.account == target && cfg.token:
-		return res, fail(CodeAlready, "")
-	case target == "" && cfg.account == "" && !cfg.token && !cookies:
-		return res, fail(CodeAlready, "")
-	case cfg.account == "" && cfg.token:
-		// Signed in, but the app has not said to which account yet (it was
-		// quit right after a sign-in): there is nowhere to keep it, and it is
-		// never thrown away.
-		return res, fail(CodeUnsavedCurrent, "no_account")
-	}
-	if target != "" {
-		if why := checkFolder(l.acctDir(target), target); why != "" {
-			return res, fail(why, "")
-		}
+	if err := l.refuses(data, cfg, target); err != nil {
+		return res, err
 	}
 	if !cfg.token && (cfg.account == "" && leftovers(data, cfg) || cfg.account != "" && itemsLeft(data)) {
 		// No token, yet not empty: opened and quit without a sign-in (after
@@ -189,6 +206,79 @@ func (l *Logins) switchTo(target string) (res Switched, err error) {
 		}
 	}
 	return res, nil
+}
+
+// refuses is why a switch to target would be refused from what the app
+// has now (cfg), before anything changes; nil when it would go ahead.
+func (l *Logins) refuses(data string, cfg *appConfig, target string) error {
+	cookies := exists(filepath.Join(data, "Network", "Cookies"))
+	switch {
+	case target != "" && cfg.account == target && cfg.token:
+		return fail(CodeAlready, "")
+	case target == "" && cfg.account == "" && !cfg.token && !cookies:
+		return fail(CodeAlready, "")
+	case cfg.account == "" && cfg.token:
+		// Signed in, but the app has not said to which account yet (it was
+		// quit right after a sign-in): there is nowhere to keep it, and it is
+		// never thrown away.
+		return fail(CodeUnsavedCurrent, "no_account")
+	}
+	if target != "" {
+		if why := checkFolder(l.acctDir(target), target); why != "" {
+			return fail(why, "")
+		}
+	}
+	return nil
+}
+
+// mayQuit says whether the running app may be quit for a switch to
+// target: the switch would go ahead as far as what the app has now tells
+// (a switch refused would quit it for nothing; the switch looks again
+// once it is quit), and nothing in the app is working (Working). Only
+// config.json is read here: the running app writes its site storage all
+// the time (files come and go), and readApp looks it over once it is quit.
+// A config.json caught mid-write is read again.
+func (l *Logins) mayQuit(data, target string) error {
+	if len(stages(data, true)) > 0 {
+		// A switch was cut off: it is put back (Recover) with the app quit
+		// by the user, and the app must not open before that. Quitting it
+		// here would leave it quit, with nothing to open it again.
+		return fail(CodeSwitchUnrestored, "")
+	}
+	var cfg *appConfig
+	why := "config.json"
+	for try := 0; try < 5 && cfg == nil; try++ {
+		if try > 0 {
+			time.Sleep(100 * time.Millisecond)
+		}
+		if raw, err := fsx.ReadFileShared(filepath.Join(data, "config.json")); err == nil {
+			cfg, why = readAppConfig(raw)
+		}
+	}
+	if cfg == nil {
+		return fail(CodeUnknownFormat, why)
+	}
+	if err := l.refuses(data, cfg, target); err != nil {
+		return err
+	}
+	if cfg.account != "" && cfg.token {
+		// As switchTo will look: a sign-in whose tokens are another
+		// account's is refused, so the app is not quit for it.
+		if another, err := l.tokensOfAnother(cfg); err != nil {
+			return err
+		} else if another {
+			return fail(CodeDamaged, "tokens_of_another")
+		}
+	}
+	if w := l.Working(); len(w) > 0 {
+		return &WorkingError{Sessions: w}
+	}
+	// Reading transcripts takes a moment: a session that started a reply
+	// meanwhile is seen now, right before the quit.
+	if w := l.working(false); len(w) > 0 {
+		return &WorkingError{Sessions: w}
+	}
+	return nil
 }
 
 // quit makes sure the desktop app is fully quit, by two signals: no

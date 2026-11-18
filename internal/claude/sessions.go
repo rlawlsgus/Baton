@@ -39,7 +39,10 @@ type LiveSession struct {
 	// HostSessionID: in the Claude desktop app, the session record it runs
 	// for (local_<id>), which says which of the app's entries was opened.
 	HostSessionID string `json:"hostSessionId"`
-	File          string `json:"-"`
+	// Spare: a Claude Code the desktop app keeps ready for a session to
+	// come, not given one yet.
+	Spare bool   `json:"spare"`
+	File  string `json:"-"`
 }
 
 // ReadSessions lists a profile's registry entries. A file that cannot be read

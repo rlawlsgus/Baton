@@ -305,8 +305,10 @@ func newDesk(e *env) *desktop.Desk {
 // ---- baton desktop login: switching the desktop app's sign-in -------------
 
 const loginUsage = `baton desktop login [list]                 the sign-ins baton keeps, and the one the app is on
-  baton desktop login use <name> [--open]    switch the desktop app to that account (it must be fully quit)
-  baton desktop login add [--open]           add an account: keep the app's sign-in, then empty it on this PC
+  baton desktop login use <name> [--open] [--quit]
+                                             switch the desktop app to that account (it must be fully quit;
+                                             --quit: if it runs and nothing in it is working, quit it first and open it again after)
+  baton desktop login add [--open] [--quit]  add an account: keep the app's sign-in, then empty it on this PC
   baton desktop login label <name> <label>   name a kept sign-in ("" takes the name off)
   baton desktop login forget <name> [--yes]  delete a kept sign-in
   baton desktop login forget --all [--yes]   delete every kept sign-in
@@ -325,10 +327,13 @@ func cmdDesktopLogin(args []string) error {
 		sub, args = args[0], args[1:]
 	}
 	fs := newFlags("desktop login", loginUsage)
-	open, assumeYes, all, asIs := new(bool), new(bool), new(bool), new(bool)
+	open, assumeYes, all, asIs, quit := new(bool), new(bool), new(bool), new(bool), new(bool)
 	switch sub {
 	case "use", "add", "recover":
 		open = fs.Bool("open", false, "open the desktop app afterwards")
+		if sub != "recover" {
+			quit = fs.Bool("quit", false, "if the desktop app runs and nothing in it is working, quit it first and open it again afterwards")
+		}
 		if sub == "recover" {
 			asIs = fs.Bool("leave-as-is", false, "leave the desktop app as it is now instead of putting the switch back")
 		}
@@ -361,7 +366,7 @@ func cmdDesktopLogin(args []string) error {
 		}
 		return listLogins(l)
 	case "use":
-		name, err := oneName(pos, "baton desktop login use <name> [--open]")
+		name, err := oneName(pos, "baton desktop login use <name> [--open] [--quit]")
 		if err != nil {
 			return err
 		}
@@ -369,12 +374,17 @@ func cmdDesktopLogin(args []string) error {
 		if err != nil {
 			return err
 		}
-		res, err := l.Use(acct)
+		var res desklogin.Switched
+		if *quit {
+			res, err = l.UseAfterQuit(acct)
+		} else {
+			res, err = l.Use(acct)
+		}
 		if err != nil {
-			return loginErr(err)
+			return switchFailed(e, l, res, err, *quit)
 		}
 		reportSwitch(l, res)
-		opened := settleAndOpen(e, l, *open)
+		opened := settleAndOpen(e, l, *open || res.Quit)
 		if opened {
 			fmt.Printf(say("The desktop app is now on %s. Opening it.\n", "데스크톱 앱이 이제 %s 계정입니다. 앱을 엽니다.\n"), loginLabel(l, res.To))
 		} else {
@@ -383,15 +393,20 @@ func cmdDesktopLogin(args []string) error {
 		return nil
 	case "add":
 		if len(pos) > 0 {
-			return errors.New("usage: baton desktop login add [--open]")
+			return errors.New("usage: baton desktop login add [--open] [--quit]")
 		}
-		res, err := l.Blank()
-		if desklogin.Code(err) == desklogin.CodeAlready {
+		var res desklogin.Switched
+		if *quit {
+			res, err = l.BlankAfterQuit()
+		} else {
+			res, err = l.Blank()
+		}
+		if desklogin.Code(err) == desklogin.CodeAlready && !res.Quit {
 			return errors.New(say("the desktop app is signed out on this PC already; open it and sign in to the account to add",
 				"데스크톱 앱이 이미 이 PC에서 로그아웃된 상태입니다. 앱을 열어 추가할 계정으로 로그인하세요"))
 		}
 		if err != nil {
-			return loginErr(err)
+			return switchFailed(e, l, res, err, *quit)
 		}
 		reportSwitch(l, res)
 		if res.Kept {
@@ -400,13 +415,13 @@ func cmdDesktopLogin(args []string) error {
 		} else {
 			fmt.Println(say("The desktop app's sign-in on this PC is empty now.", "이 PC에 있는 데스크톱 앱의 로그인을 비웠습니다."))
 		}
-		if settleAndOpen(e, l, *open) {
+		if settleAndOpen(e, l, *open || res.Quit) {
 			fmt.Println(say("Opening the desktop app.", "데스크톱 앱을 엽니다."))
 		}
-		fmt.Println(say("Next: in the desktop app, sign in to the other account (an email code), then quit it completely (also from its tray icon). "+
-			"Do not use Log out. Then switch between them with: baton desktop login use <name>",
-			"다음: 데스크톱 앱에서 다른 계정으로 로그인(이메일 코드)한 뒤 앱을 완전히 종료(트레이 아이콘에서도)하세요. "+
-				"로그아웃은 쓰지 마세요. 그다음 baton desktop login use <이름>으로 두 계정 사이를 바꾸세요."))
+		fmt.Println(say("Next: in the desktop app, sign in to the other account (an email code). "+
+			"Do not use Log out. Then switch between them with: baton desktop login use <name> --quit",
+			"다음: 데스크톱 앱에서 다른 계정으로 로그인(이메일 코드)하세요. "+
+				"로그아웃은 쓰지 마세요. 그다음 baton desktop login use <이름> --quit으로 두 계정 사이를 바꾸세요."))
 		return nil
 	case "label":
 		if len(pos) < 2 {
@@ -669,6 +684,25 @@ func settleAndOpen(e *env, l *desklogin.Logins, open bool) bool {
 		return false
 	}
 	return true
+}
+
+// switchFailed says why a switch (use, add) did not go ahead. A desktop
+// app baton quit for it opens again first, on the sign-in it has then.
+// Refused because the app runs, it says how --quit would do it.
+func switchFailed(e *env, l *desklogin.Logins, res desklogin.Switched, err error, quit bool) error {
+	if res.Quit {
+		if settleAndOpen(e, l, true) {
+			fmt.Fprintln(os.Stderr, say("baton quit the desktop app for this switch, and opened it again: it is on the account it was on.",
+				"이 전환을 위해 데스크톱 앱을 종료했다가 다시 열었습니다. 앱은 원래 계정 그대로입니다."))
+		}
+	}
+	if desklogin.Code(err) == desklogin.CodeAppRunning && !quit {
+		return errors.New(say("the Claude desktop app is still running; quit it completely (also from its tray icon), then try again. "+
+			"Or add --quit: baton then quits it when nothing in it is working, and opens it again after",
+			"Claude 데스크톱 앱이 아직 실행 중입니다. 완전히 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요. "+
+				"또는 --quit을 붙이면 앱에서 아무 작업도 돌고 있지 않을 때 baton이 앱을 종료했다가 다시 엽니다"))
+	}
+	return loginErr(err)
 }
 
 // loginLabel is what the sign-in of account acct is called.
@@ -943,6 +977,10 @@ baton이 Claude 데스크톱 앱의 로그인을 바꾸기 전에 꼭 읽어 주
 // as the window does, with baton's commands where the window has buttons.
 // No value of the app's settings is ever in it.
 func loginErr(err error) error {
+	var we *desklogin.WorkingError
+	if errors.As(err, &we) {
+		return errors.New(workingText(we.Sessions))
+	}
 	var de *desktop.Error
 	if !errors.As(err, &de) {
 		return err
@@ -982,6 +1020,41 @@ func settleErr(err error) error {
 	return loginErr(err)
 }
 
+// workingText says what in the desktop app is working, so that it is not
+// quit: each session, and what it does.
+func workingText(ws []desklogin.Working) string {
+	var b strings.Builder
+	b.WriteString(say("something in the Claude desktop app is still working, so baton did not quit it and changed nothing. "+
+		"Stop it (or let it finish), then try again:",
+		"Claude 데스크톱 앱에서 아직 작업이 돌고 있어 앱을 종료하지 않았고 아무것도 바꾸지 않았습니다. "+
+			"작업을 멈추거나 끝날 때까지 기다린 뒤 다시 시도하세요:"))
+	for _, w := range ws {
+		title := w.Title
+		if title == "" {
+			title = say("(untitled)", "(제목 없음)")
+		}
+		b.WriteString("\n  - " + title + ": " + workWhat(w.What))
+	}
+	return b.String()
+}
+
+// workWhat words what a session of the desktop app's is doing.
+func workWhat(what string) string {
+	switch what {
+	case desklogin.WorkTurn:
+		return say("Claude is working", "Claude가 작업 중")
+	case desklogin.WorkWaiting:
+		return say("Claude is waiting for your answer", "Claude가 내 답을 기다리는 중")
+	case desklogin.WorkCommand:
+		return say("a command runs in the background", "백그라운드 명령 실행 중")
+	case desklogin.WorkAgent:
+		return say("a background agent or workflow runs", "백그라운드 에이전트나 워크플로 실행 중")
+	case desklogin.WorkWakeup:
+		return say("Claude is to wake up again (a /loop or a scheduled job)", "Claude가 다시 깨어날 예정(/loop 또는 예약 작업)")
+	}
+	return say("baton cannot tell now whether it is working; try again in a moment", "작업 중인지 지금은 알 수 없음. 잠시 뒤 다시 시도하세요")
+}
+
 func loginText(code, detail string) string {
 	switch code {
 	case desklogin.CodeOff:
@@ -990,6 +1063,15 @@ func loginText(code, detail string) string {
 	case desklogin.CodeAppRunning:
 		return say("the Claude desktop app is still running; quit it completely (also from its tray icon), then try again",
 			"Claude 데스크톱 앱이 아직 실행 중입니다. 완전히 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요")
+	case desklogin.CodeQuitFailed:
+		if detail == "refused" {
+			return say("the Claude desktop app would not quit now, so nothing was changed; quit it yourself (also from its tray icon), then try again",
+				"Claude 데스크톱 앱이 지금은 종료할 수 없다고 해서 아무것도 바꾸지 않았습니다. 직접 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요")
+		}
+		return say("the Claude desktop app did not quit in time, so its sign-in was not changed; it may be asking you something, or still be closing. Quit it yourself (also from its tray icon), then try again",
+			"Claude 데스크톱 앱이 제때 종료되지 않아 로그인을 바꾸지 않았습니다. 앱이 무언가를 묻고 있거나 아직 닫히는 중일 수 있습니다. 직접 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요")
+	case desklogin.CodeAppWorking:
+		return workingText(nil)
 	case desklogin.CodeBusy:
 		return say("another change to the desktop app is under way; try again in a moment",
 			"데스크톱 앱에 대한 다른 작업이 진행 중입니다. 잠시 뒤 다시 시도하세요")
