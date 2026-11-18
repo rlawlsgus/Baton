@@ -41,11 +41,20 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	return newRigAt(t, filepath.Join("Claude-Data", "claude_test"))
+}
+
+// newRigAt is newRig with the app's data folder at rel in the test's
+// folder. The older installer's folder (%APPDATA%\Claude) is the test's
+// roaming\Claude.
+func newRigAt(t *testing.T, rel string) *rig {
+	t.Helper()
 	root := t.TempDir()
-	r := &rig{t: t, root: root, data: filepath.Join(root, "Claude-Data", "claude_test"),
+	r := &rig{t: t, root: root, data: filepath.Join(root, rel),
 		paths: app.Paths{Root: filepath.Join(root, "baton")}}
 	t.Setenv("BATON_DESKTOP_DATA", r.data)
 	t.Setenv("BATON_DESKTOP_RUNNING", "0")
+	t.Setenv("APPDATA", filepath.Join(root, "roaming"))
 	for _, k := range []string{"CLAUDECODE", "OneDrive", "OneDriveConsumer", "OneDriveCommercial"} {
 		t.Setenv(k, "")
 	}

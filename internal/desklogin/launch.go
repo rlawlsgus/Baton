@@ -5,19 +5,25 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"unsafe"
+
+	"baton/internal/winui"
 
 	"golang.org/x/sys/windows"
 )
 
 // Launch opens the desktop app, once a switch is done and baton's desktop
-// lists are in line. It is opened as Windows opens a Store app
-// (shell:AppsFolder\<its app id>), never by starting its Claude.exe, which
-// would hand it baton's environment. In a test, or with BATON_DESKTOP_DATA
-// set, it does nothing. As administrator, for an install that is not the
-// Store app, or while a switch is cut off, it refuses: the user opens it.
+// lists are in line. The packaged app is opened as Windows opens a Store
+// app (shell:AppsFolder\<its app id>), never by starting its Claude.exe,
+// which would hand it baton's environment; the app from the older
+// installer as its Start menu entry opens it (its Update.exe
+// --processStart), with the user's own environment. In a test, or with
+// BATON_DESKTOP_DATA set, it does nothing. As administrator, for another
+// install, or while a switch is cut off, it refuses: the user opens it.
 func (l *Logins) Launch() error {
 	if testing.Testing() || os.Getenv("BATON_DESKTOP_DATA") != "" {
 		return nil
@@ -37,7 +43,11 @@ func (l *Logins) Launch() error {
 	}
 	id := appUserModelID(data)
 	if id == "" {
-		return fail(CodeLaunchUnsupported, "")
+		up := olderUpdater(os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), data)
+		if up == "" || winui.StartAsUser(up, "--processStart", "claude.exe") != nil {
+			return fail(CodeLaunchUnsupported, "")
+		}
+		return nil
 	}
 	verb, _ := windows.UTF16PtrFromString("open")
 	target, err := windows.UTF16PtrFromString(`shell:AppsFolder\` + id)
@@ -160,9 +170,10 @@ func appID(pkgDir string) string {
 	return fallback
 }
 
-// appVersion is the installed desktop app's version, from its package
-// name (Claude_<version>_<arch>__<publisher id>), for a kept sign-in's
-// meta; "" when not known (tests, another install).
+// appVersion is the installed desktop app's version, for a kept sign-in's
+// meta: from its package name (Claude_<version>_<arch>__<publisher id>),
+// or for the app from the older installer from its newest app-<version>
+// folder; "" when not known (tests, another install).
 func appVersion(data string) string {
 	if os.Getenv("BATON_DESKTOP_DATA") != "" {
 		return ""
@@ -172,5 +183,61 @@ func appVersion(data string) string {
 			return parts[1]
 		}
 	}
+	if la := os.Getenv("LOCALAPPDATA"); la != "" && olderInstall(os.Getenv("APPDATA"), data) {
+		_, v := newestApp(filepath.Join(la, "AnthropicClaude"))
+		return v
+	}
 	return ""
+}
+
+// olderUpdater is the Update.exe that opens the app from the older
+// installer, as its Start menu entry does (it starts the newest version it
+// installed), when data is that app's data folder and the app is
+// installed; "" otherwise.
+func olderUpdater(localAppData, appData, data string) string {
+	if localAppData == "" || !olderInstall(appData, data) {
+		return ""
+	}
+	root := filepath.Join(localAppData, "AnthropicClaude")
+	up := filepath.Join(root, "Update.exe")
+	if !isFile(up) {
+		return ""
+	}
+	if dir, _ := newestApp(root); dir == "" {
+		return ""
+	}
+	return up
+}
+
+// newestApp is the newest app-<version> folder of the older installer's
+// folder root that holds the app (claude.exe), and its version.
+func newestApp(root string) (dir, version string) {
+	ents, _ := os.ReadDir(root)
+	var best []int
+	for _, e := range ents {
+		v, ok := strings.CutPrefix(strings.ToLower(e.Name()), "app-")
+		nums := versionNums(v)
+		if !ok || !e.IsDir() || nums == nil || !isFile(filepath.Join(root, e.Name(), "claude.exe")) {
+			continue
+		}
+		if best == nil || slices.Compare(nums, best) > 0 {
+			best, dir, version = nums, filepath.Join(root, e.Name()), v
+		}
+	}
+	return dir, version
+}
+
+// versionNums is a version's numbers (5.11492.5), or nil when it is not
+// only numbers and dots.
+func versionNums(v string) []int {
+	parts := strings.Split(v, ".")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 0 || p == "" || p[0] == '+' {
+			return nil
+		}
+		out = append(out, n)
+	}
+	return out
 }

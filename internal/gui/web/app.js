@@ -448,6 +448,9 @@ const T = {
     err_dl_off: '데스크톱 앱 로그인 전환이 꺼져 있습니다. 설정에서 켜세요.',
     err_dl_inside_claude: 'baton 창이 Claude Code 안에서 열려(CLAUDECODE가 설정됨) 데스크톱 앱 로그인을 바꾸지 않습니다. 이 창을 닫고 시작 메뉴(또는 baton 폴더)에서 baton을 다시 여세요.',
     err_dl_unsupported_layout: '이 방식으로 설치된 Claude 데스크톱 앱은 아직 로그인 전환을 지원하지 않습니다.',
+    err_dl_unsupported_layout_no_app: '이 PC에서 Claude 데스크톱 앱의 데이터 폴더를 찾지 못했습니다. 데스크톱 앱을 한 번 연 뒤 다시 시도하세요.',
+    err_dl_unsupported_layout_several: 'Claude-Data 폴더(로컬 앱 데이터 안)에 데스크톱 앱 설정이 든 폴더가 여러 개라(다시 설치하며 남은 것일 수 있습니다) 앱이 어느 쪽을 쓰는지 알 수 없어 아무것도 바꾸지 않습니다.',
+    err_dl_unsupported_layout_link: '데스크톱 앱의 데이터 폴더가 다른 곳을 가리키는 링크라 baton이 로그인을 바꾸지 않습니다.',
     err_dl_synced_store: 'baton 데이터 폴더가 OneDrive처럼 이 PC 밖으로 동기화되는 폴더 안에 있어 로그인을 보관하지 않습니다. 이 PC에만 있는 폴더로 옮기세요(BATON_HOME).',
     err_dl_elevated: 'baton이 관리자 권한으로 실행 중입니다. 데스크톱 앱 로그인을 바꾸려면 일반 권한으로 다시 여세요.',
     err_dl_busy: '데스크톱 앱에 대한 다른 작업이 진행 중입니다. 잠시 뒤 다시 시도하세요.',
@@ -907,6 +910,9 @@ const T = {
     err_dl_off: 'Switching the desktop app\'s sign-in is turned off. Turn it on in Settings.',
     err_dl_inside_claude: 'baton\'s window was opened from inside Claude Code (CLAUDECODE is set), so it does not switch the desktop app\'s sign-in. Close this window and open baton again from the Start menu (or from its folder).',
     err_dl_unsupported_layout: 'Switching the sign-in is not supported for this kind of Claude desktop app install yet.',
+    err_dl_unsupported_layout_no_app: 'baton finds no data folder of the Claude desktop app on this PC. Open the desktop app once, then try again.',
+    err_dl_unsupported_layout_several: 'More than one folder in Claude-Data (in your local app data) holds the desktop app\'s settings, perhaps left by a reinstall, so baton cannot tell which one the app uses; it changes nothing.',
+    err_dl_unsupported_layout_link: 'The desktop app\'s data folder is a link to another place, which baton does not switch.',
     err_dl_synced_store: 'baton\'s data folder is in OneDrive or another folder that syncs off this PC, so baton keeps no sign-in there. Move it (BATON_HOME) to a folder that stays on this PC.',
     err_dl_elevated: 'baton is running as administrator. Open it again normally to switch the desktop app\'s sign-in.',
     err_dl_busy: 'Another change to the desktop app is under way. Try again in a moment.',
@@ -2316,6 +2322,8 @@ function loginErr(e) {
   if (e.code === 'dl_bad_label') return t(T.en['err_dl_bad_label_' + d] ? 'err_dl_bad_label_' + d : 'err_dl_bad_label');
   if (e.code === 'dl_ambiguous') return t('err_dl_ambiguous', { a: d });
   if (e.code === 'dl_unknown_format') return t('err_dl_unknown_format') + (d ? ' (' + d + ')' : '');
+  // Which layout of the app's folders it is, when baton can tell.
+  if (e.code === 'dl_unsupported_layout' && T.en['err_dl_unsupported_layout_' + d]) return t('err_dl_unsupported_layout_' + d);
   return errText(e);
 }
 
@@ -2354,7 +2362,7 @@ function loginsCard(st) {
       h('h3', { class: 'dl-head' }, h('span', { text: t('dl_title') }),
         h('span', { class: 'pill ' + (dl.running ? 'warn' : 'ok'), text: t(dl.running ? 'dl_pill_running' : 'dl_pill_quit'), title: dl.running ? t('dl_running') : '' })),
       h('p', { class: 'muted small', text: t('dl_sub') }))),
-    dl.problem ? h('div', { class: 'tip warn-tip', text: loginErr({ code: dl.problem }) }) : null,
+    dl.problem ? h('div', { class: 'tip warn-tip', text: loginErr({ code: dl.problem, details: dl.problem_detail }) }) : null,
     busy ? h('p', { class: 'small' }, h('span', { class: 'spin' }), ' ', t('dl_switching')) : null,
     copiesTip(dl),
     body,
@@ -2372,7 +2380,7 @@ function loginsCard(st) {
 // whole kept sign-in and the app fully quit; the button says why not otherwise.
 function loginRow(dl, g, busy) {
   const why = g.active ? t('dl_use_now') : dl.running ? t('dl_running') : !g.kept ? t('dl_use_not_kept')
-    : g.damaged ? t('err_dl_damaged') : dl.problem ? loginErr({ code: dl.problem }) : '';
+    : g.damaged ? t('err_dl_damaged') : dl.problem ? loginErr({ code: dl.problem, details: dl.problem_detail }) : '';
   const baton = g.baton || [];
   const who = [g.email, g.org_name].filter(Boolean).join(' · ');
   return h('div', { class: 'row dl' },
@@ -2569,7 +2577,7 @@ function loginsSetting(st) {
   return [
     h('label', { class: 'check mt14' + (blocked ? ' off' : '') }, box, h('span', { text: t('dl_set') })),
     h('p', { class: 'small muted', text: on ? t('dl_set_hint') + ' ' + t('dl_set_where') : t('dl_set_hint') }),
-    blocked ? h('p', { class: 'small warn-text', text: loginErr({ code: dl.problem }) }) : null,
+    blocked ? h('p', { class: 'small warn-text', text: loginErr({ code: dl.problem, details: dl.problem_detail }) }) : null,
     !on && left ? h('div', { class: 'tip' }, h('span', { text: dlKept(dl, 'dl_leftover', 'dl_leftover_unnamed', 'dl_leftover_unnamed_too') + ' ' }),
       h('button', { class: 'btn small-btn danger', text: t('dl_leftover_go'), onclick: () => openForgetAll(dl) })) : null,
     !on ? copiesTip(dl) : null,

@@ -47,7 +47,7 @@ const (
 	CodeDamaged           = "dl_damaged"            // the kept sign-in is not whole, or its tokens are another account's
 	CodeAlready           = "dl_already"            // the app is signed in to that account already (Blank: signed out already)
 	CodeUnknownFormat     = "dl_unknown_format"     // the app keeps its sign-in in a way baton does not know (Detail: what)
-	CodeUnsupportedLayout = "dl_unsupported_layout" // not the one Claude-Data\claude_* folder baton knows
+	CodeUnsupportedLayout = "dl_unsupported_layout" // not a layout of the app's folders baton knows (Detail: Layout*)
 	CodeUnsavedCurrent    = "dl_unsaved_current"    // the sign-in the app has now cannot be kept, so nothing changed
 	CodeSwitchFailed      = "dl_switch_failed"      // the switch did not finish and was undone
 	CodeSwitchUnrestored  = "dl_switch_unrestored"  // the switch did not finish and is not undone yet: Recover, or Settle when that keeps failing
@@ -57,6 +57,15 @@ const (
 	CodeElevated          = "dl_elevated"           // baton runs as administrator
 	CodeBadLabel          = "dl_bad_label"          // Detail: too_long, characters, looks_like_id or taken
 	CodeLaunchUnsupported = "dl_launch_unsupported" // the app cannot be opened from here: the user opens it
+)
+
+// Why the app's folders are not a layout baton knows: the Detail of
+// CodeUnsupportedLayout (see layout).
+const (
+	LayoutNoApp   = "no_app"  // baton finds no data folder of the desktop app
+	LayoutSeveral = "several" // more than one Claude-Data\claude_* folder holds a config.json
+	LayoutLink    = "link"    // the app's data folder is a link or junction
+	LayoutOther   = "other"   // the app's data folder is somewhere else, or holds no config.json
 )
 
 func fail(code, detail string) error { return &desktop.Error{Code: code, Detail: detail} }
@@ -138,23 +147,22 @@ func (l *Logins) on() error {
 	return nil
 }
 
-// dataDir is the desktop app's data folder, when it is the one layout baton
-// knows: exactly one Claude-Data\claude_* folder holds a config.json, and it
-// is the one baton shows sessions in. BATON_DESKTOP_DATA names it instead
-// (tests).
+// dataDir is the desktop app's data folder, the one baton shows sessions
+// in, when it is a layout baton knows (layout). BATON_DESKTOP_DATA names it
+// instead (tests).
 func (l *Logins) dataDir() (string, error) {
 	d := ""
 	if l.dataFn != nil {
 		d = l.dataFn()
 	}
 	if d == "" {
-		return "", fail(CodeUnsupportedLayout, "")
+		return "", fail(CodeUnsupportedLayout, LayoutNoApp)
 	}
 	if os.Getenv("BATON_DESKTOP_DATA") != "" {
 		return d, nil
 	}
-	if !layoutOK(os.Getenv("LOCALAPPDATA"), d) {
-		return "", fail(CodeUnsupportedLayout, "")
+	if why := layout(os.Getenv("LOCALAPPDATA"), os.Getenv("APPDATA"), d); why != "" {
+		return "", fail(CodeUnsupportedLayout, why)
 	}
 	return d, nil
 }
@@ -185,8 +193,8 @@ func (l *Logins) stageDir() (string, error) {
 }
 
 // appDirs are the folders the app may keep its data in, whatever their
-// layout: the one baton would name, and each Claude-Data\claude_* folder
-// (no link or junction).
+// layout: the one baton would name, each Claude-Data\claude_* folder and
+// the older installer's %APPDATA%\Claude (no link or junction).
 func (l *Logins) appDirs() []string {
 	out, _ := l.appDirsErr()
 	return out
@@ -224,21 +232,85 @@ func (l *Logins) appDirsErr() ([]string, error) {
 			}
 		}
 	}
+	if ad := os.Getenv("APPDATA"); ad != "" {
+		add(filepath.Join(ad, "Claude"))
+	}
 	return out, lerr
 }
 
-func layoutOK(localAppData, data string) bool {
-	if localAppData == "" {
-		return false
+// layout says why data, the folder baton shows the app's sessions in, is
+// not a layout of the app's folders baton knows ("" when it is). It knows
+// two:
+//
+//   - the app as a package (MSIX), which keeps its data in
+//     %LOCALAPPDATA%\Claude-Data\claude_<publisher id>: data is the one
+//     folder there that holds a config.json;
+//   - the app from the older installer (%LOCALAPPDATA%\AnthropicClaude),
+//     which keeps it in %APPDATA%\Claude: data is that folder, and no
+//     Claude-Data\claude_* folder holds a config.json. The packaged app
+//     takes the data from there as it first starts, and leaves a
+//     .user-data-left.* note behind; the folder is not the app's then.
+//
+// Neither is a link or junction, and each holds a config.json. While
+// Claude-Data is there but cannot be listed now (another program holds it
+// without sharing it), baton cannot tell which of the two it is.
+func layout(localAppData, appData, data string) string {
+	fi, err := os.Lstat(data)
+	switch {
+	case err == nil && fsx.IsReparsePoint(fi):
+		return LayoutLink
+	case err != nil || !fi.IsDir():
+		return LayoutOther
+	case !isFile(filepath.Join(data, "config.json")):
+		return LayoutOther
 	}
-	found, _ := filepath.Glob(filepath.Join(localAppData, "Claude-Data", "claude_*"))
 	var holds []string
-	for _, f := range found {
-		if fi, err := os.Lstat(f); err == nil && fi.IsDir() && !fsx.IsReparsePoint(fi) && isFile(filepath.Join(f, "config.json")) {
-			holds = append(holds, f)
+	if localAppData != "" {
+		root := filepath.Join(localAppData, "Claude-Data")
+		ents, err := os.ReadDir(root)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return LayoutOther
+		}
+		for _, e := range ents {
+			f := filepath.Join(root, e.Name())
+			if ok, _ := filepath.Match("claude_*", e.Name()); ok && isDir(f) && isFile(filepath.Join(f, "config.json")) {
+				holds = append(holds, f)
+			}
 		}
 	}
-	return len(holds) == 1 && samePath(holds[0], data)
+	switch {
+	case len(holds) > 1:
+		return LayoutSeveral
+	case len(holds) == 1 && samePath(holds[0], data):
+		return ""
+	case len(holds) == 0 && olderInstall(appData, data):
+		return ""
+	}
+	return LayoutOther
+}
+
+// olderInstall reports whether data is the data folder of the app from the
+// older installer: %APPDATA%\Claude, which the packaged app has not taken
+// its data from (no .user-data-left.* note).
+func olderInstall(appData, data string) bool {
+	if appData == "" || !samePath(data, filepath.Join(appData, "Claude")) {
+		return false
+	}
+	ents, err := os.ReadDir(data)
+	if err != nil {
+		return false
+	}
+	for _, e := range ents {
+		if strings.HasPrefix(strings.ToLower(e.Name()), ".user-data-left.") {
+			return false
+		}
+	}
+	return true
+}
+
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 func isFile(p string) bool {
@@ -246,19 +318,23 @@ func isFile(p string) bool {
 	return err == nil && !fi.IsDir()
 }
 
-// problem is why switching cannot work here at all, as a code ("" when it
-// can): the window greys the setting out with it.
-func (l *Logins) problem() string {
+// problem is why switching cannot work here at all, as a code and its
+// detail ("" when it can): the window greys the setting out with it.
+func (l *Logins) problem() (code, detail string) {
 	if _, err := l.dataDir(); err != nil {
-		return Code(err)
+		var e *desktop.Error
+		if errors.As(err, &e) {
+			return e.Code, e.Detail
+		}
+		return CodeUnsupportedLayout, ""
 	}
 	if synced(l.Store) {
-		return CodeSyncedStore
+		return CodeSyncedStore, ""
 	}
 	if l.Elevated != nil && l.Elevated() {
-		return CodeElevated
+		return CodeElevated, ""
 	}
-	return ""
+	return "", ""
 }
 
 // gate is what every switch checks before it waits for anything: asked by
@@ -315,8 +391,11 @@ type View struct {
 	On      bool   `json:"on"`
 	Store   string `json:"store"`             // where the sign-ins are kept
 	Problem string `json:"problem,omitempty"` // why switching cannot work here (a code), "" when it can
-	Running bool   `json:"running"`
-	Active  string `json:"active"` // the account the app is signed in to ("" signed out)
+	// ProblemDetail says more of Problem: for CodeUnsupportedLayout, which
+	// layout it is (Layout*).
+	ProblemDetail string `json:"problem_detail,omitempty"`
+	Running       bool   `json:"running"`
+	Active        string `json:"active"` // the account the app is signed in to ("" signed out)
 	// CutOff: a switch was cut off and is not undone yet; Recover undoes it
 	// (Settle leaves the app as it is instead). Never while a switch is
 	// under way.
@@ -370,7 +449,8 @@ func (l *Logins) View() (View, error) {
 	if err != nil {
 		return View{}, err
 	}
-	v := View{On: c.DesktopLoginsOn(), Store: l.Store, Problem: l.problem(), Logins: []Login{}}
+	v := View{On: c.DesktopLoginsOn(), Store: l.Store, Logins: []Login{}}
+	v.Problem, v.ProblemDetail = l.problem()
 	v.Running = l.Running != nil && l.Running()
 	if data, _ := l.dataDir(); data != "" {
 		v.Active = desktop.Active(data)

@@ -332,6 +332,33 @@ func StartDetached(exe string, args ...string) error {
 	return cmd.Process.Release()
 }
 
+// StartAsUser starts a program that outlives this one, without a window, in
+// exe's own folder, with the user's own environment as Windows makes it for
+// a program the user starts (from the Start menu, say): without what this
+// process was given or changed (baton's own variables, a test's, a
+// Claude Code's).
+func StartAsUser(exe string, args ...string) error {
+	var tok windows.Token
+	if err := windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_QUERY|windows.TOKEN_DUPLICATE, &tok); err != nil {
+		return err
+	}
+	env, err := tok.Environ(false)
+	tok.Close()
+	if err != nil {
+		return err
+	}
+	cmd, err := startWithFallback(func() *exec.Cmd {
+		cmd := exec.Command(exe, args...)
+		cmd.Dir = filepath.Dir(exe)
+		cmd.Env = env
+		return cmd
+	}, windows.DETACHED_PROCESS)
+	if err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
 // DeleteAfterExit deletes file a moment after this process has exited (a
 // running program cannot delete itself).
 func DeleteAfterExit(file string) error {

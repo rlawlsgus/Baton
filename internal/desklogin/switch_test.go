@@ -494,32 +494,6 @@ func TestSyncedFolders(t *testing.T) {
 	}
 }
 
-// Only the one Claude-Data\claude_* folder holding config.json, and only
-// when it is the folder baton shows sessions in.
-func TestLayoutGate(t *testing.T) {
-	la := t.TempDir()
-	mk := func(name string, cfg bool) string {
-		d := filepath.Join(la, "Claude-Data", name)
-		must(t, os.MkdirAll(d, 0o700))
-		if cfg {
-			must(t, os.WriteFile(filepath.Join(d, "config.json"), []byte("{}"), 0o600))
-		}
-		return d
-	}
-	one := mk("claude_pzs8sxrjxfjjc", true)
-	mk("claude_nothing", false) // holds no config: not the app's
-	if !layoutOK(la, one) {
-		t.Fatal("the one folder is refused")
-	}
-	if layoutOK(la, filepath.Join(la, "Claude-Data")) || layoutOK("", one) {
-		t.Fatal("another folder is taken")
-	}
-	mk("claude_second", true)
-	if layoutOK(la, one) {
-		t.Fatal("two folders with a config are taken")
-	}
-}
-
 // Launching never happens in a test.
 func TestLaunchDoesNothingInTests(t *testing.T) {
 	r := newRig(t)

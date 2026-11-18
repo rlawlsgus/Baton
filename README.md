@@ -296,6 +296,9 @@ this PC and put back the one you choose while the app is quit, so you switch wit
   either), and some of the app's own preferences kept there follow the account. They are kept in
   `%LOCALAPPDATA%\baton\desktop-logins`. Everything else of the app (its Code tab's lists, its
   other settings) stays as it is.
+- **Either install of the desktop app.** It works with the app that keeps its data in
+  `%LOCALAPPDATA%\Claude-Data` and with the app from the older installer (its data in
+  `%APPDATA%\Claude`).
 - **The desktop app uses the limits of the account it is signed in to.** Switching it does not
   change baton's accounts or sessions.
 - **If a switch is cut off** (a crash, a power cut), baton shows *Put it back* until you do: quit

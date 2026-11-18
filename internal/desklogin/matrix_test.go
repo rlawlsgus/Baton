@@ -345,6 +345,7 @@ func TestStateMatrix(t *testing.T) {
 	top, err := os.MkdirTemp("", "dm")
 	must(t, err)
 	t.Cleanup(func() { os.RemoveAll(top) })
+	t.Setenv("APPDATA", filepath.Join(top, "roaming")) // the older installer's folder: none
 	var mu sync.Mutex
 	outcomes := map[string]int{}
 	states, cells := 0, 0

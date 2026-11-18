@@ -553,7 +553,7 @@ func listLogins(l *desklogin.Logins) error {
 			"Claude 데스크톱 앱 로그인 전환이 꺼져 있습니다 (켜려면: baton config desktop_logins true)."))
 	}
 	if v.Problem != "" {
-		fmt.Println("  " + loginText(v.Problem, ""))
+		fmt.Println("  " + loginText(v.Problem, v.ProblemDetail))
 	}
 	if v.CutOff {
 		fmt.Println(say("A switch of the desktop app's sign-in was cut off. Quit the desktop app completely, then put it back as it was: baton desktop login recover",
@@ -1019,6 +1019,17 @@ func loginText(code, detail string) string {
 		}
 		return msg
 	case desklogin.CodeUnsupportedLayout:
+		switch detail {
+		case desklogin.LayoutNoApp:
+			return say("baton finds no data folder of the Claude desktop app on this PC; open the desktop app once, then try again",
+				"이 PC에서 Claude 데스크톱 앱의 데이터 폴더를 찾지 못했습니다. 데스크톱 앱을 한 번 연 뒤 다시 시도하세요")
+		case desklogin.LayoutSeveral:
+			return say("more than one folder in Claude-Data (in your local app data) holds the desktop app's settings, perhaps left by a reinstall, so baton cannot tell which one the app uses; it changes nothing",
+				"Claude-Data 폴더(로컬 앱 데이터 안)에 데스크톱 앱 설정이 든 폴더가 여러 개라(다시 설치하며 남은 것일 수 있습니다) 앱이 어느 쪽을 쓰는지 알 수 없어 아무것도 바꾸지 않습니다")
+		case desklogin.LayoutLink:
+			return say("the desktop app's data folder is a link to another place, which baton does not switch",
+				"데스크톱 앱의 데이터 폴더가 다른 곳을 가리키는 링크라 baton이 로그인을 바꾸지 않습니다")
+		}
 		return say("switching the sign-in is not supported for this kind of Claude desktop app install yet",
 			"이 방식으로 설치된 Claude 데스크톱 앱은 아직 로그인 전환을 지원하지 않습니다")
 	case desklogin.CodeUnsavedCurrent:

@@ -211,6 +211,9 @@ const livePageChecks = `
     out.un_inside = errText({ code: 'cut_off_inside_claude' });
     out.dl_inside = loginErr({ code: 'dl_inside_claude' });
     out.store_perm = loginErr({ code: 'dl_unsaved_current', details: 'store_permissions' });
+    // Why the app's folders are not a layout baton switches, when it can tell.
+    out.layout_several = loginErr({ code: 'dl_unsupported_layout', details: 'several' });
+    out.layout_other = loginErr({ code: 'dl_unsupported_layout', details: 'other' });
     // Turning switching on after its notice was accepted before goes through the setting, not
     // the notice's dialog; its refusal is worded the same way.
     answer('config', 409, { error: 'x', code: 'dl_unsaved_current', details: 'store_permissions' });
@@ -222,6 +225,7 @@ const livePageChecks = `
     out.ko_used = t('err_dl_used_since');
     out.ko_inside = errText({ code: 'cut_off_inside_claude' });
     out.ko_dl_inside = loginErr({ code: 'dl_inside_claude' });
+    out.ko_layout_no_app = loginErr({ code: 'dl_unsupported_layout', details: 'no_app' });
     out.ko_leave_refused = settleErr({ code: 'dl_switch_unrestored' });
     out.done = 'yes';
   } catch (e) {
@@ -379,6 +383,9 @@ func TestLivePage(t *testing.T) {
 	has("ko_inside", "이 창을 닫고 시작 메뉴(또는 baton 폴더)에서 baton을 다시 연 뒤 제거하세요")
 	has("ko_dl_inside", "이 창을 닫고 시작 메뉴(또는 baton 폴더)에서 baton을 다시 여세요")
 	has("store_perm", "permissions of its own", "kept nothing and changed nothing")
+	has("layout_several", "More than one folder in Claude-Data", "it changes nothing")
+	has("layout_other", "not supported for this kind of Claude desktop app install yet")
+	has("ko_layout_no_app", "데이터 폴더를 찾지 못했습니다", "한 번 연 뒤 다시 시도하세요")
 	has("store_perm_on", "permissions of its own", "kept nothing and changed nothing")
 	has("del_changed", "Its files moved while it was being deleted")
 	has("del_generic", "baton could not delete it just now")

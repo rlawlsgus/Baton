@@ -101,8 +101,10 @@ type loginsSummary struct {
 	// (desklogin.View.Leftover), which Tidy deletes.
 	Leftover int    `json:"leftover,omitempty"`
 	Problem  string `json:"problem,omitempty"` // why it cannot work on this PC (a dl_* code)
-	Active   string `json:"active,omitempty"`  // what the account the app is on is called ("" signed out)
-	Store    string `json:"store"`             // where they are kept, for the notice
+	// ProblemDetail says more of Problem (which layout of the app's folders it is).
+	ProblemDetail string `json:"problem_detail,omitempty"`
+	Active        string `json:"active,omitempty"` // what the account the app is on is called ("" signed out)
+	Store         string `json:"store"`            // where they are kept, for the notice
 }
 
 // loginsNow is the summary for the state poll ("nil": nothing to say, no
@@ -117,7 +119,7 @@ func (s *Server) loginsNow(cfg config.Config, desktopApp bool, accts []accountVi
 		return nil
 	}
 	sum := &loginsSummary{On: v.On, Running: v.Running, CutOff: v.CutOff, Kept: v.Kept, Unnamed: len(v.Unnamed),
-		Leftover: v.Leftover, Problem: v.Problem, Store: v.Store}
+		Leftover: v.Leftover, Problem: v.Problem, ProblemDetail: v.ProblemDetail, Store: v.Store}
 	for _, g := range v.Logins {
 		if g.Active {
 			sum.Active = g.Label
