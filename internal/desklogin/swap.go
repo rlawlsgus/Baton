@@ -251,9 +251,9 @@ func readApp(data string) ([]byte, *appConfig, error) {
 			return nil, nil, fail(CodeUnknownFormat, n)
 		}
 	}
-	if exists(filepath.Join(data, "Partitions")) {
+	if bad, ok := knownPartitions(data); !ok {
 		// A web view in a partition of its own keeps its cookies there.
-		return nil, nil, fail(CodeUnknownFormat, "Partitions")
+		return nil, nil, fail(CodeUnknownFormat, strings.TrimSpace("Partitions "+bad))
 	}
 	var size int64
 	for _, it := range items {
@@ -273,6 +273,39 @@ func readApp(data string) ([]byte, *appConfig, error) {
 		}
 	}
 	return before, cfg, nil
+}
+
+// knownPartitions reports whether every web view partition the app keeps on
+// disk (Partitions\<name>, where Electron keeps "persist:<name>" in lower
+// case) is one of those the app is known to make, none of them its sign-in:
+// the app's own pages, its sign-in among them, use its default session
+// (Network\Cookies and the rest of items). Those are its browser and its
+// previews of sites (launch-preview-…), its file previews
+// (cowork-file-preview) and its artifacts' pages (cowork-artifact-…, one
+// for each account and organization). They stay where they are at a switch.
+// Any other name may be where the sign-in went, and is named in bad.
+func knownPartitions(data string) (bad string, ok bool) {
+	p := filepath.Join(data, "Partitions")
+	fi, err := os.Lstat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", true
+	}
+	if err != nil || !fi.IsDir() || fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+		return "", false
+	}
+	des, err := os.ReadDir(p)
+	if err != nil {
+		return "", false
+	}
+	for _, de := range des {
+		n := strings.ToLower(de.Name())
+		known := strings.HasPrefix(n, "launch-preview-") || n == "cowork-file-preview" ||
+			n == "cowork-artifact" || strings.HasPrefix(n, "cowork-artifact-")
+		if !known || !de.IsDir() || de.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return de.Name(), false
+		}
+	}
+	return "", true
 }
 
 // tokensOfAnother reports whether a token in cfg is, byte for byte, the one

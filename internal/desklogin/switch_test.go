@@ -552,3 +552,50 @@ func TestLaunchDoesNothingInTests(t *testing.T) {
 		t.Fatalf("fallback %q", id)
 	}
 }
+
+// The app's own partitions (its browser and previews of sites, its file
+// previews, its artifacts' pages) hold no sign-in: a switch goes on and
+// leaves them as they are. One of another name may hold it: refused, named.
+func TestAppsOwnPartitionsStay(t *testing.T) {
+	r := newRig(t)
+	_, err := r.l.Blank()
+	must(t, err)
+	r.signIn(acctB, "B")
+	for _, n := range []string{"launch-preview-static", "launch-preview-3f2a9c", "launch-preview-session-9c1d",
+		"cowork-file-preview", "cowork-artifact-" + acctB + "-0d9e7c11"} {
+		r.write(filepath.Join("Partitions", n, "Network", "Cookies"), "site-"+n)
+	}
+	parts := tree(t, filepath.Join(r.data, "Partitions"))
+	for _, to := range []string{acctA, acctB, ""} {
+		var err error
+		if to == "" {
+			_, err = r.l.Blank()
+		} else {
+			_, err = r.l.Use(to)
+		}
+		must(t, err)
+		if got := desktop.Active(r.data); got != to {
+			t.Fatalf("after the switch to %q the app is on %q", to, got)
+		}
+		sameTree(t, "the partitions", parts, tree(t, filepath.Join(r.data, "Partitions")))
+	}
+	_, err = r.l.Use(acctA)
+	must(t, err)
+	for name, spoil := range map[string]func(){
+		"another name":      func() { r.write(filepath.Join("Partitions", "x", "Network", "Cookies"), "x") },
+		"a file of its own": func() { r.write(filepath.Join("Partitions", "launch-preview-file"), "x") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			spoil()
+			want := "Partitions x"
+			if name == "a file of its own" {
+				want = "Partitions launch-preview-file"
+			}
+			before, store := tree(t, r.data), tree(t, r.l.Store)
+			wantDetail(t, "use", useErr(r.l.Use(acctB)), CodeUnknownFormat, want)
+			sameTree(t, "the app's folder", before, tree(t, r.data))
+			sameTree(t, "the store", store, tree(t, r.l.Store))
+			must(t, os.RemoveAll(filepath.Join(r.data, "Partitions", strings.TrimPrefix(want, "Partitions "))))
+		})
+	}
+}
