@@ -1242,7 +1242,7 @@ function claudeUpdateButton(st, i, label, primary) {
 function modeChip(st) {
   const m = st.config.switch_mode;
   const cls = m === 'auto' || m === 'confirm' ? 'ok' : m === 'off' ? '' : 'warn';
-  return h('button', { class: 'chip ' + cls, text: m ? t('mode_' + m) : t('mode_unset'), onclick: () => { S.tab = 'settings'; render(); } });
+  return h('button', { class: 'chip ' + cls, text: m ? t('mode_' + m) : t('mode_unset'), onclick: () => goTab('settings') });
 }
 
 function renderTop(st) {
@@ -1262,8 +1262,18 @@ function renderTop(st) {
 function renderTabs(st) {
   const tabs = [['sessions', st.runs.length], st.config.office ? ['office'] : null, ['accounts', st.accounts.length], ['settings'], ['help']].filter(Boolean);
   document.getElementById('tabs').replaceChildren(...tabs.map(([id, n]) => h('button', {
-    role: 'tab', 'aria-selected': String(S.tab === id), onclick: () => { S.tab = id; render(); document.getElementById('main').focus(); },
+    role: 'tab', 'aria-selected': String(S.tab === id), onclick: () => goTab(id),
   }, t('tab_' + id), n ? h('span', { class: 'count', text: String(n) }) : null)));
+}
+
+// goTab shows a tab from the top of the window, with the menu above it in
+// view: not scrolled to where the last tab was, nor to the page's own top
+// (focusing the page would scroll it there, under the menu).
+function goTab(id) {
+  S.tab = id;
+  render();
+  window.scrollTo(0, 0);
+  document.getElementById('main').focus({ preventScroll: true });
 }
 
 function renderBanners(st) {
@@ -1280,13 +1290,13 @@ function renderBanners(st) {
   }
   if (st.update && st.update.newer && !S.ui.dismissed['upd' + st.update.latest] && S.tab !== 'help') {
     out.push(h('div', { class: 'banner info' }, h('div', { class: 'grow', text: t('upd_banner', { v: st.update.latest }) }),
-      h('button', { class: 'btn', text: t('upd_banner_go'), onclick: () => { S.tab = 'help'; render(); } }),
+      h('button', { class: 'btn', text: t('upd_banner_go'), onclick: () => goTab('help') }),
       h('button', { class: 'btn ghost', text: t('dismiss'), onclick: () => { S.ui.dismissed['upd' + st.update.latest] = true; render(); } })));
   }
   const needLogin = st.accounts.filter((a) => a.enabled && a.status === 'needs_login');
   if (needLogin.length && S.tab !== 'accounts') {
     out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow', text: t('st_needs_login') + ': ' + needLogin.map((a) => a.id).join(', ') }),
-      h('button', { class: 'btn', text: t('tab_accounts'), onclick: () => { S.tab = 'accounts'; render(); } })));
+      h('button', { class: 'btn', text: t('tab_accounts'), onclick: () => goTab('accounts') })));
   }
   if (!st.config.switch_mode || (st.config.switch_mode !== 'off' && !st.config.risk_acknowledged)) {
     out.push(h('div', { class: 'banner warn' }, h('div', { class: 'grow', text: t('need_mode') }),
@@ -1335,9 +1345,9 @@ function viewSessions(st) {
   let body;
   if (rows.length) body = h('div', {}, rows);
   else if (!st.accounts.length) body = h('div', { class: 'empty' }, h('h3', { text: t('no_accounts_title') }), h('p', { text: t('need_account_first') }),
-    h('button', { class: 'btn primary', text: t('go_accounts'), onclick: () => { S.tab = 'accounts'; render(); } }));
+    h('button', { class: 'btn primary', text: t('go_accounts'), onclick: () => goTab('accounts') }));
   else if (!canStart) body = h('div', { class: 'empty' }, h('h3', { text: t('no_sessions_title') }), h('p', { text: t('no_usable') }),
-    h('button', { class: 'btn primary', text: t('go_accounts_tab'), onclick: () => { S.tab = 'accounts'; render(); } }));
+    h('button', { class: 'btn primary', text: t('go_accounts_tab'), onclick: () => goTab('accounts') }));
   else body = h('div', { class: 'empty' }, h('h3', { text: t('no_sessions_title') }), h('p', { text: t('no_sessions_body') }));
   const sessions = h('div', { class: 'card' }, head,
     opening && !rows.length ? h('p', { class: 'muted' }, h('span', { class: 'spin' }), ' ', t('job_run')) : null,
@@ -2231,7 +2241,7 @@ function openAdd(prefill) {
       const login = prefill && prefill.login;
       await api(login ? 'accounts/login' : 'accounts/add', { name: v, email: email.value.trim(), private: priv.checked });
       S.ui.signinPrivate = priv.checked;
-      closeDialog(); S.tab = 'accounts'; S.lastJSON = ''; refresh();
+      closeDialog(); S.lastJSON = ''; goTab('accounts'); refresh();
     } catch (e) { err.textContent = errText(e); }
     finally { go.disabled = false; }
   } });
@@ -2755,7 +2765,7 @@ function maybeOnboard() {
       step > 0 ? h('button', { class: 'btn left', text: t('back'), onclick: () => { step--; draw(); } }) : null,
       h('button', { class: 'btn primary', text: t('next'), onclick: () => {
         if (step < steps.length - 1) { step++; draw(); return; }
-        openNotice(() => { if (!S.state.accounts.length) { S.tab = 'accounts'; render(); openAdd(); } });
+        openNotice(() => { if (!S.state.accounts.length) { goTab('accounts'); openAdd(); } });
       } })));
   };
   draw();
