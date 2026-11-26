@@ -15,6 +15,7 @@ import (
 	"baton/internal/accounts"
 	"baton/internal/claude"
 	"baton/internal/config"
+	"baton/internal/desktop"
 	"baton/internal/run"
 	"baton/internal/share"
 	"baton/internal/update"
@@ -674,10 +675,14 @@ type conversationView struct {
 	Modified      time.Time `json:"modified"`
 	// InBaton: a baton session runs it now (a start brings that window forward).
 	InBaton bool `json:"in_baton,omitempty"`
+	// Desktop: where it shows in the Claude desktop app (as baton put it there).
+	Desktop *desktop.Badge `json:"desktop,omitempty"`
 }
 
 // apiConversations lists the conversations of one folder (?folder=), or the
-// newest of every folder (?all=1) for bringing in ones from Claude Code.
+// newest of every folder (?all=1, at most ?max=, 200 unless said) for
+// bringing in ones from Claude Code and for the list of every conversation
+// on this PC.
 func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	list := []conversationView{}
 	whereOf := map[string]string{}
@@ -687,7 +692,11 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	all := s.allConfigDirs()
 	var found []claude.Transcript
 	if r.URL.Query().Get("all") == "1" {
-		found = claude.ListAllTranscripts(all, 200)
+		max := 200
+		if n, err := strconv.Atoi(r.URL.Query().Get("max")); err == nil && n > 0 {
+			max = min(n, 5000)
+		}
+		found = claude.ListAllTranscripts(all, max)
 	} else {
 		folder, problem := checkFolder(r.URL.Query().Get("folder"))
 		if problem != "" {
@@ -698,6 +707,7 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	open := claude.OpenSessions(all)
 	inBaton := s.batonHeld(open)
+	_, _, badges := s.deskIndex()
 	for _, t := range found {
 		_, problem := checkFolder(t.Cwd)
 		if problem == "bad_folder" && driveRx.MatchString(filepath.Clean(t.Cwd)) {
@@ -706,6 +716,9 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		list = append(list, conversationView{SessionID: t.SessionID, Where: whereOf[strings.ToLower(filepath.Clean(t.ConfigDir))],
 			Title: t.Title, FirstPrompt: t.FirstPrompt, Cwd: t.Cwd, FolderOK: problem == "", FolderProblem: problem,
 			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], InBaton: inBaton[t.SessionID], Modified: t.Modified})
+		if b, ok := badges[strings.ToLower(t.SessionID)]; ok {
+			list[len(list)-1].Desktop = &b
+		}
 	}
 	writeJSON(w, http.StatusOK, list)
 }
@@ -947,6 +960,28 @@ func (s *Server) apiConfig(w http.ResponseWriter, r *http.Request) {
 		s.claudeAgainLocked()
 	}
 	s.mu.Unlock()
+	if req.Key == "desktop_show_all" {
+		if on, _ := strconv.ParseBool(strings.TrimSpace(req.Value)); on {
+			// The window's loop lists them, a batch at a time, from its next
+			// tick on.
+			s.showAllSoon.Store(true)
+		} else {
+			// What the setting put in the desktop app goes now, and the
+			// window says what went.
+			res, err := s.HideAllDesktop()
+			if err != nil {
+				deskFail(w, err)
+				return
+			}
+			s.bg.Add(1)
+			go func() {
+				defer s.bg.Done()
+				s.ReconcileDesktop()
+			}()
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "desktop": res})
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 

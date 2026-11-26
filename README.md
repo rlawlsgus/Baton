@@ -52,8 +52,9 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   desktop app, so there is nothing else to install. It has a window in English and Korean.
 - 📥 **Bring in conversations you already have.** Pick a session from the desktop app's
   Code tab, a terminal or VS Code and continue it under baton.
-- 🗂️ **Show baton's sessions in the desktop app.** Choose, per session, which accounts'
-  Claude desktop app lists it in its Code tab, and go on with it there too.
+- 🗂️ **Show any conversation in the desktop app.** Choose, for any conversation on this PC
+  (from baton, the desktop app, a terminal or VS Code), which accounts' Claude desktop app lists
+  it in its Code tab, and go on with it there too. Or list every conversation in every account.
 - 🗑️ **Delete conversations you no longer need.** A conversation and what Claude Code saved
   with it go to the Recycle Bin, from baton, the desktop app's lists and Claude Code's resume
   list alike. Nothing is deleted for good.
@@ -181,7 +182,9 @@ leave the original as it is anyway.
 
 ## Show a session in the Claude desktop app
 
-Click **Choose desktop app accounts** on a running session (under *Details*) or in *Recent sessions*, tick
+Click **Choose desktop app accounts** on a running session (under *Details*), in *Recent sessions*, or on
+any conversation in *All conversations on this PC* (on the Sessions tab: every conversation from
+baton, the desktop app, a terminal or VS Code, none of which needs opening in baton first), tick
 the accounts whose Claude desktop app should list the session in its Code tab, and choose
 **Apply**. Accounts you leave unticked do not list it. The account the desktop app is signed in
 to is offered too, even when it is not one of baton's. Nothing is uploaded: the desktop app
@@ -216,8 +219,29 @@ session can be shown once it has its first message.
   which Claude account a token is. An account baton has not checked since this version can be
   chosen once you press *Check sign-ins* on the Accounts tab (or run `baton doctor`).
 - **Going on with it in the desktop app** uses the limits of the account the app is signed in to.
-- **The session's row says where it shows** ("Desktop: personal, work"). A session shown in the
-  desktop app stays in *Recent sessions*, so you can take it off again later.
+- **The session's row says where it shows** ("Desktop: personal, work"), and so does its row in
+  *All conversations on this PC*, where you can take it off again later. A session you showed in
+  the desktop app also stays in *Recent sessions*.
+
+### Every conversation in every account (optional)
+
+Turn on **Settings → Show every conversation in every account of the desktop app** (or run
+`baton config desktop_show_all true`), and baton lists every conversation on this PC in the Code
+tab of every account: baton's accounts and every account the desktop app has been signed in to.
+Whichever account the app is signed in to, the same conversations show.
+
+- **New conversations** are listed while baton's window is open, within half a minute.
+- **It never goes against you.** An account where you unticked a conversation in baton, or
+  deleted it in the desktop app, stays without it. The desktop app's own entries stay as they
+  are, so a conversation the app lists already is not listed there twice.
+- **What is left out:** a conversation whose folder is gone (it could not go on there), and the
+  earlier part of a session that went on after `/clear` (the session itself is listed).
+- **Turning it off** takes off what it listed. What you ticked yourself stays.
+- **For the account the desktop app is signed in to**, the change shows after you quit the app
+  completely (also from its tray icon) and open it again, as for one conversation.
+- **Deleting a conversation while the desktop app runs** waits until you quit the app: every
+  conversation is listed for the account it is signed in to, and the running app would write the
+  entry back.
 
 From the command line (account names, comma-separated; with neither option it only lists):
 
@@ -227,8 +251,8 @@ baton desktop 2cd067ab-193c-4e56-baa2-0b34dc203160 --show personal,work
 
 ## Delete a conversation
 
-Choose **Delete conversation** on a row of *Recent sessions*, or pick a conversation in **Bring
-in a conversation** and choose **Delete conversation** there. baton first shows what would go:
+Choose **Delete conversation** on a row of *Recent sessions* or *All conversations on this PC*,
+or pick a conversation in **Bring in a conversation** and choose **Delete conversation** there. baton first shows what would go:
 the conversation, what Claude Code saved with it (its subagents, saved tool outputs and `/rewind`
 checkpoints), baton's records of its sessions, and the desktop app's lists it is taken off.
 **Move to Recycle Bin** moves all of it to the Windows Recycle Bin, where you can restore it.
@@ -553,6 +577,7 @@ Claude Code reads every word that follows as one of their values.
 | `keep_awake` | keep the PC from sleeping by itself while a session works or waits for a limit to reset (default `true`) |
 | `office` | show the Office tab: Claude's work, live, as people in an office (default `false`) |
 | `desktop_logins` | switch the Claude desktop app's sign-in between your accounts (default `false`; `true` shows a notice to accept first, `false` deletes the kept sign-ins) |
+| `desktop_show_all` | list every conversation on this PC in every account of the Claude desktop app (default `false`; `true` lists them now and the window goes on listing new ones, `false` takes them off again) |
 | `check_updates` | let the window look for a newer baton on GitHub every few hours (default `true`) |
 | `gui_language` | the window's language: `auto` (as Windows has it), `ko` or `en` |
 | `gui_theme` | the window's colours: `auto` (as Windows has them), `light` or `dark`; also in the window's header |
@@ -710,7 +735,8 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   list a baton session in the desktop app's Code tab as well, see
   [Show a session in the Claude desktop app](#show-a-session-in-the-claude-desktop-app).
 - **Showing a session in the desktop app writes into the app's data.** baton writes one small
-  entry per account in the app's data folder (`claude-code-sessions\<account>\<org>\local_<id>.json`,
+  entry per account in the app's data folder (one per conversation and account when every
+  conversation is shown) (`claude-code-sessions\<account>\<org>\local_<id>.json`,
   shaped like the app's own), and changes or removes only entries it wrote itself;
   `desktop.json` in baton's data folder lists them. The desktop app opens conversations from
   your own Claude Code (`%USERPROFILE%\.claude`), so a conversation kept in an account's profile

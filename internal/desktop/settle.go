@@ -73,14 +73,14 @@ func (d *Desk) settle(ix *Index, t *Thread, pr probe) {
 				// place is the app's record, which baton wrote once.
 				now := d.Now().UnixMilli()
 				ix.forget(t, p, now, !pr.safe(key))
-				p = &Place{Key: key, Dir: p.Dir, Record: rec, Cli: p.Cli, State: stateReleased, Label: p.Label, Written: now}
+				p = &Place{Key: key, Dir: p.Dir, Record: rec, Cli: p.Cli, State: stateReleased, Label: p.Label, Written: now, Auto: p.Auto}
 				t.Places[key] = p
 			}
 		}
 		if p.State == stateReleased && movedPast(t, p) {
 			t.Released = append(t.Released, *p)
 			t.Places[key] = &Place{Key: key, Dir: p.Dir, Record: "local_" + t.Session, Cli: t.Session, State: stateShown,
-				Label: p.Label, Copy: true}
+				Label: p.Label, Copy: true, Auto: p.Auto}
 		}
 	}
 	// An earlier record the app took over, deleted there since: nothing of
@@ -183,7 +183,10 @@ func (p *Place) addMoved(id string) {
 func (ix *Index) takenTwin(pr probe, p *Place) string {
 	for i := range ix.Gone {
 		g := &ix.Gone[i]
-		if g.Key != p.Key || !samePath(g.Dir, p.Dir) || strings.EqualFold(g.Record, p.Record) || ix.wrote(g.Dir, g.Record) {
+		// What costs nothing first: after many records were taken off at once
+		// (every conversation shown no more), nearly none is there.
+		if g.Key != p.Key || strings.EqualFold(g.Record, p.Record) || !pr.there(g.Dir, g.Record) ||
+			!samePath(g.Dir, p.Dir) || ix.wrote(g.Dir, g.Record) {
 			continue
 		}
 		if h, ok := readHead(recordFile(g.Dir, g.Record)); ok && strings.EqualFold(h.Cli, p.Cli) && pr.goneTaken(g, h) {

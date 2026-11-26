@@ -85,6 +85,10 @@ type Config struct {
 	// DesktopLoginsAcknowledged is the DesktopLoginsDisclosure the user last
 	// accepted (0 after turning it off: the notice shows again).
 	DesktopLoginsAcknowledged int `json:"desktop_logins_acknowledged,omitempty"`
+	// DesktopShowAll lists every conversation on this PC in every account's
+	// Claude desktop app (desktop.ShowAll), while baton's window is open.
+	// Off by default; turning it off takes those entries off again.
+	DesktopShowAll bool `json:"desktop_show_all,omitempty"`
 }
 
 // DisclosureVersion changes whenever the risk notice changes materially, so

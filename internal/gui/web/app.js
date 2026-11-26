@@ -355,6 +355,19 @@ const T = {
     dk_switch: '데스크톱 앱에서 그 계정으로 바꾸면 보입니다.', dk_gone_quit: '데스크톱 앱을 종료하면 목록에서 사라집니다. 그때까지 이 창을 열어 두세요.',
     dk_gone: '체크를 해제한 계정에서는 더 이상 보이지 않습니다.', dk_none: '바뀐 것이 없습니다.',
     dk_pill: '데스크톱: {a}', dk_pill_split: '⚠ 데스크톱: 파일 갈라짐', dk_app_account: '데스크톱 앱 계정',
+    dk_auto: '‘데스크톱 앱의 모든 계정에 모든 대화 보이기’ 설정으로 넣었습니다. 체크를 해제하면 이 계정에는 다시 넣지 않습니다.',
+    dk_off: '여기서 체크를 해제해서 ‘데스크톱 앱의 모든 계정에 모든 대화 보이기’ 설정도 이 계정에는 넣지 않습니다.',
+    // every conversation on this PC
+    all_title: '이 PC의 모든 대화',
+    all_sub: '데스크톱 앱, 터미널, VS Code, baton에서 나눈 Claude Code 대화를 모두 보여 줍니다. baton에서 열지 않아도 데스크톱 앱에 표시할 계정을 고르거나 대화를 삭제할 수 있습니다.',
+    all_count: '대화 {n}개', all_reload: '새로 고침', all_more: '{n}개 더 보기', all_capped: '가장 최근 대화 {n}개만 보여 줍니다.',
+    all_none: '이 PC에 아직 Claude Code 대화가 없습니다.', all_on: '모든 계정에 표시 중',
+    dk_all_set: '데스크톱 앱의 모든 계정에 모든 대화 보이기',
+    dk_all_set_hint: '데스크톱 앱이 어느 계정으로 로그인되어 있든 같은 대화가 보이도록, 이 PC의 Claude Code 대화(데스크톱 앱·터미널·VS Code·baton에서 나눈 대화)를 모든 계정의 Code 탭 목록에 넣습니다. baton 계정과, 데스크톱 앱이 로그인했던 계정이 모두 들어갑니다. 새 대화는 baton 창이 열려 있는 동안 넣습니다. 데스크톱 앱에서 삭제했거나 baton에서 체크를 해제한 계정에는 다시 넣지 않고, 폴더가 없어진 대화는 넣지 않습니다. 끄면 이 설정으로 넣은 항목을 뺍니다.',
+    dk_all_on: '켰습니다. 잠시 뒤 모든 계정의 데스크톱 앱 목록에 들어갑니다. 데스크톱 앱이 열려 있으면, 로그인된 계정에서는 앱을 완전히 종료(트레이 아이콘에서도)했다가 다시 열어야 보입니다.',
+    dk_all_off: '껐습니다. 이 설정으로 넣은 항목 {n}개를 뺐습니다.', dk_all_off_none: '껐습니다.',
+    dk_all_off_quit: '로그인된 계정에서는 이 창을 연 채로 데스크톱 앱을 종료하면 사라집니다.',
+    dk_all_off_left: '다른 프로그램이 쓰고 있어 지금 빼지 못한 항목 {n}개는 baton 창이 나중에 뺍니다.',
     err_no_file: '첫 메시지를 보낸 뒤에 데스크톱 앱에 표시할 수 있습니다.', err_unknown_place: '지금은 고를 수 없는 계정입니다. 창을 다시 여세요.',
     err_split: 'baton의 대화 파일과 데스크톱 앱의 대화 파일이 갈라져 새로 체크할 수 없습니다.', err_no_desktop: '이 PC에서 Claude 데스크톱 앱을 찾지 못했습니다.',
     err_conflict: '평소 Claude Code 폴더에 같은 id의 다른 대화 파일이 이미 있어 표시할 수 없습니다.',
@@ -834,6 +847,19 @@ const T = {
     dk_switch: 'It shows when you switch to that account in the desktop app.', dk_gone_quit: 'It disappears from the desktop app after you quit it. Keep this window open until then.',
     dk_gone: 'It is no longer listed for the accounts you unticked.', dk_none: 'Nothing changed.',
     dk_pill: 'Desktop: {a}', dk_pill_split: '⚠ Desktop: files split', dk_app_account: 'desktop app account',
+    dk_auto: 'Listed by “Show every conversation in every account of the desktop app”. Untick it and that setting leaves it off this account.',
+    dk_off: 'You unticked it here, so “Show every conversation in every account of the desktop app” leaves it off this account too.',
+    // every conversation on this PC
+    all_title: 'All conversations on this PC',
+    all_sub: 'Every Claude Code conversation on this PC: from the desktop app, a terminal, VS Code and baton. Choose the desktop app accounts that list one, or delete it, without opening it in baton first.',
+    all_count: '{n} conversations', all_reload: 'Refresh', all_more: 'Show {n} more', all_capped: 'Showing the newest {n} conversations.',
+    all_none: 'There are no Claude Code conversations on this PC yet.', all_on: 'Shown in every account',
+    dk_all_set: 'Show every conversation in every account of the desktop app',
+    dk_all_set_hint: 'So that the same conversations show whichever account the desktop app is signed in to, baton lists each Claude Code conversation on this PC (from the desktop app, a terminal, VS Code or baton) in the Code tab of every account: baton\'s accounts and every account the desktop app has been signed in to. New conversations are listed while baton\'s window is open. A conversation is not listed again where you deleted it in the desktop app or unticked it in baton, nor when its folder is gone. Turning this off takes what it listed off again.',
+    dk_all_on: 'Turned on. Every conversation is listed in every account\'s desktop app in a moment. If the desktop app is open, they show for the account it is signed in to after you quit it completely (also from its tray icon) and open it again.',
+    dk_all_off: 'Turned off. Entries taken off the desktop app: {n}.', dk_all_off_none: 'Turned off.',
+    dk_all_off_quit: 'For the account it is signed in to, they go once you quit the desktop app while this window is open.',
+    dk_all_off_left: 'Entries another program holds now, which this window takes off later: {n}.',
     err_no_file: 'It can show in the desktop app after its first message.', err_unknown_place: 'That account cannot be chosen now. Open this again.',
     err_split: 'baton\'s and the desktop app\'s conversation files split, so nothing new can be ticked.', err_no_desktop: 'The Claude desktop app was not found on this PC.',
     err_conflict: 'Your own Claude Code folder already has a different conversation file with this id, so it cannot be shown.',
@@ -1368,7 +1394,79 @@ function viewSessions(st) {
     st.switches.length ? h('div', {}, st.switches.map((sw) => h('div', { class: 'row' },
       h('div', { class: 'grow' }, h('div', { text: `${sw.from} → ${sw.to}` }), h('div', { class: 'sub', text: `${clock(sw.at)} · ${t('reason_' + sw.reason)}` })))))
       : h('p', { class: 'muted', text: t('recent_none') }));
-  return [cutCard(st, canStart), sessions, recentSessions, recent];
+  return [cutCard(st, canStart), sessions, recentSessions, allCard(st, canStart), recent];
+}
+
+// ---- every conversation on this PC ----------------------------------------------------
+
+// allCard lists every Claude Code conversation on this PC (the desktop app's, a terminal's,
+// VS Code's and baton's), to choose the desktop app accounts that list one, or to delete one,
+// without opening it in baton. Its list is read when the tab shows it (again after a minute,
+// after a change, or on Refresh), never with the state poll. A search redraws only the list:
+// render() leaves the tab as it is while its field has the focus.
+const ALL_CAP = 1000; // what the list asks for at most
+function allCard(st, canStart) {
+  const A = S.all || (S.all = { list: null, at: 0, failed: '', q: '', shown: 20, loading: false });
+  if (!A.loading && (!A.list || Date.now() - A.at > 60e3)) loadAll();
+  const box = h('div', {});
+  const more = h('div', {});
+  const count = h('span', { class: 'small muted' });
+  const search = h('input', { type: 'text', value: A.q, placeholder: t('import_search'), 'aria-label': t('import_search'),
+    oninput: (e) => { A.q = e.target.value; A.shown = 20; draw(); } });
+  const reload = h('button', { class: 'btn ghost', text: t('all_reload'), disabled: A.loading, onclick: () => loadAll() });
+  function draw() {
+    if (!A.list) { box.replaceChildren(h('p', { class: 'muted' }, h('span', { class: 'spin' }), ' ', t('conv_loading'))); return; }
+    if (A.failed && !A.list.length) { box.replaceChildren(h('p', { class: 'err', text: A.failed })); return; }
+    const words = A.q.toLowerCase().split(/\s+/).filter(Boolean);
+    const shown = A.list.filter((c) => {
+      const hay = [c.title, c.first_prompt, c.cwd].join(' ').toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+    count.textContent = A.list.length ? t('all_count', { n: A.list.length }) : '';
+    if (!shown.length) box.replaceChildren(h('p', { class: 'muted', text: A.list.length ? t('import_no_match') : t('all_none') }));
+    else box.replaceChildren(...shown.slice(0, A.shown).map((c) => allRow(st, c, canStart)));
+    const left = shown.length - A.shown;
+    more.replaceChildren(...[
+      left > 0 ? h('button', { class: 'btn ghost', text: t('all_more', { n: Math.min(left, 20) }), onclick: () => { A.shown += 20; draw(); } }) : null,
+      left <= 0 && A.list.length >= ALL_CAP ? h('p', { class: 'muted small', text: t('all_capped', { n: ALL_CAP }) }) : null,
+    ].filter(Boolean));
+  }
+  draw();
+  return h('div', { class: 'card' },
+    h('div', { class: 'card-head' },
+      h('div', {}, h('h3', {}, h('span', { text: t('all_title') + ' ' }), count,
+        st.config.desktop_show_all && st.desktop ? h('span', { class: 'pill info', text: t('all_on') }) : null),
+      h('p', { class: 'muted small', text: t('all_sub') })),
+      h('div', { class: 'actions' }, reload)),
+    h('div', { class: 'field' }, search), h('div', { class: 'mt6' }, box), more);
+}
+
+// allRow is one conversation of allCard.
+function allRow(st, c, canStart) {
+  const after = () => loadAll();
+  return h('div', { class: 'row recent' },
+    h('div', { class: 'grow' },
+      h('div', { class: 'title' }, h('span', { text: convTitle(c) }),
+        c.in_baton ? h('span', { class: 'pill ok', text: t('conv_running') }) : c.open ? h('span', { class: 'pill warn', text: t('conv_open') }) : null,
+        c.folder_ok === false ? h('span', { class: 'pill off', text: c.folder_problem === 'gone' ? t('conv_gone') : t('conv_unusable') }) : null,
+        deskPills(c.desktop)),
+      h('div', { class: 'sub', title: c.cwd || '', text: [baseName(c.cwd), ago(c.modified), sourceName(c)].filter(Boolean).join(' · ') })),
+    h('div', { class: 'actions' },
+      st.desktop ? h('button', { class: 'btn ghost', text: t('dk_btn'), onclick: () => openDesktop(c.session_id, after) }) : null,
+      h('button', { class: 'btn ghost danger', text: t('del_btn'), onclick: () => openDelete(c, { show: closeDialog, done: after }) }),
+      h('button', { class: 'btn', text: t('continue_btn'), disabled: !st.claude.found || !canStart || c.folder_ok === false,
+        onclick: () => startSession({ folder: c.cwd, mode: 'pick', session_id: c.session_id, where: c.where, conv: c }) })));
+}
+
+// loadAll reads allCard's list anew, then draws the tab again (unless the user is typing).
+async function loadAll() {
+  const A = S.all || (S.all = { list: null, at: 0, failed: '', q: '', shown: 20, loading: false });
+  if (A.loading) { A.again = true; return; }
+  A.loading = true;
+  try { A.list = await api('conversations?all=1&max=' + ALL_CAP); A.failed = ''; } catch (e) { A.failed = errText(e); if (!A.list) A.list = []; }
+  A.at = Date.now(); A.loading = false;
+  if (A.again) { A.again = false; loadAll(); return; }
+  if (S.tab === 'sessions') render();
 }
 
 // cutCard offers the sessions that were cut off (a restart, a crash) for
@@ -1503,7 +1601,8 @@ function deskPills(b) {
 }
 
 // openDesktop picks the accounts whose Claude desktop app lists a session.
-async function openDesktop(sessionId) {
+// after (optional) is called once a change was made.
+async function openDesktop(sessionId, after) {
   const body = h('div', {}, h('p', { class: 'muted small' }, h('span', { class: 'spin' }), ' ', t('dk_loading')));
   const err = h('div', { class: 'err' });
   const apply = h('button', { class: 'btn primary', text: t('dk_apply'), disabled: true });
@@ -1536,10 +1635,14 @@ async function openDesktop(sessionId) {
     try {
       const places = [...picked].map((k) => (was.has(k) ? 'kept:' + k : k));
       if (v.thread) places.push('thread');
+      // When the view was made (desktop.Seen): a row listed since because every conversation is
+      // shown was never unticked here.
+      if (v.seen) places.push('seen:' + v.seen);
       const r = await api('desktop/apply', { session_id: sessionId, places });
-      closeDialog(); toast(desktopDone(r)); S.lastJSON = ''; await refresh();
+      closeDialog(); toast(desktopDone(r)); S.lastJSON = ''; if (after) after(); await refresh();
     } catch (e) {
       err.textContent = errText(e);
+      if (after) after(); // part of it may be done
       // A failed apply may have taken unticked rows off already (what it did stays done):
       // such a row is no longer ticked as the dialog opened, so a tick it gets again is
       // the user's own, sent as its key.
@@ -1562,6 +1665,8 @@ function desktopRow(v, p, picked) {
   if (p.copy) notes.push(t('dk_copy', { t: v.title }));
   if (p.archived) notes.push(t('dk_archived'));
   if (p.kept && !p.active) notes.push(t('dk_kept'));
+  if (p.auto) notes.push(t('dk_auto'));
+  else if (p.off && S.state.config.desktop_show_all) notes.push(t('dk_off'));
   const state = !p.key ? '' : p.active ? t('dk_active') : p.used ? t('dk_used') : t('dk_unused');
   const box = h('input', { type: 'checkbox', checked: p.locked ? p.checked : picked.has(p.key), disabled: fixed,
     onchange: (e) => {
@@ -2647,6 +2752,33 @@ function copiesTip(dl) {
   return h('div', { class: 'tip' }, h('span', { text: t('dl_copies', { n: dl.leftover }) + ' ' }), go);
 }
 
+// showAllSetting lists every conversation on this PC in every account of the desktop app
+// (desktop_show_all). Off takes what it listed off again, and says how many went.
+function showAllSetting(st) {
+  const on = st.config.desktop_show_all;
+  if (!st.desktop && !on) return [];
+  return [
+    h('label', { class: 'check mt14' }, h('input', { type: 'checkbox', checked: on, onchange: (e) => setShowAll(e.target, !on) }),
+      h('span', { text: t('dk_all_set') })),
+    h('p', { class: 'small muted', text: t('dk_all_set_hint') }),
+  ];
+}
+
+async function setShowAll(box, on) {
+  box.disabled = true;
+  try {
+    const r = await api('config', { key: 'desktop_show_all', value: String(on), acknowledge: false });
+    const d = r.desktop || {};
+    if (on) toast(t('dk_all_on'));
+    else toast([d.removed ? t('dk_all_off', { n: d.removed }) : t('dk_all_off_none'), d.active_removed ? t('dk_all_off_quit') : '',
+      d.left ? t('dk_all_off_left', { n: d.left }) : ''].filter(Boolean).join(' '));
+    if (S.all) S.all.at = 0; // the list's badges change
+    // On, the window's first pass writes them a moment later: the list is read again then.
+    if (on) setTimeout(() => { if (S.all) { S.all.at = 0; if (S.tab === 'sessions') render(); } }, 5000);
+  } catch (e) { box.checked = !on; showError(e); }
+  finally { box.disabled = false; S.lastJSON = ''; await refresh(); }
+}
+
 // loginsSetting turns switching on (after its notice) or off (after saying what goes). It is
 // greyed out, with why, where it cannot work here; what is left from before can be deleted
 // while it is off.
@@ -2908,6 +3040,7 @@ function viewSettings(st) {
     h('label', { class: 'check mt14' }, h('input', { type: 'checkbox', checked: c.office, onchange: (e) => setConfig('office', e.target.checked) }),
       h('span', { text: t('office_set') })),
     h('p', { class: 'small muted', text: t('office_set_hint') }),
+    showAllSetting(st),
     loginsSetting(st),
     h('div', { class: 'mt16' }, advanced)), rules];
 }

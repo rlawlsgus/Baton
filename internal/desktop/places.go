@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"baton/internal/accounts"
@@ -32,6 +33,11 @@ type Row struct {
 	Provider string `json:"provider,omitempty"`
 	Copy     bool   `json:"copy,omitempty"`     // the app keeps the original there; the tick is for baton's copy
 	Archived bool   `json:"archived,omitempty"` // baton's record was archived in the app
+	// Auto: shown because every conversation is (ShowAll), not for a tick
+	// the user gave. Off: the user took it off this list in baton, so that
+	// leaves it off.
+	Auto bool `json:"auto,omitempty"`
+	Off  bool `json:"off,omitempty"`
 	// Former: baton shows the session in this list, but the list is no
 	// longer one of its accounts' (removed since) nor the app's current one;
 	// it stays on offer so it can be unticked.
@@ -58,6 +64,10 @@ type View struct {
 	// from it before, so one that does while the dialog is open is this
 	// one (see threadMark).
 	Thread bool `json:"thread,omitempty"`
+	// Seen: when the view was made (ms). A client sends it back (see Seen),
+	// so a record listed after that because every conversation is shown is
+	// not taken for one the user unticked.
+	Seen int64 `json:"seen"`
 }
 
 // Places is what can be chosen for conversation c, and where it shows now.
@@ -73,8 +83,17 @@ func (d *Desk) Places(c Conversation) (View, error) {
 	// What the app did since the last look, as the next look (or Apply)
 	// notes it: on this copy of the index, which is never saved.
 	d.settleAll(&ix, ix.Thread(c.ID), pr)
-	return d.view(&ix, c, pr), nil
+	v := d.view(&ix, c, pr)
+	v.Seen = d.Now().UnixMilli()
+	return v, nil
 }
+
+// seenPrefix marks when the view a client sends places back for was made
+// (View.Seen). The window's dialog spells it out too (app.js).
+const seenPrefix = "seen:"
+
+// Seen is how a client sends back when its view was made (View.Seen).
+func Seen(ms int64) string { return seenPrefix + strconv.FormatInt(ms, 10) }
 
 // keptPrefix marks a place a client sends back as its view showed it,
 // ticked, and the user left it so (see Kept). The window's dialog spells it
@@ -101,10 +120,11 @@ func Kept(key string) string { return keptPrefix + key }
 const threadMark = "thread"
 
 // Ticked are the places a client sends back to leave view v as it is: every
-// ticked row, also a locked one, each as Kept, and threadMark when the view
-// had the session's thread. One the user unticked is left out (a row the app
-// took over since the view was made is released then: the app keeps its
-// record), and one the user ticked is sent as its key.
+// ticked row, also a locked one, each as Kept, threadMark when the view had
+// the session's thread, and when the view was made (Seen). One the user
+// unticked is left out (a row the app took over since the view was made is
+// released then: the app keeps its record), and one the user ticked is sent
+// as its key.
 func (v View) Ticked() []string {
 	var out []string
 	for _, r := range v.Rows {
@@ -114,6 +134,9 @@ func (v View) Ticked() []string {
 	}
 	if v.Thread {
 		out = append(out, threadMark)
+	}
+	if v.Seen > 0 {
+		out = append(out, Seen(v.Seen))
 	}
 	return out
 }
@@ -217,7 +240,7 @@ func (d *Desk) view(ix *Index, c Conversation, pr probe) View {
 			if p := placeOf(t, r.Key); p != nil {
 				switch p.State {
 				case stateShown:
-					r.Checked, r.Copy = true, p.Copy
+					r.Checked, r.Copy, r.Auto = true, p.Copy, p.Auto
 					// One not written yet has no file of its own: a file of
 					// that name is someone else's.
 					if p.Written > 0 {
@@ -234,6 +257,7 @@ func (d *Desk) view(ix *Index, c Conversation, pr probe) View {
 			if !r.Checked && !r.Locked && isDir(dir) {
 				d.ownRecord(ix, pr, &r, dir, c.ID)
 			}
+			r.Off = !r.Checked && t != nil && t.off(r.Key)
 			if !r.Checked && !r.Locked && (v.Split || v.Problem != "") {
 				r.Disabled = true
 			}
@@ -440,10 +464,20 @@ func (d *Desk) Apply(c Conversation, want []string) (Result, error) {
 	}
 	// wanted: ticked by the user. kept: shown ticked to the user, who left
 	// it so (Kept). seen: the view had the session's thread (threadMark).
+	// viewAt: when the client's view was made (Seen; 0: not said).
 	wanted, kept, seen := map[string]bool{}, map[string]bool{}, false
+	var viewAt int64
 	for _, w := range want {
 		if strings.EqualFold(w, threadMark) {
 			seen = true
+			continue
+		}
+		if ms, ok := strings.CutPrefix(strings.ToLower(w), seenPrefix); ok {
+			n, err := strconv.ParseInt(ms, 10, 64)
+			if err != nil || n <= 0 {
+				return res, fail("unknown_place", w)
+			}
+			viewAt = n
 			continue
 		}
 		k, keep := strings.CutPrefix(strings.ToLower(w), keptPrefix)
@@ -500,11 +534,22 @@ func (d *Desk) Apply(c Conversation, want []string) (Result, error) {
 			}
 		}
 		// Unticked: baton's records go. One the desktop app took over stays.
+		// Either way the user took it off that list: while every
+		// conversation is shown, that leaves it off there (Thread.Off).
 		if t != nil {
 			for _, r := range v.Rows {
 				p := placeOf(t, r.Key)
 				if r.Key == "" || wanted[r.Key] || kept[r.Key] || p == nil {
 					continue
+				}
+				if p.Auto && viewAt > 0 && p.Written > viewAt {
+					// Listed because every conversation is shown after the
+					// client's view was made, which showed it unticked: the
+					// user never unticked it.
+					continue
+				}
+				if d.AllShown && (p.State == stateShown || p.State == stateReleased) {
+					t.setOff(r.Key, true)
 				}
 				if p.State == stateReleased {
 					// Taken over by the app, yet left out: the clients send
@@ -547,6 +592,17 @@ func (d *Desk) Apply(c Conversation, want []string) (Result, error) {
 		a := describe(c.Transcript)
 		if a.cwd == "" && slices.ContainsFunc(v.Rows, func(r Row) bool { return wanted[r.Key] && !r.Checked && !r.Locked }) {
 			return fail("no_file", c.Transcript) // a record without its folder is skipped by the app
+		}
+		if t != nil {
+			for k := range wanted {
+				t.setOff(k, false) // ticked there again
+				if p := t.Places[k]; p != nil && p.Auto {
+					// Ticked by the user where every conversation is shown
+					// already: the user's own tick now, which turning that off
+					// leaves as it is.
+					p.Auto = false
+				}
+			}
 		}
 		for _, r := range v.Rows {
 			if r.Key == "" || !wanted[r.Key] || r.Checked || r.Locked {

@@ -242,6 +242,32 @@ const livePageChecks = `
     out.quit_late = loginErr({ code: 'dl_quit_failed' });
     out.working_toast = loginErr({ code: 'dl_app_working', data: { working: [{ title: 'loop', what: 'wakeup' }] } });
 
+    // Every conversation on this PC: the list (read once, then drawn again), a search, and the
+    // setting that shows them all, turned off.
+    S.tab = 'sessions';
+    S.state = { runs: [], accounts: [], config: { desktop_show_all: true }, desktop: true, claude: { found: true } };
+    const now = new Date().toISOString();
+    answer('conversations', 200, [
+      { session_id: 'aaaaaaaa-0000-4000-8000-0000000000c1', where: 'claude-code', title: 'Plan the release', cwd: 'C:\\proj',
+        source: 'claude-desktop', modified: now, folder_ok: true, desktop: { places: ['a', ''] } },
+      { session_id: 'aaaaaaaa-0000-4000-8000-0000000000c2', where: 'a', title: 'Fix the login bug', cwd: 'C:\\web',
+        source: 'cli', modified: now, folder_ok: false, folder_problem: 'gone' },
+    ]);
+    S.all = null;
+    allCard(S.state, true);
+    await settle();
+    const card = allCard(S.state, true);
+    out.all_card = card.textContent;
+    out.all_buttons = String(card.querySelectorAll('.row .actions button').length);
+    const find = card.querySelector('input');
+    find.value = 'login';
+    find.dispatchEvent(new Event('input'));
+    out.all_search = card.textContent;
+    answer('config', 200, { ok: true, desktop: { removed: 3, active_removed: true } });
+    const box = document.createElement('input');
+    await setShowAll(box, false);
+    out.all_off = document.getElementById('toast').textContent;
+
     S.lang = 'ko';
     out.ko_forget = t('dl_forget_body', { a: '개인' });
     out.ko_working = loginErr({ code: 'dl_app_working', data: { working: [{ title: '루프', what: 'wakeup' }] } });
@@ -325,6 +351,14 @@ func TestLivePage(t *testing.T) {
 			}
 		}
 	}
+	has("all_card", "All conversations on this PC", "2 conversations", "Shown in every account", "Plan the release",
+		"Desktop: a, desktop app account", "Claude desktop app", "Fix the login bug", "Folder gone")
+	if out["all_buttons"] != "6" {
+		t.Errorf("all_buttons: %q (choose accounts, delete and continue on each row)", out["all_buttons"])
+	}
+	has("all_search", "Fix the login bug")
+	hasNot("all_search", "Plan the release")
+	has("all_off", "Turned off. Entries taken off the desktop app: 3.", "once you quit the desktop app while this window is open")
 	if out["dollar"] != "Rename “R&D $& Co $' $$”" {
 		t.Errorf("dollar: %q", out["dollar"])
 	}

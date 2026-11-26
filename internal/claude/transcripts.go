@@ -299,7 +299,7 @@ func Describe(path string, fi os.FileInfo) Transcript {
 	t := Transcript{Path: path, SessionID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), FirstPrompt: h.prompt,
 		Title: oneLine(title), Cwd: cwd, Source: h.source, Modified: fi.ModTime(), asked: h.asked}
 	described.Lock()
-	if described.m == nil || len(described.m) > 4000 {
+	if described.m == nil || len(described.m) > 20000 {
 		described.m = map[string]describedFile{}
 	}
 	described.m[path] = describedFile{fi.Size(), fi.ModTime(), t}

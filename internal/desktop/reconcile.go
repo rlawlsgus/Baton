@@ -3,10 +3,12 @@ package desktop
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"baton/internal/claude"
@@ -23,10 +25,12 @@ type probe struct {
 	// (shown in the window, never kept).
 	activeEmail string
 	hosts       map[string]bool
+	// names lists list folders once per look (see there).
+	names *folderNames
 }
 
 func (d *Desk) look(ix *Index) probe {
-	pr := probe{running: d.Running != nil && d.Running(), hosts: map[string]bool{}}
+	pr := probe{running: d.Running != nil && d.Running(), hosts: map[string]bool{}, names: &folderNames{m: map[string]map[string]bool{}}}
 	if d.Data() != "" {
 		if pr.active = Active(d.Data()); pr.active != "" {
 			pr.activeOrg, pr.activeEmail = d.appAccount(ix, pr.active)
@@ -40,6 +44,42 @@ func (d *Desk) look(ix *Index) probe {
 		}
 	}
 	return pr
+}
+
+// folderNames are list folders' file names, each folder listed once.
+type folderNames struct {
+	mu sync.Mutex
+	m  map[string]map[string]bool // folder (lower case) -> its names (lower case); nil: it could not be listed
+}
+
+// there reports whether record id may be in list folder dir, from one
+// listing of the folder per look: a record of baton's it took off (Gone) is
+// asked about at every look, and after many were taken off at once nearly
+// none is there. A folder that cannot be listed may hold anything. A record
+// written since the listing is seen at the next look.
+func (pr probe) there(dir, id string) bool {
+	if pr.names == nil {
+		return true
+	}
+	f := pr.names
+	key := strings.ToLower(dir)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	names, ok := f.m[key]
+	if !ok {
+		ents, err := os.ReadDir(dir)
+		switch {
+		case err == nil, errors.Is(err, os.ErrNotExist):
+			names = map[string]bool{}
+			for _, e := range ents {
+				names[strings.ToLower(e.Name())] = true
+			}
+		default:
+			names = nil
+		}
+		f.m[key] = names
+	}
+	return names == nil || names[strings.ToLower(id)+".json"]
 }
 
 // isActive: key is a list of the account the desktop app is signed in to,
@@ -169,6 +209,9 @@ func (d *Desk) Reconcile() error {
 	return d.update(func(ix *Index) error {
 		pr := d.look(ix)
 		for _, t := range ix.Threads {
+			if t.idle() {
+				continue // it only keeps the lists the user took it off
+			}
 			d.reconcile(ix, t, pr)
 		}
 		d.settleGone(ix, pr)
@@ -371,6 +414,9 @@ func (d *Desk) settleGone(ix *Index, pr probe) {
 	ix.Gone = slices.DeleteFunc(ix.Gone, func(g Gone) bool {
 		if !g.Loaded && now.Sub(time.UnixMilli(g.At)) > goneFor || ix.owns(g.Dir, g.Record) {
 			return true
+		}
+		if !pr.there(g.Dir, g.Record) {
+			return false // not there: nothing to do
 		}
 		path := recordFile(g.Dir, g.Record)
 		h, ok := readHead(path)

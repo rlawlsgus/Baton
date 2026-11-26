@@ -170,11 +170,59 @@ func under(path, dir string) bool {
 
 // longPath spells path out in full: 8.3 short names (C:\Users\JOHNDO~1) in
 // the part that exists are expanded, so two spellings of one folder compare.
+//
+// Spelling a path out asks the file system about each of its folders (about
+// a millisecond each time), and baton compares the paths of every record and
+// conversation at every look. So the folder a path is in is spelled out once
+// and kept (longDir), and the name in it is taken as it is: a short name has
+// a ~ in it (a name without one that fits 8.3 is its own short name, but for
+// case). A name with a ~ is asked about each time.
 func longPath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		return p
 	}
+	dir, base := filepath.Split(abs)
+	if base == "" || dir == "" || strings.Contains(base, "~") {
+		return longPathAsked(abs) // a root, or a name that may be a short one
+	}
+	return filepath.Join(longDir(filepath.Clean(dir)), base)
+}
+
+// longDirs keeps folders spelled out in full (longDir), by their name as
+// asked, in lower case. A folder's long name does not change while baton
+// runs; one that is not there is never kept.
+var longDirs struct {
+	sync.Mutex
+	m map[string]string
+}
+
+// longDir is folder dir spelled out in full, from longDirs when it was
+// spelled out before.
+func longDir(dir string) string {
+	key := strings.ToLower(dir)
+	longDirs.Lock()
+	l, ok := longDirs.m[key]
+	longDirs.Unlock()
+	if ok {
+		return l
+	}
+	l, there := longName(dir)
+	if !there {
+		return longPathAsked(dir) // not there (yet): as far as it exists, and not kept
+	}
+	longDirs.Lock()
+	if longDirs.m == nil || len(longDirs.m) > 4096 {
+		longDirs.m = map[string]string{}
+	}
+	longDirs.m[key] = l
+	longDirs.Unlock()
+	return l
+}
+
+// longPathAsked spells abs out in full by asking the file system, as far as
+// it exists.
+func longPathAsked(abs string) string {
 	rest := ""
 	for d := abs; ; {
 		if l, ok := longName(d); ok {

@@ -118,6 +118,10 @@ type Thread struct {
 	// replaced one of them), so the two sides no longer see each other's
 	// turns. baton then leaves the thread's records alone.
 	Split bool `json:"split,omitempty"`
+	// Off are the lists (place keys) the user took the conversation off in
+	// baton while every conversation was shown (Desk.AllShown): that never
+	// lists it there again, until the user ticks it there.
+	Off []string `json:"off,omitempty"`
 }
 
 // Place is baton's record in one account's list of the desktop app.
@@ -137,6 +141,9 @@ type Place struct {
 	// the record in the app leaves deleted_<the one it pointed at>, which
 	// names none of baton's (see Desk.noteMoved).
 	Moved []string `json:"moved,omitempty"`
+	// Auto: written because every conversation is shown (ShowAll), not for
+	// a tick the user gave; turning that off takes it off again (HideAll).
+	Auto bool `json:"auto,omitempty"`
 }
 
 // movedTo reports whether the desktop app moved record p on to
@@ -362,11 +369,26 @@ func (ix Index) BadgesKnown(known func(acct string) (org, email string, kept boo
 	return out
 }
 
-// Listed reports whether the desktop app lists the thread's session for some
-// account: with baton's record, or one the app took over.
-func (t *Thread) Listed() bool {
+// HasAuto reports whether a record written because every conversation is
+// shown (Place.Auto) is still shown: with that turned off, it is still to
+// go (HideAll).
+func (ix Index) HasAuto() bool {
+	for _, t := range ix.Threads {
+		for _, p := range t.Places {
+			if p.Auto && p.State == stateShown {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// Picked reports whether the desktop app lists the thread's session for some
+// account because the user ticked it there (not only because every
+// conversation is shown, see Place.Auto).
+func (t *Thread) Picked() bool {
 	for _, p := range t.Places {
-		if p.State == stateShown || p.State == stateReleased {
+		if (p.State == stateShown || p.State == stateReleased) && !p.Auto {
 			return true
 		}
 	}
@@ -403,8 +425,15 @@ func (ix Index) Waiting(dataDir string) bool {
 	return active == "" || slices.ContainsFunc(keys, func(k string) bool { return strings.HasPrefix(k, active+"/") })
 }
 
-// empty: nothing of the thread is left in the desktop app or on disk.
+// empty: nothing of the thread is left in the desktop app or on disk, and
+// the user took it off no list (Off).
 func (t *Thread) empty() bool {
+	return t.idle() && len(t.Off) == 0
+}
+
+// idle: nothing of the thread is in the desktop app or on disk (it may still
+// keep the lists the user took it off).
+func (t *Thread) idle() bool {
 	return len(t.Places) == 0 && len(t.Released) == 0 && len(t.Links) == 0
 }
 
@@ -443,5 +472,6 @@ func samePath(a, b string) bool {
 	if a == "" || b == "" {
 		return a == b
 	}
-	return strings.EqualFold(longPath(a), longPath(b))
+	// One spelling (but for case) is one path, spelled out or not.
+	return strings.EqualFold(a, b) || strings.EqualFold(longPath(a), longPath(b))
 }

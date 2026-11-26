@@ -10,6 +10,7 @@ import (
 
 	"baton/internal/accounts"
 	"baton/internal/claude"
+	"baton/internal/config"
 	"baton/internal/desktop"
 	"baton/internal/run"
 )
@@ -65,6 +66,7 @@ func (s *Server) desk() *desktop.Desk {
 	reg, _ := accounts.Load(s.opt.Paths.Accounts())
 	d := desktop.New(s.opt.Paths, reg)
 	d.Known = s.loginsKnown()
+	d.AllShown = s.showAllOn()
 	return d
 }
 
@@ -179,6 +181,91 @@ func (s *Server) ReconcileDesktop() {
 	}
 }
 
+// ---- every conversation in every account (desktop_show_all) ------------------
+
+// localConversations are every conversation on this PC, newest first: in
+// the accounts' profiles and the user's own Claude Code folder (one with two
+// names under the profile's, the one baton's sessions write by).
+func (s *Server) localConversations() []desktop.Conversation {
+	var out []desktop.Conversation
+	for _, t := range claude.ListAllTranscripts(s.allConfigDirs(), 0) {
+		out = append(out, desktop.Conversation{ID: t.SessionID, Transcript: t.Path})
+	}
+	return out
+}
+
+// showAllBatch is how many records one pass of the window writes at most: a
+// first fill of many goes on at the next pass, a second later, so the
+// index's lock is never held long.
+const showAllBatch = 200
+
+// showAllOn: the setting is on now.
+func (s *Server) showAllOn() bool {
+	c, err := config.Load(s.opt.Paths.Config())
+	return err == nil && c.DesktopShowAll
+}
+
+// ShowAllDesktop lists every conversation in every account's desktop app,
+// one batch of it (see desktop.ShowAll), while the setting is on.
+func (s *Server) ShowAllDesktop() (desktop.AllResult, error) {
+	s.deskMu.Lock()
+	defer s.deskMu.Unlock()
+	if !s.showAllOn() {
+		return desktop.AllResult{}, nil
+	}
+	data, _, _ := s.deskIndex()
+	if data == "" {
+		return desktop.AllResult{}, nil
+	}
+	return s.desk().ShowAll(s.localConversations(), showAllBatch, s.showAllOn)
+}
+
+// HideAllDesktop takes off what showing every conversation put in the
+// desktop app (desktop.HideAll), for the setting turned off.
+func (s *Server) HideAllDesktop() (desktop.AllResult, error) {
+	s.deskMu.Lock()
+	defer s.deskMu.Unlock()
+	if data, _, _ := s.deskIndex(); data == "" {
+		return desktop.AllResult{}, nil
+	}
+	return s.desk().HideAll()
+}
+
+// hideAllPass takes off, with the setting off, what it put in the desktop
+// app and could not take off when it was turned off (another program held a
+// record then). Cheap when nothing is left. A failure, even a panic, is only
+// logged.
+func (s *Server) hideAllPass() {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logf("desktop app (every conversation): %v", r)
+		}
+	}()
+	if _, ix, _ := s.deskIndex(); !ix.HasAuto() {
+		return
+	}
+	if _, err := s.HideAllDesktop(); err != nil {
+		s.logf("desktop app (every conversation): %v", err)
+	}
+}
+
+// showAllPass is one pass of ShowAllDesktop for DesktopLoop: whether more
+// is left to write. A failure, even a panic, is only logged.
+func (s *Server) showAllPass() (more bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.logf("desktop app (every conversation): %v", r)
+			more = false
+		}
+	}()
+	res, err := s.ShowAllDesktop()
+	if err != nil {
+		s.logf("desktop app (every conversation): %v", err)
+		return false
+	}
+	return res.More
+}
+
 // deskWait is what DesktopLoop knows between its looks: whether a change
 // waited on a running desktop app at the last one.
 type deskWait struct{ open bool }
@@ -199,17 +286,32 @@ func (w *deskWait) closed(waiting bool, running func() bool) bool {
 // it looks every second whether the app is still open, and makes the change
 // as soon as it is not: the app writes that list back as it quits and reads
 // it again as soon as it is opened, so a quick restart must find it done.
+// With every conversation shown in every account (desktop_show_all), it
+// lists new ones every 30 seconds, and goes on every second while a first
+// fill has more to write; with that off, it takes off every 30 seconds what
+// the setting listed and could not take off when it was turned off.
 func (s *Server) DesktopLoop(stop <-chan struct{}) {
 	s.ReconcileDesktop()
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	last := time.Now()
+	var lastAll time.Time
+	more := false
 	var w deskWait
 	for {
 		select {
 		case <-stop:
 			return
 		case <-tick.C:
+		}
+		if soon := s.showAllSoon.Swap(false); more || soon || time.Since(lastAll) >= 30*time.Second {
+			if s.showAllOn() {
+				more = s.showAllPass()
+			} else {
+				more = false
+				s.hideAllPass()
+			}
+			lastAll = time.Now()
 		}
 		if s.deskClosed(&w) || time.Since(last) >= 12*time.Second {
 			s.ReconcileDesktop()

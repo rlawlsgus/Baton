@@ -713,7 +713,9 @@ def scenario_git(w: World, res: list) -> dict:
 
 def scenario_flags(w: World, res: list) -> dict:
     """User options survive a switch; the first prompt is not sent again."""
-    d1, d2 = os.path.join(w.run.root, "extra1"), os.path.join(w.run.root, "extra2")
+    # Inside the project, which the accounts trust: Claude Code (2.1.331 on) asks before it adds a
+    # folder it was never trusted in, and trust covers every folder below one.
+    d1, d2 = os.path.join(w.run.proj, "extra1"), os.path.join(w.run.proj, "extra2")
     os.makedirs(d1, exist_ok=True)
     os.makedirs(d2, exist_ok=True)
     w.reset_state()
@@ -1816,6 +1818,151 @@ def scenario_desktop(w: World, res: list) -> dict:
                 with open(p, "wb") as f:
                     f.write(b)
     return {"session": sid, "after_clear": new_sid, "copy": copy_sid}
+
+
+def scenario_showall(w: World, res: list) -> dict:
+    """Every conversation in every account (desktop_show_all), through the window and its own loop:
+    turned on, the window lists every conversation on this PC (one on acct-a, one of the user's own
+    Claude Code, one the desktop app made) in every list it may fill: acct-a's, the list of the
+    account the app is signed in to (none of baton's) and acct-b's, which it makes. Each record is
+    shaped like the app's own import record; the conversation on acct-a gets its second name; the
+    app's own record of its conversation keeps that list free of a second one. The list of every
+    conversation says where each shows. An account unticked in the dialog stays off at the next
+    pass. Turned off, what it listed goes, and the app's own record stays as it is."""
+    w.reset_state()
+    data = w.desk_data
+    shutil.rmtree(data, ignore_errors=True)
+    lists = {k: os.path.join(data, "claude-code-sessions", a, o) for k, (a, o) in DESK.items()}
+    for k in ("acct-a", "app"):
+        os.makedirs(lists[k], exist_ok=True)
+    with open(os.path.join(data, "config.json"), "w", encoding="utf-8") as f:
+        json.dump({"lastKnownAccountUuid": DESK["app"][0]}, f)
+    key = {k: "/".join(v) for k, v in DESK.items()}
+    accounts_json = os.path.join(w.home, "accounts.json")
+    home_json = os.path.join(w.run.home, ".claude.json")
+    keep = {p: (open(p, "rb").read() if os.path.exists(p) else None) for p in (accounts_json, home_json)}
+    on_a, mine, apps = ("5a110000-0000-4000-8000-0000000000a1", "5a110000-0000-4000-8000-0000000000a2",
+                        "5a110000-0000-4000-8000-0000000000a3")
+    slug = "".join(c if c.isascii() and c.isalnum() else "-" for c in w.run.proj)
+    files = {}
+    for sid, cfg in ((on_a, w.a.dir), (mine, w.user_claude), (apps, w.user_claude)):
+        p = os.path.join(cfg, "projects", slug, sid + ".jsonl")
+        os.makedirs(os.path.dirname(p), exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write(json.dumps({"type": "user", "cwd": w.run.proj, "timestamp": "2026-11-20T10:00:00.000Z", "sessionId": sid,
+                                "message": {"role": "user", "content": "show all " + sid[-2:]}}) + "\n")
+        files[sid] = p
+    own_name = "local_0e0e0e0e-0000-4000-8000-000000000000"
+    own = json.dumps({"sessionId": own_name, "cliSessionId": apps, "cwd": w.run.proj, "originCwd": w.run.proj,
+                      "title": "made in the app", "isArchived": False})
+    with open(os.path.join(lists["app"], own_name + ".json"), "w", encoding="utf-8") as f:
+        f.write(own)
+
+    def records(k: str) -> dict:
+        out = {}
+        for p in glob.glob(os.path.join(lists[k], "local_*.json")):
+            try:
+                with open(p, encoding="utf-8") as f:
+                    out[os.path.basename(p)[:-5]] = json.load(f)
+            except (OSError, ValueError):
+                pass
+        return out
+
+    def listed(k: str) -> list:
+        return sorted(r.get("cliSessionId") for r in records(k).values())
+
+    def text_of(path: str) -> str:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            return f.read()
+
+    ours = {on_a, mine, apps}
+    win = None
+    try:
+        with open(home_json, "w", encoding="utf-8") as f:
+            json.dump({**json.loads(keep[home_json] or b"{}"), "oauthAccount": {
+                "accountUuid": DESK["app"][0], "organizationUuid": DESK["app"][1], "emailAddress": "desk@example.com"}}, f, indent=1)
+        win = BatonWindow(w)
+        st = win.call("GET", "state")[1]
+        deadline = time.time() + 90
+        while st.get("checking") and time.time() < deadline:  # its sign-in check rewrites accounts.json first
+            time.sleep(0.5)
+            st = win.call("GET", "state")[1]
+        reg = json.loads(keep[accounts_json])
+        for a in reg["accounts"]:
+            acct, org = DESK[a["id"]]
+            a.update(auth_method="claude.ai", account_uuid=acct, org_id=org, email=a["id"] + "@example.com")
+        with open(accounts_json, "w", encoding="utf-8") as f:
+            json.dump(reg, f, indent=1)
+
+        status, r = win.call("POST", "config", {"key": "desktop_show_all", "value": "true"})
+        check(status == 200 and win.call("GET", "state")[1].get("config", {}).get("desktop_show_all") is True,
+              f"showall: turned on ({status} {r})", res)
+        filled = wait_until(lambda: all(ours <= set(listed(k)) for k in ("acct-a", "acct-b", "app")), 60)
+        check(bool(filled), f"showall: the window's loop lists every conversation in every list (a {listed('acct-a')}, "
+                            f"b {listed('acct-b')}, app {listed('app')})", res)
+        check(listed("app").count(apps) == 1 and text_of(os.path.join(lists["app"], own_name + ".json")) == own,
+              f"showall: the app's own record of its conversation is the only one there, untouched ({listed('app')})", res)
+        rec = next((r for r in records("acct-b").values() if r.get("cliSessionId") == mine), None)
+        check(rec is not None and list(rec) == RECORD_KEYS and rec["cliSessionId"] == mine and rec["titleSource"] == "auto"
+              and os.path.normcase(rec["cwd"]) == os.path.normcase(w.run.proj) and rec["adoptedFromOtherSurface"] is True,
+              f"showall: acct-b's record is shaped like the app's own ({rec})", res)
+        second = os.path.join(w.user_claude, "projects", slug, on_a + ".jsonl")
+        check(os.path.isfile(second) and os.path.samefile(second, files[on_a]),
+              "showall: the conversation on acct-a has its second name in the user's own Claude Code", res)
+        check(not glob.glob(os.path.join(lists["acct-b"], "*.tmp")) and not glob.glob(os.path.join(lists["acct-b"], ".*")),
+              f"showall: nothing else in acct-b's list ({os.listdir(lists['acct-b'])})", res)
+
+        # The list of every conversation says where each shows.
+        status, convs = win.call("GET", "conversations?all=1&max=1000")
+        badge = {c.get("session_id"): sorted((c.get("desktop") or {}).get("places") or []) for c in convs or []}
+        check(status == 200 and badge.get(mine) == ["", "acct-a", "acct-b"] and badge.get(apps) == ["acct-a", "acct-b"],
+              f"showall: the list of every conversation says where each shows ({badge.get(mine)}, {badge.get(apps)})", res)
+        st = win.call("GET", "state")[1]
+        check(not any(x.get("session_id") in ours for x in st.get("recent_sessions") or []),
+              "showall: what the setting listed is not taken for baton's recent sessions", res)
+
+        # Unticked in the dialog: it stays off there at the next pass.
+        status, v = win.call("GET", "desktop/places?session_id=" + mine)
+        rows = {x.get("key"): x for x in v.get("places") or []}
+        rb = rows.get(key["acct-b"], {})
+        check(status == 200 and rb.get("checked") and rb.get("auto") and v.get("seen"), f"showall: the dialog shows acct-b listed by the setting ({rb})", res)
+        places = ["kept:" + k for k, x in rows.items() if k and x.get("checked") and k != key["acct-b"]] + ["seen:%d" % v["seen"]]
+        if v.get("thread"):
+            places.append("thread")
+        status, r = win.call("POST", "desktop/apply", {"session_id": mine, "places": places})
+        check(status == 200 and r.get("removed") == [key["acct-b"]] and mine not in listed("acct-b"),
+              f"showall: unticking acct-b takes it off there ({status} {r})", res)
+        win.call("POST", "config", {"key": "desktop_show_all", "value": "true"})  # a pass at the next tick
+        time.sleep(4.0)
+        check(mine not in listed("acct-b") and on_a in listed("acct-b"), f"showall: it stays off acct-b after a pass ({listed('acct-b')})", res)
+        status, v = win.call("GET", "desktop/places?session_id=" + mine)
+        rb = {x.get("key"): x for x in v.get("places") or []}.get(key["acct-b"], {})
+        check(not rb.get("checked") and rb.get("off"), f"showall: the dialog says it was taken off there ({rb})", res)
+
+        # Turned off: what it listed goes; the app's own record stays.
+        status, r = win.call("POST", "config", {"key": "desktop_show_all", "value": "false"})
+        d = (r or {}).get("desktop") or {}
+        check(status == 200 and d.get("removed", 0) >= 7 and not d.get("left"), f"showall: turned off ({status} {r})", res)
+        check(not ours & set(listed("acct-a")) and not ours & set(listed("acct-b")) and listed("app").count(apps) == 1
+              and not {on_a, mine} & set(listed("app")) and text_of(os.path.join(lists["app"], own_name + ".json")) == own,
+              f"showall: what it listed is gone, the app's own record stays (a {listed('acct-a')}, b {listed('acct-b')}, app {listed('app')})", res)
+        check(bool(wait_until(lambda: not os.path.exists(second), 20)) and os.path.isfile(files[on_a]),
+              "showall: the second name goes, the conversation on acct-a stays", res)
+    finally:
+        if win is not None:
+            try:
+                win.call("POST", "config", {"key": "desktop_show_all", "value": "false"})
+            except (OSError, ValueError):
+                pass
+            win.close()
+        for p, b in keep.items():
+            if b is None:
+                if os.path.exists(p):
+                    os.remove(p)
+            else:
+                with open(p, "wb") as f:
+                    f.write(b)
+    return {"on_account": on_a, "mine": mine, "apps": apps}
 
 
 def scenario_rules(w: World, res: list) -> dict:
@@ -3368,7 +3515,7 @@ def main() -> int:
     ap.add_argument("--baton-test", help="the window's test build (default: baton-test.exe next to --baton)")
     ap.add_argument("--only", default="auto,manual,confirm,exhausted,transient,overloaded,auth,billing,clear,resumeid,share,"
                                       "git,flags,confirmn,wait,writer,bypass,hooksoff,confirmc,stopping,stop,stopask,stopswitch,import,statusline,remotectl,"
-                                      "remotetwo,busytrust,elsewhere,rules,restore,office,desktop,delete,desklogin")
+                                      "remotetwo,busytrust,elsewhere,rules,restore,office,desktop,showall,delete,desklogin")
     a = ap.parse_args()
     w = World(a.root, a.baton, a.baton_test)
     report = {"claude": w.run.claude, "baton": w.baton, "scenarios": {}}

@@ -107,7 +107,9 @@ func TestWorking(t *testing.T) {
 	r.register(sleeper(t), "s-idle", "idle", "claude-desktop", "idle") // nothing going on
 	pid := sleeper(t)
 	r.register(pid, "s-agent", "idle", "claude-desktop", "agent")
-	r.transcript("s-agent", agent(now)...)
+	// Stamped once its process runs: started under load, a process can start
+	// seconds after now, and work stamped before it was its predecessor's.
+	r.transcript("s-agent", agent(time.Now().UTC().Format(time.RFC3339Nano))...)
 	pidOld := sleeper(t)
 	r.register(pidOld, "s-old", "idle", "claude-desktop", "old")
 	r.transcript("s-old", agent(old)...) // its process's predecessor's

@@ -207,6 +207,14 @@ func placeNote(v desktop.View, r desktop.Row) string {
 	if r.Former && !r.AppOnly {
 		note += say("; no longer one of baton's accounts (--hide takes it off)", ". 더 이상 baton 계정이 아닙니다 (--hide로 뺄 수 있습니다)")
 	}
+	switch {
+	case r.Auto:
+		note += say("; listed because every conversation is shown (desktop_show_all); --hide keeps it off",
+			". 모든 대화를 보이게 하는 설정(desktop_show_all)으로 넣었습니다. --hide로 빼면 다시 넣지 않습니다")
+	case r.Off:
+		note += say("; you took it off here, so desktop_show_all leaves it off (--show lists it again)",
+			". 여기서 뺐기 때문에 desktop_show_all도 넣지 않습니다 (--show로 다시 넣을 수 있습니다)")
+	}
 	return note
 }
 
@@ -291,11 +299,94 @@ func doneLine(r desktop.Result) string {
 	return strings.Join(out, " ")
 }
 
+// configShowAll does at once what turning desktop_show_all on or off does:
+// on lists every conversation on this PC in every account's desktop app
+// (baton's window goes on listing new ones while it is open), off takes
+// what it put there off again.
+func configShowAll(e *env, on bool) error {
+	d := newDesk(e)
+	if d.Data() == "" {
+		fmt.Println(say("The Claude desktop app was not found on this PC, so nothing is listed in it.",
+			"이 PC에서 Claude 데스크톱 앱을 찾지 못해 아무것도 넣지 않았습니다."))
+		return nil
+	}
+	if !on {
+		res, err := d.HideAll()
+		if err != nil {
+			return deskErr(err)
+		}
+		fmt.Println(showAllLine(res, false))
+		return nil
+	}
+	dirs, _ := conversationDirs(e)
+	var convs []desktop.Conversation
+	for _, t := range claude.ListAllTranscripts(dirs, 0) {
+		convs = append(convs, desktop.Conversation{ID: t.SessionID, Transcript: t.Path})
+	}
+	stillOn := func() bool {
+		c, err := config.Load(e.paths.Config())
+		return err == nil && c.DesktopShowAll
+	}
+	// A batch at a time, as baton's window does: the index's lock is let go
+	// in between, so a session, the window or a delete never waits long.
+	var res desktop.AllResult
+	for {
+		r, err := d.ShowAll(convs, 200, stillOn)
+		if err != nil {
+			return deskErr(err)
+		}
+		res.Added += r.Added
+		res.Conversations += r.Conversations
+		res.AppRunning = r.AppRunning
+		res.ActiveAdded = res.ActiveAdded || r.ActiveAdded
+		if !r.More {
+			break
+		}
+	}
+	fmt.Println(showAllLine(res, true))
+	return nil
+}
+
+// showAllLine says what turning desktop_show_all on or off did.
+func showAllLine(r desktop.AllResult, on bool) string {
+	var out []string
+	switch {
+	case on && r.Added == 0:
+		out = append(out, say("Every conversation is listed in every account's desktop app already.",
+			"모든 대화가 이미 모든 계정의 데스크톱 앱에 들어 있습니다."))
+	case on:
+		out = append(out, fmt.Sprintf(say("Conversations listed in the desktop app: %d (entries: %d).",
+			"대화 %d개를 데스크톱 앱에 넣었습니다 (항목 %d개)."), r.Conversations, r.Added))
+	case r.Removed == 0:
+		out = append(out, say("Nothing was listed by this setting.", "이 설정으로 넣은 항목이 없습니다."))
+	default:
+		out = append(out, fmt.Sprintf(say("Entries taken off the desktop app: %d.", "데스크톱 앱에서 항목 %d개를 뺐습니다."), r.Removed))
+	}
+	if r.Left > 0 {
+		out = append(out, fmt.Sprintf(say("Entries another program holds now, which baton's window takes off later (or run this again): %d.",
+			"다른 프로그램이 쓰고 있어 지금 빼지 못한 항목 %d개는 baton 창이 나중에 뺍니다 (이 명령을 다시 실행해도 됩니다)."), r.Left))
+	}
+	switch {
+	case r.ActiveAdded && r.AppRunning:
+		out = append(out, say("For the account it is signed in to, they show after you quit the Claude desktop app (also from its tray icon) and open it again.",
+			"로그인된 계정에서는 Claude 데스크톱 앱을 완전히 종료(트레이 아이콘에서도)했다가 다시 열면 보입니다."))
+	case r.ActiveRemoved:
+		out = append(out, say("For the account it is signed in to, they go once you quit the app while baton's window is open.",
+			"로그인된 계정에서는 baton 창을 연 채로 데스크톱 앱을 종료하면 사라집니다."))
+	}
+	if on {
+		out = append(out, say("New conversations are listed while baton's window is open.",
+			"새 대화는 baton 창이 열려 있는 동안 넣습니다."))
+	}
+	return strings.Join(out, " ")
+}
+
 // newDesk is baton's desktop lists for e. With switching the desktop app's
 // sign-in on, the sign-ins baton keeps name the app's accounts that are
 // none of baton's (Desk.Known), as in the window.
 func newDesk(e *env) *desktop.Desk {
 	d := desktop.New(e.paths, e.reg)
+	d.AllShown = e.cfg.DesktopShowAll
 	if e.cfg.DesktopLoginsOn() {
 		d.Known = desklogin.New(e.paths, e.reg).Known
 	}

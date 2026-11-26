@@ -264,7 +264,11 @@ func cmdConfig(args []string) error {
 		set(c)
 		return nil
 	})
-	return err
+	if err != nil || key != "desktop_show_all" {
+		return err
+	}
+	on, _ := strconv.ParseBool(strings.TrimSpace(val))
+	return configShowAll(e, on)
 }
 
 func cmdDoctor(args []string) error {

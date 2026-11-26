@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"baton/internal/app"
@@ -151,6 +152,9 @@ type Server struct {
 	closed     bool
 	deskSt     deskState  // the desktop app feature, for the state poll
 	deskMu     sync.Mutex // one pass over the desktop app's lists at a time
+	// showAllSoon asks DesktopLoop for a pass of every conversation at its
+	// next tick (the setting was just turned on).
+	showAllSoon atomic.Bool
 	// moveMu: one change at a time that moves conversations' files (a
 	// delete, an account removal); gates: by conversation id, see convGate.
 	moveMu sync.Mutex

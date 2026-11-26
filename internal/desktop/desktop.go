@@ -56,6 +56,10 @@ type Desk struct {
 	// switch to an account none of baton's, the user's own Claude Code still
 	// names the account before, so this is the only place that names it.
 	Known func(acct string) (org, email string, kept bool)
+	// AllShown: every conversation is shown in every account
+	// (desktop_show_all). An untick is then kept (Thread.Off), so the
+	// setting never lists the conversation there again.
+	AllShown bool
 
 	dataOnce sync.Once
 	data     string

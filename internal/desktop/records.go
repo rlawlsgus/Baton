@@ -72,6 +72,21 @@ type head struct {
 	// more than none means the user went on with it there. It is any so
 	// that an unexpected type never makes the whole record unreadable.
 	Turns any `json:"completedTurns"`
+	// Prior: the conversations the session went on from (/clear, a copy).
+	// any, as Turns.
+	Prior any `json:"priorCliSessionIds"`
+}
+
+// prior are the conversations the record's session went on from.
+func (h head) prior() []string {
+	list, _ := h.Prior.([]any)
+	var out []string
+	for _, v := range list {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // wentOn reports whether the desktop app completed a turn of its own in the
@@ -142,7 +157,7 @@ func readHeadErr(path string) (head, bool, error) {
 		}
 	}
 	heads.Lock()
-	if heads.m == nil || len(heads.m) > 2000 {
+	if heads.m == nil || len(heads.m) > 20000 {
 		heads.m = map[string]cachedHead{}
 	}
 	heads.m[path] = cachedHead{fi.Size(), fi.ModTime(), h, ok}
@@ -233,7 +248,7 @@ func times(path string) (created, last int64) {
 	}
 	created, last = readTimes(path, fi)
 	timesSeen.Lock()
-	if timesSeen.m == nil || len(timesSeen.m) > 500 {
+	if timesSeen.m == nil || len(timesSeen.m) > 10000 {
 		timesSeen.m = map[string]cachedTimes{}
 	}
 	timesSeen.m[path] = cachedTimes{fi.Size(), fi.ModTime(), created, last}

@@ -135,6 +135,9 @@ type configView struct {
 	// accepted, so turning it on asks nothing more.
 	DesktopLogins    bool `json:"desktop_logins"`
 	DesktopLoginsAck bool `json:"desktop_logins_ack"`
+	// DesktopShowAll: every conversation on this PC shows in every account's
+	// desktop app (desktop_show_all).
+	DesktopShowAll bool `json:"desktop_show_all"`
 	// OfficeLayout is how the office's side columns were left in each kind
 	// of window, there before the office is first drawn.
 	OfficeLayout officeLayoutView `json:"office_layout"`
@@ -218,6 +221,7 @@ func (s *Server) state() stateView {
 		Office: cfg.Office, CheckUpdates: cfg.UpdateChecks(), GUILanguage: cfg.GUILanguage, GUITheme: cfg.GUITheme,
 		RiskAcknowledged: cfg.RiskAcknowledged >= config.DisclosureVersion,
 		DesktopLogins:    cfg.DesktopLoginsOn(), DesktopLoginsAck: cfg.DesktopLoginsAcknowledged >= config.DesktopLoginsDisclosure,
+		DesktopShowAll: cfg.DesktopShowAll,
 	}
 	if ov := cfg.OfficeView; ov != nil {
 		v.Config.OfficeLayout = officeLayoutView{Tab: ov.Tab, Popout: ov.Popout}
@@ -532,9 +536,11 @@ func (c *readCache) journals(runsDir string) []run.Journal {
 // recentSessions are conversations of ended runs whose transcript still
 // exists, newest first, without the ones running now. A run whose
 // supervisor is gone ended too (its window was closed), whatever its
-// journal last said. One shown in the Claude desktop app (threads) is
-// always listed, so it can be taken out of there again: beyond max too, and
-// also after its run's folder was cleaned up.
+// journal last said. One the user showed in the Claude desktop app
+// (threads) is always listed, so it can be taken out of there again: beyond
+// max too, and also after its run's folder was cleaned up. One listed there
+// only because every conversation is (desktop_show_all) is not: the list of
+// every conversation has it.
 func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, running []runView, cut []run.Journal, max int, threads []*desktop.Thread) []recentView {
 	busy := map[string]bool{}
 	for _, r := range running {
@@ -553,7 +559,7 @@ func (s *Server) recentSessions(journals []run.Journal, alive map[string]bool, r
 	var all []candidate
 	shown := map[string]bool{}
 	for _, t := range threads {
-		if t.Listed() {
+		if t.Picked() {
 			shown[strings.ToLower(t.Session)] = true
 		}
 	}

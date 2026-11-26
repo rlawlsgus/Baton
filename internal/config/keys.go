@@ -13,7 +13,7 @@ import (
 // display order.
 var Keys = []string{"switch_mode", "on_exhausted", "cooldown_seconds", "max_switches_per_hour",
 	"exhausted_retry_minutes", "continue_prompt", "share_user_config", "claude_path", "allow_desktop_bundle", "remote_control", "notifications",
-	"keep_awake", "office", "check_updates", "gui_language", "gui_theme", "desktop_logins"}
+	"keep_awake", "office", "check_updates", "gui_language", "gui_theme", "desktop_logins", "desktop_show_all"}
 
 // ErrNeedsAcknowledgement: turning switching on needs the risk notice accepted
 // first (see DisclosureVersion).
@@ -79,6 +79,8 @@ func (c Config) Get(key string) (string, bool) {
 	case "desktop_logins":
 		// As it works: on with an older notice than the one now is off.
 		return strconv.FormatBool(c.DesktopLoginsOn()), true
+	case "desktop_show_all":
+		return strconv.FormatBool(c.DesktopShowAll), true
 	}
 	return "", false
 }
@@ -153,6 +155,12 @@ func Setter(current Config, key, value string, acknowledged bool) (func(*Config)
 			return nil, err
 		}
 		return func(c *Config) { c.Office = b }, nil
+	case "desktop_show_all":
+		b, err := boolean()
+		if err != nil {
+			return nil, err
+		}
+		return func(c *Config) { c.DesktopShowAll = b }, nil
 	case "notifications":
 		v := strings.ToLower(strings.TrimSpace(value))
 		if v != NotifyAll && v != NotifyImportant && v != NotifyOff {
