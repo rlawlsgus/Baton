@@ -1142,6 +1142,9 @@ func workWhat(what string) string {
 		return say("a background agent or workflow runs", "백그라운드 에이전트나 워크플로 실행 중")
 	case desklogin.WorkWakeup:
 		return say("Claude is to wake up again (a /loop or a scheduled job)", "Claude가 다시 깨어날 예정(/loop 또는 예약 작업)")
+	case desklogin.WorkSilent:
+		return say("its Claude Code is a version that does not say what it is doing, so baton cannot tell; quit the desktop app yourself (also from its tray icon), then switch",
+			"이 세션의 Claude Code는 작업 상태를 알려 주지 않는 버전이라 baton이 판단할 수 없음. 데스크톱 앱을 직접 종료(트레이 아이콘에서도)한 뒤 바꾸세요")
 	}
 	return say("baton cannot tell now whether it is working; try again in a moment", "작업 중인지 지금은 알 수 없음. 잠시 뒤 다시 시도하세요")
 }

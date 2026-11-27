@@ -171,6 +171,12 @@ func TestWorking(t *testing.T) {
 	if !slices.Contains(got, "none:"+WorkUnknown) || !slices.Contains(got, "new:"+WorkUnknown) {
 		t.Fatalf("unknown states: %v", got)
 	}
+	// None for longer than a Claude Code that says it takes: its Claude Code
+	// does not say it (an older one, for the desktop app's sessions).
+	r.registerAt(sleeper(t), "s-quiet", "", "claude-desktop", "quiet", time.Now().Add(-time.Minute), "")
+	if got := works(r.l.Working()); !slices.Contains(got, "quiet:"+WorkSilent) || !slices.Contains(got, "none:"+WorkUnknown) {
+		t.Fatalf("a Claude Code that does not say: %v", got)
+	}
 }
 
 // running makes the desktop app run, as the stand-in file says

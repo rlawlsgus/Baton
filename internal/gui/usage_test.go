@@ -138,4 +138,38 @@ func TestUsageChecks(t *testing.T) {
 	if a := got(); !slices.Equal(a, []string{"work", "fresh"}) {
 		t.Fatalf("after the reply: asked %v", a)
 	}
+
+	// A session that says nothing of what it is doing (an older Claude Code
+	// does not, for the desktop app's sessions): its reply ended once its
+	// conversation file stopped growing.
+	usageQuiet = 0
+	t.Cleanup(func() { usageQuiet = 5 * time.Second })
+	r.srv.mu.Lock()
+	delete(r.srv.asks.asked, "fresh") // asked a moment ago
+	r.srv.mu.Unlock()
+	const quiet = "0ld00000-0000-4000-8000-000000000001"
+	writeJSON(filepath.Join(home, "sessions", strconv.Itoa(os.Getpid()+1)+".json"),
+		map[string]any{"pid": os.Getpid() + 1, "sessionId": quiet, "entrypoint": "claude-desktop"})
+	transcript := filepath.Join(home, "projects", "C--proj", quiet+".jsonl")
+	if err := os.MkdirAll(filepath.Dir(transcript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(transcript, []byte(`{"type":"user"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.srv.watchTurns() // seen for the first time: not grown
+	r.srv.waitBackground()
+	if a := got(); len(a) != 2 {
+		t.Fatalf("asked for a file seen for the first time: %v", a)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if err := os.WriteFile(transcript, []byte(`{"type":"user"}`+"\n"+`{"type":"assistant"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.srv.watchTurns() // it grows: a reply
+	r.srv.watchTurns() // quiet since
+	r.srv.waitBackground()
+	if a := got(); !slices.Equal(a, []string{"work", "fresh", "fresh"}) {
+		t.Fatalf("after a quiet file: asked %v", a)
+	}
 }

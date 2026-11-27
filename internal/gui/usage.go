@@ -2,6 +2,7 @@ package gui
 
 import (
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -28,8 +29,24 @@ const (
 )
 
 // usageAfterTurn: how long after a reply ends its account is asked for (the
-// app may go on with another turn at once). A test shortens it.
-var usageAfterTurn = 3 * time.Second
+// app may go on with another turn at once). usageQuiet: a session that does
+// not say what it is doing (an older Claude Code says it only in a
+// terminal, not for the desktop app's sessions) has ended a reply once its
+// conversation file has not grown for this long. Tests shorten both.
+var (
+	usageAfterTurn = 3 * time.Second
+	usageQuiet     = 5 * time.Second
+)
+
+// turnFile is what watchTurns knows of the conversation file of a session
+// that says nothing of what it is doing.
+type turnFile struct {
+	path     string    // "" until found
+	lookedAt time.Time // when it was last looked for
+	size     int64
+	mod      time.Time
+	grew     time.Time // when it last grew; zero once quiet again
+}
 
 // usageAsks is what the window asks Claude Code for, and what it saw of the
 // user's own Claude Code sessions at its last look.
@@ -157,17 +174,26 @@ func (s *Server) watchTurns() {
 		return
 	}
 	now := map[string]string{}
+	var silent []string
 	for _, l := range claude.ReadSessions(home) {
-		if l.SessionID != "" {
-			now[l.SessionID] = l.Status
+		if l.SessionID == "" {
+			continue
+		}
+		now[l.SessionID] = l.Status
+		if l.Status == "" {
+			silent = append(silent, l.SessionID)
 		}
 	}
+	quieted := s.quietTurns(home, silent)
 	s.mu.Lock()
 	u := &s.asks
 	for id, was := range u.turns {
 		if st := now[id]; was == "busy" && st != "busy" && st != "waiting" {
 			u.due = time.Now().Add(usageAfterTurn)
 		}
+	}
+	if quieted {
+		u.due = time.Now() // its file has been quiet for usageQuiet already
 	}
 	u.turns = now
 	ready := !u.due.IsZero() && !time.Now().Before(u.due)
@@ -178,6 +204,46 @@ func (s *Server) watchTurns() {
 	if ready {
 		s.askUsage(s.ownAccounts(home)...)
 	}
+}
+
+// quietTurns follows the conversation files of the sessions (ids) that say
+// nothing of what they are doing, for watchTurns alone: one that grew and
+// has not grown for usageQuiet since, or whose session is gone, has ended a
+// reply. A file seen for the first time has not grown; one not found yet is
+// looked for again every ten seconds.
+func (s *Server) quietTurns(home string, ids []string) (ended bool) {
+	now := time.Now()
+	files := map[string]*turnFile{}
+	for _, id := range ids {
+		f := s.turnFiles[id]
+		if f == nil {
+			f = &turnFile{}
+		}
+		if f.path == "" && now.Sub(f.lookedAt) >= 10*time.Second {
+			f.path, f.lookedAt = claude.FindTranscript([]string{home}, id), now
+		}
+		if f.path != "" {
+			if fi, err := os.Stat(f.path); err == nil {
+				switch {
+				case fi.Size() != f.size || !fi.ModTime().Equal(f.mod):
+					if !f.mod.IsZero() {
+						f.grew = now
+					}
+					f.size, f.mod = fi.Size(), fi.ModTime()
+				case !f.grew.IsZero() && now.Sub(f.grew) >= usageQuiet:
+					f.grew, ended = time.Time{}, true
+				}
+			}
+		}
+		files[id] = f
+	}
+	for id, f := range s.turnFiles {
+		if files[id] == nil && !f.grew.IsZero() {
+			ended = true // gone in the middle of a reply, or right after it
+		}
+	}
+	s.turnFiles = files
+	return ended
 }
 
 // ownAccounts are the baton accounts that are the Claude account the user's

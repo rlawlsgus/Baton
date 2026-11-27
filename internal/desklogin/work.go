@@ -22,9 +22,18 @@ const (
 	WorkAgent   = "agent"   // a background agent or workflow runs
 	WorkWakeup  = "wakeup"  // Claude is to wake up again (a /loop, a cron job)
 	WorkUnknown = "unknown" // baton cannot tell now whether it is working
+	// WorkSilent: its Claude Code does not say what it is doing (an older one
+	// says it only in a terminal, not for the desktop app's sessions), so
+	// baton never can tell: the user quits the app instead.
+	WorkSilent = "silent"
 )
 
-var workOrder = []string{WorkTurn, WorkWaiting, WorkCommand, WorkAgent, WorkWakeup, WorkUnknown}
+var workOrder = []string{WorkTurn, WorkWaiting, WorkCommand, WorkAgent, WorkWakeup, WorkUnknown, WorkSilent}
+
+// silentAfter: a Claude Code that says what it is doing does so within a
+// moment of taking up its session; one that has said nothing for longer
+// does not (WorkSilent).
+const silentAfter = 15 * time.Second
 
 // Working is a session of the desktop app's that quitting the app would
 // stop.
@@ -55,8 +64,9 @@ func (e *WorkingError) Unwrap() error { return &desktop.Error{Code: CodeAppWorki
 // transcript tells of background work started since its process did and
 // not ended (agents, workflows, commands; a wake-up or cron job to come).
 // A registration that cannot be read, or that names a state baton does not
-// know, counts as one that may be working. A process the app keeps ready
-// for a session to come (spare) does nothing yet.
+// know, counts as one that may be working; so does one that names none
+// (WorkSilent once it has had time to). A process the app keeps ready for a
+// session to come (spare) does nothing yet.
 func (l *Logins) Working() []Working { return l.working(true) }
 
 // working is Working; without background, it looks at the sessions'
@@ -83,6 +93,13 @@ func (l *Logins) working(background bool) []Working {
 		case "idle":
 			if background {
 				w.What = l.background(s, now)
+			}
+		case "":
+			// None at all: said within a moment by a Claude Code that says it.
+			// (startedAt is Claude Code's own clock: against the real one.)
+			w.What = WorkUnknown
+			if s.StartedAt > 0 && time.Since(time.UnixMilli(s.StartedAt)) > silentAfter {
+				w.What = WorkSilent
 			}
 		default:
 			w.What = WorkUnknown

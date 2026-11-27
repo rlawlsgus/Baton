@@ -157,8 +157,10 @@ type Server struct {
 	deskSt     deskState  // the desktop app feature, for the state poll
 	deskMu     sync.Mutex // one pass over the desktop app's lists at a time
 	// asks: what the window asks Claude Code for of accounts' plan usage
-	// (usage.go), under mu.
-	asks usageAsks
+	// (usage.go), under mu. turnFiles: the conversation files watchTurns
+	// follows (its goroutine alone).
+	asks      usageAsks
+	turnFiles map[string]*turnFile
 	// showAllSoon asks DesktopLoop for a pass of every conversation at its
 	// next tick (the setting was just turned on).
 	showAllSoon atomic.Bool
