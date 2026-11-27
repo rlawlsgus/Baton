@@ -678,12 +678,19 @@ type conversationView struct {
 	InBaton bool `json:"in_baton,omitempty"`
 	// Desktop: where it shows in the Claude desktop app (as baton put it there).
 	Desktop *desktop.Badge `json:"desktop,omitempty"`
+	// Earlier: the conversations folded under this one's row (?fold=1, see
+	// foldParts), newest first; Part says what each is.
+	Earlier []conversationView `json:"earlier,omitempty"`
+	Part    string             `json:"part,omitempty"`
+
+	from string // the conversation it is a copy of (claude.Transcript.From)
 }
 
 // apiConversations lists the conversations of one folder (?folder=), or the
 // newest of every folder (?all=1, at most ?max=, 200 unless said) for
 // bringing in ones from Claude Code and for the list of every conversation
-// on this PC.
+// on this PC, which folds the conversations of one session under its row
+// (?fold=1).
 func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 	list := []conversationView{}
 	whereOf := map[string]string{}
@@ -716,10 +723,14 @@ func (s *Server) apiConversations(w http.ResponseWriter, r *http.Request) {
 		}
 		list = append(list, conversationView{SessionID: t.SessionID, Where: whereOf[strings.ToLower(filepath.Clean(t.ConfigDir))],
 			Title: t.Title, FirstPrompt: t.FirstPrompt, Cwd: t.Cwd, FolderOK: problem == "", FolderProblem: problem,
-			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], InBaton: inBaton[t.SessionID], Modified: t.Modified})
+			Source: t.Source, Open: open[t.SessionID] != "", Holder: open[t.SessionID], InBaton: inBaton[t.SessionID], Modified: t.Modified,
+			from: t.From})
 		if b, ok := badges[strings.ToLower(t.SessionID)]; ok {
 			list[len(list)-1].Desktop = &b
 		}
+	}
+	if r.URL.Query().Get("all") == "1" && r.URL.Query().Get("fold") == "1" {
+		list = foldParts(list, s.desk().Lineage())
 	}
 	writeJSON(w, http.StatusOK, list)
 }

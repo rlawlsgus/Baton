@@ -75,7 +75,57 @@ type head struct {
 	// Prior: the conversations the session went on from (/clear, a copy).
 	// any, as Turns.
 	Prior any `json:"priorCliSessionIds"`
+	// FromCli, Adopted: the record is the desktop app's import of a Claude
+	// Code conversation (see imported). any, as Turns.
+	FromCli any `json:"fromCliTranscript"`
+	Adopted any `json:"adoptedFromOtherSurface"`
+	// More earlier conversations of the session (see earlier), and the one
+	// it is on when an archived session was brought back (Cli may be empty
+	// then). any, as Turns.
+	Overflow    any `json:"overflowCliSessionIds"`
+	PreClear    any `json:"preClearCliSessionId"`
+	HistoryOnly any `json:"historyOnlyCliSessionId"`
+	Unarchived  any `json:"unarchivedCliSessionId"`
 }
+
+// earlier are every conversation the record's session was on before the one
+// it is on now: the ones it went on from (prior, and the oldest of them,
+// which the app moves to overflowCliSessionIds), the one before a /clear,
+// and one it shows only the history of.
+func (h head) earlier() []string {
+	out := h.prior()
+	if list, ok := h.Overflow.([]any); ok {
+		for _, v := range list {
+			if s, ok := v.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	for _, v := range []any{h.PreClear, h.HistoryOnly} {
+		if s, ok := v.(string); ok && s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// current is the conversation the record's session is on now.
+func (h head) current() string {
+	if h.Cli != "" {
+		return h.Cli
+	}
+	s, _ := h.Unarchived.(string)
+	return s
+}
+
+// imported reports whether the desktop app brought the record's
+// conversation into its list rather than starting it there: its resume
+// picker and a resume link import a Claude Code conversation (also one that
+// another account's list has already, as only the list signed in is looked
+// at), and so does its recovery of lost ones; baton's records say so too.
+// The app keeps fromCliTranscript; it may drop adoptedFromOtherSurface
+// later.
+func (h head) imported() bool { return h.FromCli == true || h.Adopted == true }
 
 // prior are the conversations the record's session went on from.
 func (h head) prior() []string {

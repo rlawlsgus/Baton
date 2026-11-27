@@ -26,9 +26,11 @@ type Row struct {
 	Locked   bool     `json:"locked"`             // the desktop app's own record: baton leaves it as it is
 	Disabled bool     `json:"disabled"`           // cannot be chosen
 	// Why, for a locked or disabled row, or one with a note: own (made in
-	// the desktop app), archived (the app's own, archived there), released
-	// (the app took baton's record over), deleted (deleted in the app),
-	// api_key, cloud (Provider says which) or unknown (no account ids yet).
+	// the desktop app), imported (the app's own record of a conversation it
+	// brought into the list from elsewhere), archived (the app's own,
+	// archived there), released (the app took baton's record over), deleted
+	// (deleted in the app), api_key, cloud (Provider says which) or unknown
+	// (no account ids yet).
 	Why      string `json:"why,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Copy     bool   `json:"copy,omitempty"`     // the app keeps the original there; the tick is for baton's copy
@@ -275,7 +277,9 @@ func placeOf(t *Thread, key string) *Place {
 }
 
 // ownRecord marks the row when the desktop app has a record of its own for
-// the conversation there: one made there or imported by the app, or one of
+// the conversation there: one made there (own) or imported by the app
+// (imported: as when the user goes on there, through the app's own resume,
+// with a conversation made elsewhere, also in another account's list), or one of
 // baton's the app took over (released, run by the app, or moved on to a
 // conversation of the app's), whichever of baton's sessions it was written
 // for. baton never hides or changes that one, and never puts a second
@@ -324,7 +328,13 @@ func (d *Desk) ownRecord(ix *Index, pr probe, r *Row, dir, id string) {
 			r.Checked, r.Why = true, "released"
 			return
 		case !h.Archived:
+			// Made there, or brought in there by the app (imported): a
+			// conversation is made in one list, but the app may import it
+			// into others.
 			r.Checked, r.Why = true, "own"
+			if h.imported() {
+				r.Why = "imported"
+			}
 			return
 		}
 		r.Why = "archived"

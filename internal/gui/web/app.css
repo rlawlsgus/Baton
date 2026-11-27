@@ -264,6 +264,11 @@ button.btn.details-btn { font-size: 12.5px; }
 .dk-note.warn-text { color: var(--warn); }
 .dk-tips { margin: 12px 0 0; padding-left: 18px; }
 .dk-tips li { margin-bottom: 4px; }
+/* A conversation folded under its session's row in the list of every conversation. */
+.row.recent.part { margin-left: 22px; padding-left: 12px; border-left: 2px solid var(--line); border-top: 0; padding-top: 6px; padding-bottom: 6px; }
+.row .parts-btn { margin-top: 6px; }
+.del-files { margin: 6px 0 0; padding-left: 18px; }
+.del-files li { margin-bottom: 2px; overflow-wrap: anywhere; }
 /* Korean breaks between words here, not inside them. */
 html[lang="ko"] .dk-intro, html[lang="ko"] .choice.dk, html[lang="ko"] .dk-tips, html[lang="ko"] .dk-running,
 html[lang="ko"] #dialog .tip.warn-tip { word-break: keep-all; overflow-wrap: anywhere; }

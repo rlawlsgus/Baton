@@ -202,6 +202,13 @@ session can be shown once it has its first message.
   it again. Your other accounts show it when you switch to them in the app. Taking a session off
   works the same way; for the account the app is signed in to, keep baton's window open until
   you have quit the app, so baton can take the entry off as the app closes.
+- **One row per session in *All conversations on this PC*.** A desktop app session goes on in
+  a new conversation file now and then (when its context ran out and it goes on from a summary,
+  for one), and the app shows it once. baton folds a session's earlier conversations and their
+  copies under its newest one the same way, so the same name does not fill the list; **Show N
+  earlier parts and copies** opens them, and each can still be continued, shown or deleted on
+  its own. Only what the desktop app's lists and the conversations themselves say joins them,
+  never a name.
 - **The choice follows the session.** After `/clear`, or when baton goes on in a copy by
   itself, the desktop app lists what the session is on now. A copy you ask for (in the window,
   or `baton resume --copy`) starts with no accounts ticked.
@@ -214,7 +221,10 @@ session can be shown once it has its first message.
   can let the conversation file be cleaned up later. If you did delete it there, baton leaves it
   deleted until you tick it again.
 - **A conversation made in the desktop app** stays listed for the account that made it; archive
-  it in the app to hide it. baton never changes or removes the app's own entries.
+  it in the app to hide it. When you go on in the desktop app with a conversation made in
+  another account or a terminal through the app's own resume, the app puts it in that account's
+  list too, and it stays there the same way (baton says it was brought in there). baton never
+  changes or removes the app's own entries.
 - **Some accounts cannot be chosen:** those that sign in with an API key, a cloud provider, a
   gateway or a long-lived token. The desktop app has no list for them, or baton cannot tell
   which Claude account a token is. An account baton has not checked since this version can be
@@ -264,6 +274,9 @@ It then disappears from baton, from Claude Code's resume list and from the offic
   why. If it stops halfway, it says what is left, and deleting again takes the rest. A
   conversation whose file is in a folder reached through a link or junction, or also has a name
   outside Claude Code's folders, is left as it is.
+- **A conversation that went on apart in two places** (in baton and in the desktop app, once
+  their shared file became two) has several files by its name. The dialog lists them, where
+  each is kept and when it last changed, and all of them go.
 - **What stays:** your project files, the folder's memory, Claude Code's prompt history,
   plans, and your other conversations. A copy baton made of a conversation is a conversation of
   its own and stays too; it keeps everything said, but large tool outputs saved with the

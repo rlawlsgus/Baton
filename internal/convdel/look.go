@@ -31,6 +31,7 @@ type item struct {
 	path string
 	kind int
 	dir  bool
+	file int // a name (kindOwnName, kindName): which of the conversation's files it names, from 1
 }
 
 // name is a name of the conversation's file: <dir>\projects\*\<id>.jsonl.
@@ -89,34 +90,41 @@ func (j *job) look(own bool) (Plan, error) {
 	if sel := j.selected(f.names); sel != nil {
 		t := claude.Describe(sel.path, sel.fi)
 		p.Title, p.Cwd, p.Source = t.Name(), t.Cwd, t.Source
-		// Delete tells by it whether the file is still there afterwards,
-		// under whatever name.
-		p.file, p.known = fsx.FileID(sel.path)
+		// Its files: the one picked, then any other file by its name. Each is
+		// the conversation all the same: it went on apart in two places (a
+		// second name of baton's became a file of its own, and each side
+		// added turns). Claude Code may resume any of them, and they share
+		// what is kept by its id, so all of them go (the plan lists them).
+		files := filesOf(f.names, sel)
 		var home, prof []item
-		for _, n := range f.names {
-			if !os.SameFile(n.fi, sel.fi) {
-				// Another file by its name: Claude Code may resume either, and
-				// the folders kept by id belong to both.
-				bs = append(bs, Blocker{Code: CodeTwoFiles})
-				continue
+		for i, names := range files {
+			for _, n := range names {
+				p.group = append(p.group, n.path)
+				if fsx.IsWithin(n.path, j.Paths.ProfilesDir()) {
+					p.MadeIn = "baton"
+					prof = append(prof, item{path: n.path, kind: kindName, file: i + 1})
+				} else {
+					home = append(home, item{path: n.path, kind: kindOwnName, file: i + 1})
+				}
 			}
-			p.group = append(p.group, n.path)
-			if fsx.IsWithin(n.path, j.Paths.ProfilesDir()) {
-				p.MadeIn = "baton"
-				prof = append(prof, item{path: n.path, kind: kindName})
-			} else {
-				home = append(home, item{path: n.path, kind: kindOwnName})
+			// A name outside Claude Code's folders would keep the file alive.
+			// A name in the Recycle Bin does not: an earlier delete that
+			// stopped half way (or the user) put it there, and it stays a hard
+			// link of the file.
+			switch n := int(fsx.LinkCount(names[0].path)); {
+			case n == 0:
+				bs = append(bs, Blocker{Code: CodeCannotCheck})
+			case n > len(names) && n-j.bin.Holds(names[0].path) > len(names):
+				bs = append(bs, Blocker{Code: CodeOtherName})
 			}
-		}
-		// A name outside Claude Code's folders would keep the file alive. A
-		// name in the Recycle Bin does not: an earlier delete that stopped
-		// half way (or the user) put it there, and it stays a hard link of
-		// the file.
-		switch n := int(fsx.LinkCount(sel.path)); {
-		case n == 0:
-			bs = append(bs, Blocker{Code: CodeCannotCheck})
-		case n > len(p.group) && n-j.bin.Holds(sel.path) > len(p.group):
-			bs = append(bs, Blocker{Code: CodeOtherName})
+			// Delete tells by them whether a file is still there afterwards,
+			// under whatever name.
+			if id, ok := fsx.FileID(names[0].path); ok {
+				p.files = append(p.files, id)
+			}
+			if len(files) > 1 {
+				p.Files = append(p.Files, j.fileOf(names))
+			}
 		}
 		items = append(home, prof...)
 	} else {
@@ -218,6 +226,36 @@ func (j *job) selected(names []name) *name {
 		}
 	}
 	return pick(func(name) bool { return true })
+}
+
+// filesOf are the conversation's files, each by its names: sel's first,
+// then the others, newest first.
+func filesOf(names []name, sel *name) [][]name {
+	out := [][]name{nil}
+	for _, n := range names {
+		if os.SameFile(n.fi, sel.fi) {
+			out[0] = append(out[0], n)
+			continue
+		}
+		if i := slices.IndexFunc(out[1:], func(g []name) bool { return os.SameFile(g[0].fi, n.fi) }); i >= 0 {
+			out[i+1] = append(out[i+1], n)
+		} else {
+			out = append(out, []name{n})
+		}
+	}
+	slices.SortStableFunc(out[1:], func(a, b []name) int { return b[0].fi.ModTime().Compare(a[0].fi.ModTime()) })
+	return out
+}
+
+// fileOf is what the plan says of one of the conversation's files.
+func (j *job) fileOf(names []name) File {
+	f := File{Where: []string{}, Modified: names[0].fi.ModTime(), Bytes: names[0].fi.Size()}
+	for _, n := range names {
+		if i := slices.IndexFunc(j.Dirs, func(d Dir) bool { return strings.EqualFold(d.Path, n.dir) }); i >= 0 && !slices.Contains(f.Where, j.Dirs[i].Where) {
+			f.Where = append(f.Where, j.Dirs[i].Where)
+		}
+	}
+	return f
 }
 
 // scanProjects finds the conversation's names in config folder d, and what
@@ -487,12 +525,12 @@ func sorted(bs []Blocker) []Blocker {
 // count says how much the items are. The names of the file are one file.
 func count(items []item) Counts {
 	var c Counts
-	once := false
+	once := map[int]bool{} // each of its files once, whatever its names
 	for _, it := range items {
 		switch {
 		case it.kind == kindOwnName || it.kind == kindName:
-			if !once {
-				once = true
+			if !once[it.file] {
+				once[it.file] = true
 				c.Files++
 				c.Bytes += size(it.path)
 			}

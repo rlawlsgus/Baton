@@ -145,6 +145,22 @@ func printDeletePlan(p convdel.Plan) {
 			fmt.Printf(say("It was made outside baton (%s); it goes from there too.\n",
 				"baton 밖(%s)에서 만든 대화입니다. 그곳 목록에서도 사라집니다.\n"), sourceName(p.Source))
 		}
+		if len(p.Files) > 1 {
+			fmt.Printf(say("It went on apart in two places, so it has %d different files; all of them go:\n",
+				"두 곳에서 따로 이어 가서 이 대화의 파일이 서로 다른 %d개입니다. 모두 옮깁니다:\n"), len(p.Files))
+			for _, f := range p.Files {
+				var where []string
+				for _, w := range f.Where {
+					if w == "claude-code" {
+						where = append(where, say("your usual Claude Code", "평소 Claude Code"))
+					} else {
+						where = append(where, fmt.Sprintf(say("account %s", "%s 계정"), w))
+					}
+				}
+				fmt.Printf(say("    %s: changed %s, %s\n", "    %s: %s에 바뀜, %s\n"), strings.Join(where, ", "),
+					f.Modified.Local().Format("2006-01-02 15:04"), sizeText(f.Bytes))
+			}
+		}
 	}
 	fmt.Println(say("baton moves the conversation and what Claude Code saved with it (subagents, saved tool outputs, /rewind checkpoints) "+
 		"to the Recycle Bin. It disappears from baton, from Claude Code's resume list and from the office. You can restore it from the Recycle Bin.",
@@ -265,9 +281,6 @@ func blockerErr(id string, b convdel.Blocker) error {
 	case convdel.CodeCannotCheck:
 		return errors.New(say("baton couldn't check whether it is open right now; try again in a moment",
 			"지금 열려 있는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요"))
-	case convdel.CodeTwoFiles:
-		return errors.New(say("this conversation has two different files; baton can't tell which to delete",
-			"이 대화의 파일이 서로 다른 두 개라 어느 쪽을 지울지 알 수 없습니다"))
 	case convdel.CodeOtherName:
 		return errors.New(say("its file has another name outside Claude Code's folders, which would keep it; baton leaves it as it is",
 			"이 대화 파일에 Claude Code 폴더 밖의 다른 이름이 있어 지워도 남게 되므로 그대로 둡니다"))

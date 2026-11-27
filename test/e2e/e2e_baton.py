@@ -1658,8 +1658,8 @@ def scenario_desktop(w: World, res: list) -> dict:
         run = next((r for r in st.get("runs") or [] if r.get("session_id") == sid), {})
         check(run.get("has_file") is True and not run.get("desktop"), f"desktop: the row can be shown, and is nowhere yet ({run.get('has_file')})", res)
 
-        # The desktop app made a record of its own for this conversation (it imported it) in the
-        # list of the account it is signed in to.
+        # The desktop app has a record of its own for this conversation, made there (no import
+        # marks: one it imported says so, "imported"), in the list of the account it is signed in to.
         own_name = "local_0d0d0d0d-0000-4000-8000-000000000000"
         own = json.dumps({"sessionId": own_name, "cliSessionId": sid, "cwd": w.run.proj, "originCwd": w.run.proj,
                           "title": "made in the app", "isArchived": False, "permissionMode": "default"})

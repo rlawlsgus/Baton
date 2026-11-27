@@ -77,11 +77,20 @@ type Plan struct {
 	DesktopOff []string `json:"desktop_off"`
 	Items      Counts   `json:"items"`
 	Notes      []Note   `json:"notes"`
+	// Files are the conversation's files when it has more than one: it went
+	// on apart in two places, each with turns of its own. All of them go.
+	Files []File `json:"files,omitempty"`
 
-	items []item    // in the order they go to the Recycle Bin
-	group []string  // the names of the conversation's file
-	file  [2]uint64 // the file itself (fsx.FileID), when known
-	known bool
+	items []item      // in the order they go to the Recycle Bin
+	group []string    // the names of the conversation's files
+	files [][2]uint64 // the files themselves (fsx.FileID), those known
+}
+
+// File is one of a conversation's files (Plan.Files).
+type File struct {
+	Where    []string  `json:"where"` // the config folders with a name of it (Dir.Where)
+	Modified time.Time `json:"modified"`
+	Bytes    int64     `json:"bytes"`
 }
 
 // Paths are the files and folders the delete moves, in the order they go.
@@ -152,7 +161,6 @@ const (
 	CodeSessionWindow  = "session_window"  // a baton session of it ended, but its window is still open (RunID)
 	CodeOpenElsewhere  = "open_elsewhere"  // a Claude Code has it open (Holder)
 	CodeCannotCheck    = "cannot_check"    // what has it open could not be read right now
-	CodeTwoFiles       = "two_files"       // two different files have its name
 	CodeOtherName      = "other_name"      // its file has a name outside Claude Code's folders
 	CodeLinkedFolder   = "linked_folder"   // its file is in a folder reached through a link or junction, or one that can't be read
 	CodeDesktopApp     = "desktop_app"     // the desktop app has it as its own (Detail)
@@ -168,9 +176,9 @@ const (
 
 // order is the order blockers are given in: the first one is what the
 // window says. Another delete says it all; then what the user ends or
-// closes; what can't be told apart; the desktop app; what may pass in a
-// moment; the Recycle Bin.
-var order = []string{CodeDeleting, CodeInBaton, CodeCopyStarting, CodeSessionWindow, CodeOpenElsewhere, CodeTwoFiles, CodeOtherName, CodeLinkedFolder,
+// closes; a file baton would not get all of; the desktop app; what may pass
+// in a moment; the Recycle Bin.
+var order = []string{CodeDeleting, CodeInBaton, CodeCopyStarting, CodeSessionWindow, CodeOpenElsewhere, CodeOtherName, CodeLinkedFolder,
 	CodeDesktopApp, CodeDesktopBusy, CodeDesktopWaiting, CodeCannotCheck, CodeNoRecycleBin, CodePathTooLong, CodeInUse, CodeRecycleFailed}
 
 // Error is why a delete did not happen, or happened only in part.
@@ -398,7 +406,7 @@ func (j *job) changed(p Plan, moved int) bool {
 	if moved == 0 && len(p.items) > 0 {
 		return true
 	}
-	if !p.known {
+	if len(p.files) == 0 {
 		return false
 	}
 	var f found
@@ -407,7 +415,7 @@ func (j *job) changed(p Plan, moved int) bool {
 	}
 	return slices.ContainsFunc(f.names, func(n name) bool {
 		id, ok := fsx.FileID(n.path)
-		return ok && id == p.file
+		return ok && slices.Contains(p.files, id)
 	})
 }
 

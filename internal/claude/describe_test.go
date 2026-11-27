@@ -276,3 +276,50 @@ func TestDesktopNameFarFromTheEnd(t *testing.T) {
 		t.Fatalf("title %q", got.Title)
 	}
 }
+
+// A copy keeps the rows it copied as they were, so its first rows name the
+// conversation it was copied from (From): --fork-session, the desktop app's
+// fork. A conversation that went on from a summary in a file of its own
+// writes its rows itself, and a row that names no conversation, or a
+// malformed one, says nothing.
+func TestDescribeFrom(t *testing.T) {
+	dir := t.TempDir()
+	const (
+		src = "aaaaaaaa-0000-4000-8000-000000000001"
+		cp  = "aaaaaaaa-0000-4000-8000-000000000002"
+		own = "aaaaaaaa-0000-4000-8000-000000000003"
+	)
+	describe := func(id string, rows ...string) Transcript {
+		t.Helper()
+		p := filepath.Join(dir, "projects", "C--proj", id+".jsonl")
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(strings.Join(rows, "\n")+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fi, _ := os.Stat(p)
+		return Describe(p, fi)
+	}
+	user := func(sid, text string) string {
+		return `{"type":"user","cwd":"C:\\proj","sessionId":"` + sid + `","message":{"role":"user","content":"` + text + `"}}`
+	}
+	meta := `{"type":"custom-title","customTitle":"the name","sessionId":"` + strings.ToUpper(src) + `"}`
+	for _, c := range []struct {
+		name string
+		id   string
+		rows []string
+		from string
+	}{
+		{"a copy", cp, []string{meta, user(strings.ToUpper(src), "fix it"), user(cp, "and more")}, src},
+		{"the source", src, []string{user(src, "fix it")}, ""},
+		{"went on from a summary", own, []string{meta, user(own, "This session is being continued from a previous conversation")}, ""},
+		{"no conversation named", own, []string{`{"type":"user","cwd":"C:\\proj","message":{"role":"user","content":"hi"}}`, user(src, "later")}, ""},
+		{"not an id", own, []string{user("not-an-id", "hi")}, ""},
+		{"a meta row first", own, []string{`{"type":"user","isMeta":true,"cwd":"C:\\proj","sessionId":"` + src + `","message":{"role":"user","content":"x"}}`, user(own, "hi")}, ""},
+	} {
+		if got := describe(c.id, c.rows...); got.From != c.from {
+			t.Errorf("%s: From %q, want %q", c.name, got.From, c.from)
+		}
+	}
+}

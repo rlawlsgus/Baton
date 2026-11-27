@@ -510,12 +510,6 @@ func TestRefusals(t *testing.T) {
 		w.registry(w.home, sid, "", true)
 		w.refused(w.req(sid, "a"), Blocker{Code: CodeCannotCheck})
 	})
-	t.Run("two files by its name", func(t *testing.T) {
-		w, _ := setup(t)
-		w.conv(w.profB, sid, `{"type":"user","message":{"role":"user","content":"another start"}}`)
-		w.refused(w.req(sid, "a"), Blocker{Code: CodeTwoFiles})
-		w.refused(w.req(sid, ""), Blocker{Code: CodeTwoFiles})
-	})
 	t.Run("a name outside Claude Code's folders", func(t *testing.T) {
 		w, a := setup(t)
 		must(t, os.MkdirAll(filepath.Join(w.root, "elsewhere"), 0o700))
@@ -787,6 +781,88 @@ func TestALoneSecondName(t *testing.T) {
 			}
 			if len(w.records()) != 0 {
 				t.Fatalf("records: %q", w.records())
+			}
+		})
+	}
+}
+
+// A conversation that went on apart in several places has several files by
+// its name (a second name of baton's became a file of its own, and each
+// side added turns; another profile has one too). Every one of them goes,
+// by each of its names, the user's own folder first; the plan lists them,
+// the one picked first, then the newest. Shown in the desktop app, baton's
+// record goes off its list too.
+func TestDeleteEveryFileOfIt(t *testing.T) {
+	for _, shown := range []bool{false, true} {
+		t.Run(fmt.Sprint("shown ", shown), func(t *testing.T) {
+			w := newWorld(t)
+			a := w.conv(w.profA, sid)
+			h := filepath.Join(w.home, "projects", w.slug, sid+".jsonl")
+			if shown {
+				w.show(a)
+			} else {
+				w.link(a)
+			}
+			// Something writes the second name anew: a file of its own now,
+			// which the desktop app goes on in.
+			must(t, os.Remove(h))
+			w.write(h, string(must1(os.ReadFile(a)))+`{"type":"user","message":{"role":"user","content":"went on in the app"}}`+"\n")
+			b := w.conv(w.profB, sid, `{"type":"user","message":{"role":"user","content":"another start"}}`)
+			old := time.Now().Add(-time.Hour)
+			must(t, os.Chtimes(b, old, old))
+			// What is kept by its id is shared by all of them.
+			tasks := w.write(filepath.Join(w.home, "tasks", sid, "1.json"), "{}")
+			w.conv(w.profA, other) // a conversation of one file
+			if shown {
+				// The desktop side notes the split at its next tidying, which a
+				// look does first.
+				must1(Look(w.req(sid, "a")))
+			}
+
+			before := w.files()
+			p, err := Look(w.req(sid, "a"))
+			must(t, err)
+			w.unchanged(before, "a look")
+			if !p.OK || p.MadeIn != "baton" || p.Title != "fix the login bug" {
+				t.Fatalf("plan: %+v", p)
+			}
+			if want := []string{h, a, b, filepath.Dir(tasks)}; !slices.Equal(p.Paths(), want) {
+				t.Fatalf("paths %q\nwant  %q", p.Paths(), want)
+			}
+			size := func(f string) int64 { return must1(os.Stat(f)).Size() }
+			var where [][]string
+			for _, f := range p.Files {
+				where = append(where, f.Where)
+			}
+			if len(p.Files) != 3 || !slices.EqualFunc(where, [][]string{{"a"}, {"claude-code"}, {"b"}}, slices.Equal) ||
+				p.Files[0].Bytes != size(a) || p.Files[1].Bytes != size(h) || p.Files[2].Bytes != size(b) ||
+				!p.Files[2].Modified.Equal(must1(os.Stat(b)).ModTime()) {
+				t.Fatalf("files: %+v", p.Files)
+			}
+			if p.Items.Files != 3 || p.Items.Folders != 1 || p.Items.Bytes != size(a)+size(h)+size(b)+2 {
+				t.Fatalf("counts: %+v", p.Items)
+			}
+			if shown && !slices.Equal(p.DesktopOff, []string{"a"}) || !shown && len(p.DesktopOff) != 0 {
+				t.Fatalf("off the desktop app: %q", p.DesktopOff)
+			}
+			// One file only: no list of files.
+			if p, err := Look(w.req(other, "a")); err != nil || !p.OK || len(p.Files) != 0 || p.Items.Files != 1 {
+				t.Fatalf("a conversation of one file: %+v %v", p, err)
+			}
+
+			res, err := Delete(w.req(sid, "a"))
+			must(t, err)
+			if res.Moved != 4 || res.Warning != "" {
+				t.Fatalf("result: %+v", res)
+			}
+			if got := w.binned(); !slices.Equal(got, []string{h, a, b, filepath.Dir(tasks)}) {
+				t.Fatalf("binned %q", got)
+			}
+			if shown && len(w.records()) != 0 {
+				t.Fatalf("records: %q", w.records())
+			}
+			if _, err := Look(w.req(sid, "")); codeOf(err) != CodeGone {
+				t.Fatalf("look afterwards: %v", err)
 			}
 		})
 	}

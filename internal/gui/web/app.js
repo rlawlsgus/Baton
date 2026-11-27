@@ -121,6 +121,8 @@ const T = {
     del_leftover: '삭제하다 남은 대화 파일',
     del_body: '대화와 Claude Code가 함께 저장한 것(서브에이전트, 저장된 도구 출력, /rewind 체크포인트)을 휴지통으로 옮깁니다. baton, Claude Code의 이어 가기 목록, 사무실에서 사라집니다. 휴지통에서 되살릴 수 있습니다.',
     del_outside: 'baton 밖({src})에서 만든 대화입니다. 그곳 목록에서도 사라집니다.',
+    del_files: '두 곳에서 따로 이어 가서 이 대화의 파일이 서로 다른 {n}개입니다. 모두 휴지통으로 옮깁니다.',
+    del_file: '{w}: {t}에 바뀜, {s}', size_bytes: '{n}바이트',
     del_desktop_off: 'Claude 데스크톱 앱의 다음 계정 목록에서도 뺍니다: {a}.', del_app_account: '데스크톱 앱 자체 계정',
     del_desktop_off_done: 'Claude 데스크톱 앱의 다음 계정 목록에서는 이미 뺐습니다: {a}. ‘{b}’ 버튼으로 다시 표시할 수 있습니다.',
     del_copies: '이 대화에서 이어 간 대화가 {n}개 있습니다. 내용은 그대로지만, 이 대화와 함께 저장된 큰 도구 출력은 더 이상 열 수 없습니다.',
@@ -140,7 +142,6 @@ const T = {
     err_desktop_app_prior: '데스크톱 앱이 자기 세션의 앞부분으로 갖고 있습니다. 데스크톱 앱에서 그 세션을 먼저 삭제하세요.',
     err_desktop_busy: '이 대화를 표시하는 목록을 Claude 데스크톱 앱이 열어 두고 있습니다. 데스크톱 앱을 완전히 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요.',
     err_desktop_waiting: '이 대화를 표시하는 목록을 Claude 데스크톱 앱이 열어 두고 있습니다. 데스크톱 앱을 완전히 종료(트레이 아이콘에서도)한 뒤 다시 시도하세요.',
-    err_two_files: '이 대화의 파일이 서로 다른 두 개라 어느 쪽을 지울지 알 수 없습니다.',
     err_other_name: '이 대화 파일에 Claude Code 폴더 밖의 다른 이름이 있어서, baton은 손대지 않습니다.',
     err_cannot_check: '지금 열려 있는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.',
     err_no_recycle_bin: 'Windows가 휴지통에 넣을 수 없어({d}) 아무것도 지우지 않았습니다.',
@@ -337,6 +338,7 @@ const T = {
     dk_why_gateway: 'Claude 로그인이 아닌 게이트웨이로 로그인하는 계정이라 데스크톱 앱 목록이 없습니다.',
     dk_cloud_other: '클라우드 제공자',
     dk_why_own: '이 계정의 데스크톱 앱에서 만든 대화라 그대로 둡니다. 숨기려면 데스크톱 앱에서 보관하세요.',
+    dk_why_imported: '이 계정의 데스크톱 앱이 가져와 목록에 넣은 대화라 그대로 둡니다(다른 계정이나 터미널 등에서 만든 대화를 데스크톱 앱에서 이어 가면 이렇게 됩니다). 숨기려면 데스크톱 앱에서 보관하세요.',
     dk_why_archived: '이 계정의 데스크톱 앱에서 보관한 대화입니다. 다시 보이게 하려면 데스크톱 앱에서 보관을 해제하세요.',
     dk_why_released: '이 계정의 데스크톱 앱에서 이어 가서 이제 데스크톱 앱의 대화입니다. 숨기려면 데스크톱 앱에서 보관하세요.',
     dk_why_deleted: '데스크톱 앱에서 삭제했습니다. 다시 보이게 하려면 체크하세요.',
@@ -360,8 +362,12 @@ const T = {
     dk_off: '여기서 체크를 해제해서 ‘데스크톱 앱의 모든 계정에 모든 대화 보이기’ 설정도 이 계정에는 넣지 않습니다.',
     // every conversation on this PC
     all_title: '이 PC의 모든 대화',
-    all_sub: '데스크톱 앱, 터미널, VS Code, baton에서 나눈 Claude Code 대화를 모두 보여 줍니다. baton에서 열지 않아도 데스크톱 앱에 표시할 계정을 고르거나 대화를 삭제할 수 있습니다.',
-    all_count: '대화 {n}개', all_reload: '새로 고침', all_more: '{n}개 더 보기', all_capped: '가장 최근 대화 {n}개만 보여 줍니다.',
+    all_sub: '데스크톱 앱, 터미널, VS Code, baton에서 나눈 Claude Code 대화를 모두 보여 줍니다. baton에서 열지 않아도 데스크톱 앱에 표시할 계정을 고르거나 대화를 삭제할 수 있습니다. 같은 세션의 이전 부분과 사본은 최신 대화 아래에 접어 둡니다.',
+    all_count: '대화 {n}개', all_count_folded: '대화 {n}개 (이전 부분·사본 {m}개는 접어 둠)',
+    all_parts_show: '이전 부분·사본 {n}개 보기', all_parts_hide: '접기',
+    all_part_earlier: '이전 부분', all_part_file: '같은 대화의 다른 파일', all_part_copy: '사본', all_part_original: '원본', all_part_branch: '다른 갈래',
+    all_part_tip: '데스크톱 앱의 세션은 컨텍스트가 차서 요약으로 이어 갈 때처럼 가끔 새 대화 파일로 넘어갑니다. 앱은 이것을 세션 하나로 보여 주고, baton도 같은 세션의 대화와 그 사본을 가장 최근 대화 아래에 접어 둡니다. 각각 따로 이어 가거나 지울 수 있습니다.',
+    all_reload: '새로 고침', all_more: '{n}개 더 보기', all_capped: '가장 최근 대화 {n}개만 보여 줍니다.',
     all_none: '이 PC에 아직 Claude Code 대화가 없습니다.', all_on: '모든 계정에 표시 중',
     dk_all_set: '데스크톱 앱의 모든 계정에 모든 대화 보이기',
     dk_all_set_hint: '데스크톱 앱이 어느 계정으로 로그인되어 있든 같은 대화가 보이도록, 이 PC의 Claude Code 대화(데스크톱 앱·터미널·VS Code·baton에서 나눈 대화)를 모든 계정의 Code 탭 목록에 넣습니다. baton 계정과, 데스크톱 앱이 로그인했던 계정이 모두 들어갑니다. 새 대화는 baton 창이 열려 있는 동안 넣습니다. 데스크톱 앱에서 삭제했거나 baton에서 체크를 해제한 계정에는 다시 넣지 않고, 폴더가 없어진 대화는 넣지 않습니다. 끄면 이 설정으로 넣은 항목을 뺍니다.',
@@ -623,6 +629,8 @@ const T = {
     del_leftover: 'Leftover files of a deleted conversation',
     del_body: 'baton moves the conversation and what Claude Code saved with it (subagents, saved tool outputs, /rewind checkpoints) to the Recycle Bin. It disappears from baton, from Claude Code\'s resume list and from the office. You can restore it from the Recycle Bin.',
     del_outside: 'It was made outside baton ({src}); it goes from there too.',
+    del_files: 'It went on apart in two places, so it has {n} different files. All of them go to the Recycle Bin.',
+    del_file: '{w}: changed {t}, {s}', size_bytes: '{n} bytes',
     del_desktop_off: 'baton also takes it off the Claude desktop app for: {a}.', del_app_account: 'the desktop app\'s own account',
     del_desktop_off_done: 'It no longer shows in the Claude desktop app for: {a}. You can show it there again with “{b}”.',
     del_copies: '{n} other conversations went on from this one. They keep everything said, but can no longer open the large tool outputs saved with this one.',
@@ -642,7 +650,6 @@ const T = {
     err_desktop_app_prior: 'The desktop app keeps it as an earlier part of one of its sessions. Delete that session in the desktop app first.',
     err_desktop_busy: 'The Claude desktop app has a list open that shows it. Quit the desktop app completely (also from its tray icon), then try again.',
     err_desktop_waiting: 'The Claude desktop app has a list open that shows it. Quit the desktop app completely (also from its tray icon), then try again.',
-    err_two_files: 'This conversation has two different files; baton can\'t tell which to delete.',
     err_other_name: 'Its file also has a name outside Claude Code\'s folders, so baton leaves it alone.',
     err_cannot_check: 'baton couldn\'t check whether it is open right now. Try again in a moment.',
     err_no_recycle_bin: 'Windows can\'t put it in the Recycle Bin ({d}), so nothing was deleted.',
@@ -831,6 +838,7 @@ const T = {
     dk_why_gateway: 'Signs in through a gateway, not a Claude sign-in, so the desktop app has no list for it.',
     dk_cloud_other: 'a cloud provider',
     dk_why_own: 'Made in the desktop app on this account, so it stays there. To hide it, archive it in the desktop app.',
+    dk_why_imported: 'Brought into its list by the desktop app on this account (as when you go on there with a conversation made in another account, a terminal…), so it stays there. To hide it, archive it in the desktop app.',
     dk_why_archived: 'Archived in the desktop app on this account. To list it again, unarchive it there.',
     dk_why_released: 'You went on with it in the desktop app on this account, so it is the desktop app\'s now. To hide it, archive it there.',
     dk_why_deleted: 'You deleted it in the desktop app. Tick it to list it again.',
@@ -854,8 +862,12 @@ const T = {
     dk_off: 'You unticked it here, so “Show every conversation in every account of the desktop app” leaves it off this account too.',
     // every conversation on this PC
     all_title: 'All conversations on this PC',
-    all_sub: 'Every Claude Code conversation on this PC: from the desktop app, a terminal, VS Code and baton. Choose the desktop app accounts that list one, or delete it, without opening it in baton first.',
-    all_count: '{n} conversations', all_reload: 'Refresh', all_more: 'Show {n} more', all_capped: 'Showing the newest {n} conversations.',
+    all_sub: 'Every Claude Code conversation on this PC: from the desktop app, a terminal, VS Code and baton. Choose the desktop app accounts that list one, or delete it, without opening it in baton first. A session\'s earlier parts and copies are folded under its newest conversation.',
+    all_count: '{n} conversations', all_count_folded: '{n} conversations ({m} earlier parts and copies folded)',
+    all_parts_show: 'Show {n} earlier parts and copies', all_parts_hide: 'Hide them',
+    all_part_earlier: 'Earlier part', all_part_file: 'Another file of it', all_part_copy: 'Copy', all_part_original: 'Original', all_part_branch: 'Another branch',
+    all_part_tip: 'A desktop app session goes on in a new conversation file now and then, as when its context ran out and it went on from a summary. The app shows it as one session, and baton folds a session\'s conversations and their copies under its newest one the same way. Each can still be continued or deleted on its own.',
+    all_reload: 'Refresh', all_more: 'Show {n} more', all_capped: 'Showing the newest {n} conversations.',
     all_none: 'There are no Claude Code conversations on this PC yet.', all_on: 'Shown in every account',
     dk_all_set: 'Show every conversation in every account of the desktop app',
     dk_all_set_hint: 'So that the same conversations show whichever account the desktop app is signed in to, baton lists each Claude Code conversation on this PC (from the desktop app, a terminal, VS Code or baton) in the Code tab of every account: baton\'s accounts and every account the desktop app has been signed in to. New conversations are listed while baton\'s window is open. A conversation is not listed again where you deleted it in the desktop app or unticked it in baton, nor when its folder is gone. Turning this off takes what it listed off again.',
@@ -1124,6 +1136,17 @@ function ago(iso) {
 }
 
 function baseName(p) { return (p || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p; }
+
+// whereName names a config folder conversations are kept in (an account id, or claude-code).
+function whereName(w) { return w === 'claude-code' ? t('conv_where_home') : t('conv_where', { a: w }); }
+
+// sizeText is a size as Explorer shows it.
+function sizeText(n) {
+  if (n >= 1 << 30) return (n / (1 << 30)).toFixed(1) + ' GB';
+  if (n >= 1 << 20) return (n / (1 << 20)).toFixed(1) + ' MB';
+  if (n >= 1024) return Math.round(n / 1024) + ' KB';
+  return t('size_bytes', { n });
+}
 
 // ---- polling ---------------------------------------------------------------------
 
@@ -1411,6 +1434,7 @@ function viewSessions(st) {
 const ALL_CAP = 1000; // what the list asks for at most
 function allCard(st, canStart) {
   const A = S.all || (S.all = { list: null, at: 0, failed: '', q: '', shown: 20, loading: false });
+  if (!A.open) { A.open = new Set(); A.shut = new Set(); } // the rows whose folded conversations the user opened, or closed
   if (!A.loading && (!A.list || Date.now() - A.at > 60e3)) loadAll();
   const box = h('div', {});
   const more = h('div', {});
@@ -1422,13 +1446,30 @@ function allCard(st, canStart) {
     if (!A.list) { box.replaceChildren(h('p', { class: 'muted' }, h('span', { class: 'spin' }), ' ', t('conv_loading'))); return; }
     if (A.failed && !A.list.length) { box.replaceChildren(h('p', { class: 'err', text: A.failed })); return; }
     const words = A.q.toLowerCase().split(/\s+/).filter(Boolean);
-    const shown = A.list.filter((c) => {
+    const hit = (c) => {
       const hay = [c.title, c.first_prompt, c.cwd].join(' ').toLowerCase();
       return words.every((w) => hay.includes(w));
-    });
-    count.textContent = A.list.length ? t('all_count', { n: A.list.length }) : '';
+    };
+    // A row stands for the conversations of one session folded under it (the server folds them):
+    // it is shown when any of them matches.
+    const shown = A.list.filter((c) => hit(c) || (c.earlier || []).some(hit));
+    const folded = A.list.reduce((n, c) => n + (c.earlier || []).length, 0);
+    count.textContent = !A.list.length ? '' : folded ? t('all_count_folded', { n: A.list.length, m: folded }) : t('all_count', { n: A.list.length });
+    // Folded ones show when the user opened them, when one of them runs or is open (so it is not
+    // hidden), and when a search matches one of them.
+    const rows = (c) => {
+      const parts = c.earlier || [];
+      const id = c.session_id + '/' + c.where;
+      const open = parts.length > 0 && !A.shut.has(id) && (A.open.has(id) || parts.some((e) => e.in_baton || e.open) ||
+        words.length > 0 && parts.some(hit));
+      const toggle = () => {
+        if (open) { A.open.delete(id); A.shut.add(id); } else { A.shut.delete(id); A.open.add(id); }
+        draw();
+      };
+      return [allRow(st, c, canStart, { open, toggle }), ...(open ? parts.map((e) => allRow(st, e, canStart)) : [])];
+    };
     if (!shown.length) box.replaceChildren(h('p', { class: 'muted', text: A.list.length ? t('import_no_match') : t('all_none') }));
-    else box.replaceChildren(...shown.slice(0, A.shown).map((c) => allRow(st, c, canStart)));
+    else box.replaceChildren(...shown.slice(0, A.shown).flatMap(rows));
     const left = shown.length - A.shown;
     more.replaceChildren(...[
       left > 0 ? h('button', { class: 'btn ghost', text: t('all_more', { n: Math.min(left, 20) }), onclick: () => { A.shown += 20; draw(); } }) : null,
@@ -1445,16 +1486,21 @@ function allCard(st, canStart) {
     h('div', { class: 'field' }, search), h('div', { class: 'mt6' }, box), more);
 }
 
-// allRow is one conversation of allCard.
-function allRow(st, c, canStart) {
+// allRow is one conversation of allCard. fold (a row others are folded under) opens or closes them;
+// a folded one says what it is (c.part).
+function allRow(st, c, canStart, fold) {
   const after = () => loadAll();
-  return h('div', { class: 'row recent' },
+  const parts = c.earlier || [];
+  return h('div', { class: 'row recent' + (c.part ? ' part' : '') },
     h('div', { class: 'grow' },
       h('div', { class: 'title' }, h('span', { text: convTitle(c) }),
+        c.part ? h('span', { class: 'pill off', title: t('all_part_tip'), text: t('all_part_' + c.part) }) : null,
         c.in_baton ? h('span', { class: 'pill ok', text: t('conv_running') }) : c.open ? h('span', { class: 'pill warn', text: t('conv_open') }) : null,
         c.folder_ok === false ? h('span', { class: 'pill off', text: c.folder_problem === 'gone' ? t('conv_gone') : t('conv_unusable') }) : null,
         deskPills(c.desktop)),
-      h('div', { class: 'sub', title: c.cwd || '', text: [baseName(c.cwd), ago(c.modified), sourceName(c)].filter(Boolean).join(' · ') })),
+      h('div', { class: 'sub', title: c.cwd || '', text: [baseName(c.cwd), ago(c.modified), sourceName(c)].filter(Boolean).join(' · ') }),
+      fold && parts.length ? h('button', { class: 'btn ghost small-btn parts-btn', title: t('all_part_tip'), 'aria-expanded': String(fold.open),
+        text: fold.open ? t('all_parts_hide') : t('all_parts_show', { n: parts.length }), onclick: fold.toggle }) : null),
     h('div', { class: 'actions' },
       st.desktop ? h('button', { class: 'btn ghost', text: t('dk_btn'), onclick: () => openDesktop(c.session_id, after) }) : null,
       h('button', { class: 'btn ghost danger', text: t('del_btn'), onclick: () => openDelete(c, { show: closeDialog, done: after }) }),
@@ -1467,7 +1513,7 @@ async function loadAll() {
   const A = S.all || (S.all = { list: null, at: 0, failed: '', q: '', shown: 20, loading: false });
   if (A.loading) { A.again = true; return; }
   A.loading = true;
-  try { A.list = await api('conversations?all=1&max=' + ALL_CAP); A.failed = ''; } catch (e) { A.failed = errText(e); if (!A.list) A.list = []; }
+  try { A.list = await api('conversations?all=1&fold=1&max=' + ALL_CAP); A.failed = ''; } catch (e) { A.failed = errText(e); if (!A.list) A.list = []; }
   A.at = Date.now(); A.loading = false;
   if (A.again) { A.again = false; loadAll(); return; }
   if (S.tab === 'sessions') render();
@@ -2182,6 +2228,9 @@ function planView(c, p, where, status) {
     status,
     h('p', { class: 'small', text: t('del_body') }),
     p.made_in === 'outside' && !nameless ? h('p', { class: 'small', text: t('del_outside', { src: madeBy(p.source) }) }) : null,
+    (p.files || []).length > 1 ? h('div', { class: 'tip' }, h('div', { text: t('del_files', { n: p.files.length }) }),
+      h('ul', { class: 'small del-files' }, p.files.map((f) => h('li', {
+        text: t('del_file', { w: f.where.map(whereName).join(', '), t: ago(f.modified), s: sizeText(f.bytes) }) })))) : null,
     off.length ? h('p', { class: 'small', text: t('del_desktop_off', { a: off.join(', ') }) }) : null,
     copies ? h('div', { class: 'tip', text: copies.n === 1 ? t('del_copies_one') : t('del_copies', { n: copies.n }) }) : null,
     notes.some((n) => n.code === 'not_fully_checked') ? h('p', { class: 'small muted', text: t('del_copies_more') }) : null,

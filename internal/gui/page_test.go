@@ -113,7 +113,7 @@ func TestPageWordsEveryRefusal(t *testing.T) {
 	codes := []string{
 		// a delete (internal/convdel), and this window's own
 		convdel.CodeBadSession, convdel.CodeGone, convdel.CodeDeleting, convdel.CodeInBaton, convdel.CodeCopyStarting,
-		convdel.CodeOpenElsewhere, convdel.CodeCannotCheck, convdel.CodeTwoFiles, convdel.CodeOtherName, convdel.CodeDesktopApp,
+		convdel.CodeOpenElsewhere, convdel.CodeCannotCheck, convdel.CodeOtherName, convdel.CodeDesktopApp,
 		convdel.CodeDesktopBusy, convdel.CodeDesktopWaiting, convdel.CodeNoRecycleBin, convdel.CodePathTooLong, convdel.CodeInUse,
 		convdel.CodePartly, convdel.CodeSessionWindow, convdel.CodeLinkedFolder, convdel.CodeRecycleFailed, convdel.CodeChanged,
 		"delete",

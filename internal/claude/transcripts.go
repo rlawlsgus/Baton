@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -26,6 +27,10 @@ type Transcript struct {
 	Source      string    `json:"source"` // what it was made with: claude-desktop, cli, claude-vscode...
 	Modified    time.Time `json:"modified"`
 	ConfigDir   string    `json:"config_dir"` // the profile (or ~/.claude) that stores it
+	// From: the conversation it is a copy of, when its first rows were
+	// written by that one (a copy keeps the rows it copied as they were:
+	// --fork-session, the desktop app's fork).
+	From string `json:"from,omitempty"`
 
 	asked bool // something was asked in it: a user or assistant row
 }
@@ -298,6 +303,9 @@ func Describe(path string, fi os.FileInfo) Transcript {
 	}
 	t := Transcript{Path: path, SessionID: strings.TrimSuffix(filepath.Base(path), ".jsonl"), FirstPrompt: h.prompt,
 		Title: oneLine(title), Cwd: cwd, Source: h.source, Modified: fi.ModTime(), asked: h.asked}
+	if from := strings.ToLower(h.firstSession); sessionIDRx.MatchString(from) && !strings.EqualFold(from, t.SessionID) {
+		t.From = from
+	}
 	described.Lock()
 	if described.m == nil || len(described.m) > 20000 {
 		described.m = map[string]describedFile{}
@@ -306,6 +314,9 @@ func Describe(path string, fi os.FileInfo) Transcript {
 	described.Unlock()
 	return t
 }
+
+// sessionIDRx is a conversation's id as Claude Code writes it.
+var sessionIDRx = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // row is the part of a transcript row these lists read.
 type row struct {
@@ -316,6 +327,7 @@ type row struct {
 	IsSidechain  bool   `json:"isSidechain"`
 	Entrypoint   string `json:"entrypoint"`
 	CustomTitle  string `json:"customTitle"`
+	SessionID    string `json:"sessionId"` // the conversation that wrote the row
 	Message      struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
@@ -342,6 +354,9 @@ type head struct {
 	title      string
 	titled     bool
 	asked      bool
+	// firstSession: the conversation that wrote the first user or assistant
+	// row (see Transcript.From).
+	firstSession string
 }
 
 // Limits on what is read from the start of a transcript. Rows can be large
@@ -381,6 +396,9 @@ func transcriptHead(path, slug string) head {
 					h.title, h.titled = r.CustomTitle, true
 				}
 				if (r.Type == "user" || r.Type == "assistant") && !r.IsMeta && !r.IsSidechain {
+					if !h.asked {
+						h.firstSession = r.SessionID
+					}
 					h.asked = true
 				}
 				if h.prompt == "" && r.Type == "user" && !r.IsMeta && r.Message.Role == "user" {

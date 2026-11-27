@@ -180,6 +180,9 @@ func placeNote(v desktop.View, r desktop.Row) string {
 	case "own":
 		return say("made in the desktop app on this account, so it stays there (to hide it, archive it in the desktop app)",
 			"이 계정의 데스크톱 앱에서 만든 대화라 그대로 둡니다 (숨기려면 데스크톱 앱에서 보관하세요)")
+	case "imported":
+		return say("brought into its list by the desktop app on this account (as when you go on there with a conversation made in another account, a terminal...), so it stays there (to hide it, archive it in the desktop app)",
+			"이 계정의 데스크톱 앱이 가져와 목록에 넣은 대화라 그대로 둡니다 (다른 계정이나 터미널 등에서 만든 대화를 데스크톱 앱에서 이어 가면 이렇게 됩니다. 숨기려면 데스크톱 앱에서 보관하세요)")
 	case "archived":
 		return say("archived in the desktop app on this account (unarchive it there to list it again)",
 			"이 계정의 데스크톱 앱에서 보관한 대화입니다 (다시 보이게 하려면 데스크톱 앱에서 보관을 해제하세요)")
