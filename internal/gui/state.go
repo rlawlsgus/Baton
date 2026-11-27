@@ -37,9 +37,11 @@ type accountView struct {
 	Detail              string     `json:"detail,omitempty"`
 	SigningIn           bool       `json:"signing_in"` // a sign-in window from this GUI is open for it
 	InUse               bool       `json:"in_use"`     // a claude runs on this profile now
-	// Usage: the 5-hour and weekly limits as a baton session on this
-	// account last saw them (nil until one has).
-	Usage *usage.Usage `json:"usage,omitempty"`
+	// Usage: the 5-hour and weekly limits as Claude Code last reported them
+	// for this account (a baton session's status line, or the window's
+	// check: nil until one has). UsageChecking: the window asks for them now.
+	Usage         *usage.Usage `json:"usage,omitempty"`
+	UsageChecking bool         `json:"usage_checking,omitempty"`
 	// While switching the desktop app's sign-in is on: DesktopLogin is
 	// "active" when the app is signed in to this Claude account now, "kept"
 	// when baton keeps its sign-in (only a pill: switching is on the card,
@@ -261,6 +263,7 @@ func (s *Server) state() stateView {
 			cur := u.Current(now)
 			av.Usage = &cur
 		}
+		av.UsageChecking = s.usageChecking(a.ID)
 		if !a.CheckedAt.IsZero() {
 			t := a.CheckedAt
 			av.CheckedAt = &t

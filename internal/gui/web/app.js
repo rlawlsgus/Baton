@@ -169,7 +169,8 @@ const T = {
     st_blocked: '차단됨', st_off: '꺼짐', st_dup: '같은 계정 중복', st_signing: '로그인 진행 중…',
     kept: '로그인됨', checked_at: '{t} 확인', not_checked: '아직 확인 안 함',
     use_5h: '5시간 한도', use_7d: '주간 한도', use_resets: '{t} 초기화', use_asof: '{t} 기준',
-    use_unknown: '사용량은 이 계정으로 baton 세션을 쓰면 표시됩니다.',
+    use_unknown: '아직 사용량을 받지 못했습니다. 로그인 상태 확인을 누르면 Claude Code에 물어봅니다.',
+    use_checking: '사용량 확인 중…',
     login_again: '다시 로그인', enabled_label: '자동 전환에 사용', use_short: '사용', up: '위로', down: '아래로', remove: '삭제',
     unblock: '해결됨 — 다시 사용',
     order_hint: '위에 있는 계정부터 사용합니다. Claude 데스크톱 앱에서 쓰는 계정을 맨 아래에 두면 데스크톱 채팅의 한도를 아낄 수 있습니다.',
@@ -668,7 +669,8 @@ const T = {
     st_blocked: 'Blocked', st_off: 'Off', st_dup: 'Duplicate account', st_signing: 'Signing in…',
     kept: 'Signed in', checked_at: 'checked {t}', not_checked: 'not checked yet',
     use_5h: '5-hour limit', use_7d: 'Weekly limit', use_resets: 'resets {t}', use_asof: 'as of {t}',
-    use_unknown: 'Usage shows up once a baton session has run on this account.',
+    use_unknown: 'No usage yet. Check sign-ins asks Claude Code for it.',
+    use_checking: 'Checking usage…',
     login_again: 'Sign in again', enabled_label: 'Use for switching', use_short: 'Use', up: 'Up', down: 'Down', remove: 'Remove',
     unblock: 'Resolved — use again',
     order_hint: 'Accounts are used from the top. Putting the account you use in the Claude desktop app last saves its desktop chat limit.',
@@ -2234,6 +2236,13 @@ function accountStatus(a) {
 }
 
 function viewAccounts(st) {
+  // Shown, and the window in view: the window asks Claude Code for the usage of accounts whose
+  // numbers are a few minutes old (the server keeps to that, and to once a minute per account),
+  // at most once a minute. A window left minimized on this tab asks nothing.
+  if (st.accounts.length && document.visibilityState === 'visible' && Date.now() - (S.usageAskedAt || 0) > 60e3) {
+    S.usageAskedAt = Date.now();
+    api('usage/refresh', {}).catch(() => {});
+  }
   const head = h('div', { class: 'card-head' },
     h('div', {}, h('h2', { text: t('accounts_title') }), h('p', { class: 'muted small', text: t('accounts_sub') })),
     h('div', { class: 'actions' },
@@ -2284,7 +2293,8 @@ function accountRow(st, a, i) {
 // on it last saw them.
 function usageBlock(a) {
   const u = a.usage;
-  if (!u) return a.logged_in && a.enabled ? h('div', { class: 'sub small', text: t('use_unknown') }) : null;
+  const checking = a.usage_checking ? h('span', { class: 'small muted' }, h('span', { class: 'spin' }), ' ', t('use_checking')) : null;
+  if (!u) return checking ? h('div', { class: 'sub small' }, checking) : a.logged_in && a.enabled ? h('div', { class: 'sub small', text: t('use_unknown') }) : null;
   const one = (label, w) => {
     if (!w) return null;
     const pct = Math.max(0, Math.min(100, w.used));
@@ -2293,10 +2303,11 @@ function usageBlock(a) {
     return h('div', { class: 'usage-row' }, h('span', { class: 'usage-label', text: label }),
       h('span', { class: 'meter', role: 'meter', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(pct)), 'aria-label': label }, fill),
       h('span', { class: 'usage-num', text: Math.round(pct) + '%' }),
-      h('span', { class: 'usage-reset', text: t('use_resets', { t: clock(w.resets_at) }) }));
+      // A window not started yet has no reset time.
+      h('span', { class: 'usage-reset', text: w.resets_at && !w.resets_at.startsWith('0001') ? t('use_resets', { t: clock(w.resets_at) }) : '' }));
   };
   return h('div', { class: 'usage' }, one(t('use_5h'), u.five_hour), one(t('use_7d'), u.seven_day),
-    h('div', { class: 'sub small', text: t('use_asof', { t: ago(u.updated) }) }));
+    h('div', { class: 'sub small' }, h('span', { text: t('use_asof', { t: ago(u.updated) }) }), checking ? ' · ' : null, checking));
 }
 
 // retryEmail is the address a new sign-in of a pre-fills: its own, but not

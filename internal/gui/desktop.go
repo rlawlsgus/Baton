@@ -304,6 +304,7 @@ func (s *Server) DesktopLoop(stop <-chan struct{}) {
 			return
 		case <-tick.C:
 		}
+		s.watchTurns() // a reply of the user's own Claude Code ended: its account's usage
 		if soon := s.showAllSoon.Swap(false); more || soon || time.Since(lastAll) >= 30*time.Second {
 			if s.showAllOn() {
 				more = s.showAllPass()

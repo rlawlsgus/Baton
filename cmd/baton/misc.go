@@ -16,6 +16,7 @@ import (
 	"baton/internal/ledger"
 	"baton/internal/run"
 	"baton/internal/sched"
+	"baton/internal/usage"
 	"baton/internal/winproc"
 )
 
@@ -389,6 +390,20 @@ func cmdDoctor(args []string) error {
 			}
 			return nil
 		})
+		// Each signed-in subscription's plan usage, as its Claude Code reports
+		// it (the window shows it on the Accounts tab). One a session runs on
+		// keeps it current through its status line already.
+		for _, id := range ids {
+			a := fresh[id]
+			if !usageAskable(a) {
+				continue
+			}
+			if _, err := usage.Ask(inst.Path, a.ProfileDir, e.paths.UsageDir(), a.ID); err != nil {
+				fmt.Printf("account %-12s usage not reported: %v\n", a.ID, err)
+				continue
+			}
+			fmt.Printf("account %-12s usage: %s\n", a.ID, planUsageText(e.paths.UsageDir(), a.ID))
+		}
 	}
 	if !ok {
 		return errors.New("some checks failed")

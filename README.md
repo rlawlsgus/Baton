@@ -62,8 +62,9 @@ on your next signed-in account. You don't need to copy anything or explain it ag
   accounts' sign-in to the Claude desktop app and put back the one you choose, so switching the
   app needs no email code. It is unofficial and off unless you turn it on.
 - 📊 **See each account's limits.** The Accounts tab shows how much of the 5-hour and
-  weekly limits each account has used and when they reset, and every session shows its
-  account and usage under the prompt (`baton · work · 5h 34% · week 12%`).
+  weekly limits each account has used and when they reset, also what the desktop app or
+  claude.ai used, and every session shows its account and usage under the prompt
+  (`baton · work · 5h 34% · week 12%`).
 - 👀 **See what each session is doing.** The Sessions tab shows whether Claude is working,
   waiting for you or needs an answer in the session window, plus the model, how full the
   context is and the files changed in the folder (with a list of them, like the desktop app's
@@ -555,7 +556,7 @@ Claude Code reads every word that follows as one of their values.
 | `baton sync` | share your normal Claude Code setup with every account profile (see below) |
 | `baton config [<key> [<value>]]` | show or change settings (below) |
 | `baton rules [set <folder> <account>[,<account>...] \| remove <folder>]` | show, add or remove folder rules (see Things to know) |
-| `baton doctor` | check Claude Code (every copy found, the one in use marked `*`), the console, image paste and every sign-in |
+| `baton doctor` | check Claude Code (every copy found, the one in use marked `*`), the console, image paste and every sign-in, and ask each subscription's Claude Code for its plan usage |
 | `baton update [--check]` | install the newest baton from GitHub (`--check` only says whether one is out) |
 | `baton uninstall [--yes]` | move baton's conversations to your own Claude Code, sign every account out and delete baton's data (the desktop app sign-ins it kept included) and its Start menu entry |
 
@@ -749,12 +750,17 @@ baton keeps its data in `%LOCALAPPDATA%\baton` (`BATON_HOME` changes this):
   of the account it is signed in to only when you ask, because the app keeps that list in
   memory. Uninstalling baton leaves the entries; the conversations stay in your own Claude Code,
   where they open.
-- **Usage comes from the sessions.** Claude Code reports an account's 5-hour and weekly usage
-  (for a Claude subscription) to the status line of a session; baton's status line records
-  it. An account shows its usage once a baton session has run on it, as of that moment.
-  baton never asks Anthropic for it itself. If you set a status line of your own
-  (`statusLine` in your settings), baton leaves it as it is and records no usage for those
-  sessions.
+- **Usage comes from Claude Code.** Claude Code reports an account's 5-hour and weekly usage
+  (for a Claude subscription) to the status line of a session, and baton's status line
+  records it. Between sessions baton asks the account's Claude Code for it: when the window
+  opens and on *Check sign-ins* (or `baton doctor`), when you open the Accounts tab and an
+  account's numbers are older than five minutes, and after a reply in the desktop app (or
+  another Claude Code of your own setup) ends, for that Claude account. The limits belong to
+  the account, so this includes what the desktop app and claude.ai used. Each time, Claude
+  Code runs for a few seconds without a window and without a prompt, so it uses none of the
+  limits; baton never reads its sign-in, and asks nothing on its own otherwise. If you set a
+  status line of your own (`statusLine` in your settings), baton leaves it as it is and
+  records no usage from those sessions.
 - **Update checks go to GitHub.** The window reads the releases feed of baton's GitHub page
   (`github.com/rlawlsgus/Baton/releases.atom`) and the newest release's `checksums.txt` when it
   opens and every few hours after that (`baton config check_updates false` turns this off;

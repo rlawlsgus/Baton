@@ -122,6 +122,7 @@ func (s *Server) serveAPI(w http.ResponseWriter, r *http.Request) {
 		"office/layout":    s.apiOfficeLayout,
 		"office/hide":      s.apiOfficeHide,
 		"desktop/apply":    s.apiDesktopApply,
+		"usage/refresh":    s.apiUsageRefresh,
 		// Switching the desktop app's sign-in (desklogins.go).
 		"desktop/logins/use":      s.apiLoginsUse,
 		"desktop/logins/add":      s.apiLoginsAdd,

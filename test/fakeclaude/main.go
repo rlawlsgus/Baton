@@ -10,6 +10,15 @@
 //	FAKE_OLD_CLI     answer --version as an old CLI when run from a .local folder
 //	FAKE_BROWSER_URL have `auth login` open this address with the BROWSER
 //	                 command, as Claude Code opens its sign-in page
+//	FAKE_USAGE_FAIL  answer get_usage as a Claude Code that does not know it
+//
+// In its SDK mode (-p --input-format stream-json) it answers baton's
+// get_usage control request: the plan usage in fake-usage.json in the
+// profile (its rate_limits), else 34% of the 5-hour and 12% of the weekly
+// limit; null while signed out. Meanwhile it is in the profile's session
+// registry, with the entrypoint CLAUDE_CODE_ENTRYPOINT names, as Claude Code
+// is; every such run is noted in fake-usage-calls.jsonl (args, entrypoint,
+// folder).
 //
 // A version written next to the exe (claude.exe.ver) is the one --version
 // answers; `update` changes it to the one in claude.exe.update, as
@@ -17,6 +26,7 @@
 package main
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -24,7 +34,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -102,9 +115,60 @@ func main() {
 	case len(args) >= 2 && args[0] == "auth" && args[1] == "logout":
 		os.Remove(state)
 		fmt.Println("Successfully logged out.")
+	case len(args) > 0 && args[0] == "-p" && slices.Contains(args, "stream-json"):
+		sdk(cfg, state, args)
 	default:
 		fmt.Fprintf(os.Stderr, "fakeclaude: unsupported %q\n", args)
 		os.Exit(2)
+	}
+}
+
+// sdk is the SDK mode, as far as baton uses it: get_usage, until stdin ends.
+func sdk(cfg, state string, args []string) {
+	cwd, _ := os.Getwd()
+	entry := filepath.Join(cfg, "sessions", strconv.Itoa(os.Getpid())+".json")
+	_ = os.MkdirAll(filepath.Dir(entry), 0o700)
+	b, _ := json.Marshal(map[string]any{"pid": os.Getpid(), "sessionId": fakeID(entry), "cwd": cwd, "kind": "interactive",
+		"entrypoint": os.Getenv("CLAUDE_CODE_ENTRYPOINT"), "status": "idle", "startedAt": time.Now().UnixMilli()})
+	_ = os.WriteFile(entry, b, 0o600)
+	defer os.Remove(entry)
+	if f, err := os.OpenFile(filepath.Join(cfg, "fake-usage-calls.jsonl"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		line, _ := json.Marshal(map[string]any{"args": args, "entrypoint": os.Getenv("CLAUDE_CODE_ENTRYPOINT"), "cwd": cwd})
+		_, _ = f.Write(append(line, '\n'))
+		f.Close()
+	}
+	sc := bufio.NewScanner(os.Stdin)
+	for sc.Scan() {
+		var req struct {
+			Type      string `json:"type"`
+			RequestID string `json:"request_id"`
+			Request   struct {
+				Subtype string `json:"subtype"`
+			} `json:"request"`
+		}
+		if json.Unmarshal(sc.Bytes(), &req) != nil || req.Type != "control_request" {
+			continue
+		}
+		answer := map[string]any{"subtype": "success", "request_id": req.RequestID}
+		switch {
+		case req.Request.Subtype != "get_usage" || os.Getenv("FAKE_USAGE_FAIL") != "":
+			answer = map[string]any{"subtype": "error", "request_id": req.RequestID, "error": "Unknown control request subtype: " + req.Request.Subtype}
+		default:
+			var limits any
+			if _, err := os.Stat(state); err == nil {
+				limits = map[string]any{
+					"five_hour": map[string]any{"utilization": 34, "resets_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339Nano)},
+					"seven_day": map[string]any{"utilization": 12, "resets_at": time.Now().Add(72 * time.Hour).UTC().Format(time.RFC3339Nano)},
+				}
+				if data, err := os.ReadFile(filepath.Join(cfg, "fake-usage.json")); err == nil {
+					_ = json.Unmarshal(data, &limits)
+				}
+			}
+			answer["response"] = map[string]any{"session": map[string]any{"total_cost_usd": 0}, "subscription_type": "max",
+				"rate_limits_available": limits != nil, "rate_limits": limits, "behaviors": nil}
+		}
+		out, _ := json.Marshal(map[string]any{"type": "control_response", "response": answer})
+		fmt.Println(string(out))
 	}
 }
 

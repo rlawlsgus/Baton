@@ -48,7 +48,9 @@ type LiveSession struct {
 // ReadSessions lists a profile's registry entries. A file that cannot be read
 // even after a few retries (mid-rewrite, sharing violation) is still reported,
 // with its pid from the file name and status "unknown", so callers checking
-// whether a profile is busy fail safe instead of seeing "nobody here".
+// whether a profile is busy fail safe instead of seeing "nobody here". A
+// Claude Code baton started only to ask for the account's usage
+// (UsageEntrypoint) is no session, and is left out.
 func ReadSessions(profileDir string) []LiveSession {
 	files, _ := filepath.Glob(filepath.Join(profileDir, "sessions", "*.json"))
 	var out []LiveSession
@@ -71,7 +73,7 @@ func ReadSessions(profileDir string) []LiveSession {
 			}
 			s = LiveSession{PID: pid, Status: "unknown"}
 		}
-		if s.PID == 0 {
+		if s.PID == 0 || s.Entrypoint == UsageEntrypoint {
 			continue
 		}
 		s.File = f

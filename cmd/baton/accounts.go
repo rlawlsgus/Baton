@@ -693,3 +693,11 @@ func orDash(s string) string {
 	}
 	return s
 }
+
+// usageAskable: baton asks Claude Code for the account's plan usage between
+// sessions (usage.Ask): a signed-in Claude subscription that is not a
+// disabled duplicate of another account, and no session runs on it now (its
+// status line reports it then).
+func usageAskable(a accounts.Account) bool {
+	return a.LoggedIn && strings.EqualFold(a.AuthMethod, "claude.ai") && !a.DisabledAsDuplicate && !claude.BusyProfile(a.ProfileDir)
+}

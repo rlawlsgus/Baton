@@ -29,6 +29,7 @@ import (
 	"baton/internal/config"
 	"baton/internal/office"
 	"baton/internal/update"
+	"baton/internal/usage"
 )
 
 //go:embed web
@@ -73,6 +74,9 @@ type Options struct {
 	// returning the installed baton-app.exe for Relaunch.
 	CheckUpdate func(ctx context.Context) (update.Release, error)
 	Update      func(ctx context.Context, rel update.Release) (string, error)
+	// AskUsage asks Claude Code for an account's plan usage and stores it
+	// (usage.Ask, when nil; tests stand in for it).
+	AskUsage func(exe, profileDir, dir, account string) (usage.Usage, error)
 	// Focus brings a session's console window (a window handle) to the
 	// front; TestNotify shows a sample notification in lang.
 	Focus      func(window uintptr) error
@@ -152,6 +156,9 @@ type Server struct {
 	closed     bool
 	deskSt     deskState  // the desktop app feature, for the state poll
 	deskMu     sync.Mutex // one pass over the desktop app's lists at a time
+	// asks: what the window asks Claude Code for of accounts' plan usage
+	// (usage.go), under mu.
+	asks usageAsks
 	// showAllSoon asks DesktopLoop for a pass of every conversation at its
 	// next tick (the setting was just turned on).
 	showAllSoon atomic.Bool
